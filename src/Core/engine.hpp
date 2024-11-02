@@ -13,6 +13,8 @@
 #include <QuartzCore/CAMetalLayer.h>
 #include <QuartzCore/QuartzCore.hpp>
 
+#include "AAPLMathUtilities.h"
+
 #include "vertexData.hpp"
 #include "texture.hpp"
 #include <stb/stb_image.h>
@@ -30,7 +32,15 @@ private:
     void initDevice();
     void initWindow();
 
-    void createSquare();
+    void createCube();
+    void createBuffers();
+
+    void createDepthAndMSAATextures();
+    void createRenderPassDescriptor();
+
+    // resizing window
+    void updateRenderPassDescriptor();
+
     void createDefaultLibrary();
     void createCommandQueue();
     void createRenderPipeline();
@@ -48,11 +58,18 @@ private:
     CAMetalLayer*       metalLayer;
     CA::MetalDrawable*  metalDrawable;
 
+    MTL::DepthStencilState*     depthStencilState;
+    MTL::RenderPassDescriptor*  renderPassDescriptor;
+    MTL::Texture*               msaaRenderTargetTexture = nullptr;
+    MTL::Texture*               depthTexture;
+    int                         sampleCount = 4;
+
     MTL::Library*               metalDefaultLibrary;
     MTL::CommandQueue*          metalCommandQueue;
     MTL::CommandBuffer*         metalCommandBuffer;
     MTL::RenderPipelineState*   metalRenderPSO;
-    MTL::Buffer*                squareVertexBuffer;
+    MTL::Buffer*                cubeVertexBuffer;
+    MTL::Buffer*                transformationBuffer;
 
     Texture*                    grassTexture;
 };

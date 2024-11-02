@@ -93,6 +93,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE METAL_CPP)
 target_include_directories(${PROJECT_NAME} PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}/metal-cmake/metal-cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/Core
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/Math
     ${CMAKE_CURRENT_SOURCE_DIR}/libs
 )
 

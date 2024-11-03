@@ -59,6 +59,8 @@ namespace std {
 
 struct Mesh {
     Mesh(std::string filePath, MTL::Device* metalDevice);
+    Mesh(MTL::Device* device, const Vertex* vertexData, size_t vertexCount, const uint32_t* indexData, size_t indexCount);
+
     ~Mesh();
 
 private:

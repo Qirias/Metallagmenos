@@ -109,6 +109,19 @@ void MTLEngine::loadMeshes() {
     std::string smgPath = std::string(MODELS_PATH) + "/SMG/smg.obj";
     mesh = new Mesh(smgPath.c_str(), metalDevice);
 
+    // GLTFLoader gltfLoader(metalDevice);
+    
+    // // Load the Sponza model
+    // std::string modelPath = std::string(SCENES_PATH) + "/DamagedHelmet/DamagedHelmet.gltf";
+    // auto gltfModel = gltfLoader.loadModel(modelPath);
+    
+    // // Create mesh from the loaded data
+    // mesh = new Mesh(metalDevice, 
+    //                gltfModel.vertices.data(), 
+    //                gltfModel.vertices.size(),
+    //                gltfModel.indices.data(), 
+    //                gltfModel.indices.size());
+
     VertexData lightSource[] = {
         // Front face            // Normals
         {{-0.5,-0.5, 0.5, 1.0}, {0.0, 0.0, 1.0, 1.0}},

@@ -13,8 +13,9 @@ file(GLOB_RECURSE SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.hpp" 
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.mm" 
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/libs/*.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/libs/*.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/external/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/external/*.cc"
+    "${CMAKE_CURRENT_SOURCE_DIR}/external/*.h"
 )
 
 # Group sources into virtual folders for Xcode
@@ -26,6 +27,10 @@ file(GLOB SHADER_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/data/shaders/*.metal")
 # Set texture path as a definition
 add_definitions(-DTEXTURE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/textures")
 add_definitions(-DMODELS_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/models")
+add_definitions(-DSCENES_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/scenes")
+
+# tiny_glTF doesn't need to compile stb_image again
+add_definitions(-DTINYGLTF_NO_STB_IMAGE -DTINYGLTF_NO_STB_IMAGE_WRITE)
 
 # Create source groups for Xcode
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES} ${SHADER_SOURCES})
@@ -49,8 +54,7 @@ foreach(SHADER_SOURCE ${SHADER_SOURCES})
         COMMAND xcrun -sdk macosx metal 
                 -c ${SHADER_SOURCE} 
                 -o ${SHADER_AIR}
-                -I ${CMAKE_CURRENT_SOURCE_DIR}/src/Core
-        DEPENDS ${SHADER_SOURCE} ${CMAKE_CURRENT_SOURCE_DIR}/src/Core/VertexData.hpp
+                -I ${CMAKE_CURRENT_SOURCE_DIR}/src/core
         COMMENT "Compiling ${SHADER_NAME}.metal to AIR"
     )
 endforeach()
@@ -84,7 +88,7 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
 add_dependencies(${PROJECT_NAME} shaders)
 
 # Set properties to treat .mm files as Objective-C++
-set_source_files_properties(src/Core/engine.mm PROPERTIES LANGUAGE CXX)
+set_source_files_properties(src/core/engine.mm PROPERTIES LANGUAGE CXX)
 set_source_files_properties(src/main.mm PROPERTIES LANGUAGE CXX)
 
 # Link the METAL_CPP library
@@ -93,9 +97,9 @@ target_link_libraries(${PROJECT_NAME} PRIVATE METAL_CPP)
 # Include directories for Metal-CPP headers and your project headers
 target_include_directories(${PROJECT_NAME} PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}/metal-cmake/metal-cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/Core
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/Math
-    ${CMAKE_CURRENT_SOURCE_DIR}/libs
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/core
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/math
+    ${CMAKE_CURRENT_SOURCE_DIR}/external
 )
 
 # Link the GLFW library

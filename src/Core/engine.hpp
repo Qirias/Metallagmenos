@@ -3,9 +3,9 @@
 #include "pch.hpp"
 
 #define GLFW_INCLUDE_NONE
-#import <glfw3.h>
+#import <GLFW/glfw3.h>
 #define GLFW_EXPOSE_NATIVE_COCOA
-#import <glfw3native.h>
+#import <GLFW/glfw3native.h>
 
 #include <Metal/Metal.hpp>
 #include <Metal/Metal.h>
@@ -17,9 +17,10 @@
 
 #include "vertexData.hpp"
 #include "texture.hpp"
-#include "Components/mesh.hpp"
-#include "Components/textureArray.hpp"
-#include "Components/camera.hpp"
+#include "components/mesh.hpp"
+#include "components/textureArray.hpp"
+#include "components/camera.hpp"
+#include "components/gltfLoader.hpp"
 
 #include <stb/stb_image.h>
 
@@ -64,6 +65,7 @@ private:
     NSWindow*           metalWindow;
     CAMetalLayer*       metalLayer;
     CA::MetalDrawable*  metalDrawable;
+    
     bool                windowResizeFlag = false;
     int                 newWidth;
     int                 newHeight;
@@ -89,6 +91,8 @@ private:
     MTL::RenderPipelineState*   metalLightSourceRenderPSO;
     MTL::Buffer*                lightVertexBuffer;
     MTL::Buffer*                lightTransformationBuffer;
+
+    MTL::SamplerState*          samplerState;
 
     Texture*                    grassTexture;
 };

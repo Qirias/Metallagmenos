@@ -1,7 +1,7 @@
 #pragma once
 #include "pch.hpp"
 #include "AAPLMathUtilities.h"
-#include <glfw3.h>
+#include <GLFW/glfw3.h>
 
 class Camera {
 public:

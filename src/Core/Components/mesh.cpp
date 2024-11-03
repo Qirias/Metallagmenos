@@ -15,6 +15,25 @@ Mesh::Mesh(std::string filePath, MTL::Device* metalDevice) {
     createBuffers();
 }
 
+Mesh::Mesh(MTL::Device* device, const Vertex* vertexData, size_t vertexCount, 
+           const uint32_t* indexData, size_t indexCount) 
+    : device(device) {
+    // Create vertex buffer
+    vertexBuffer = device->newBuffer(vertexData, 
+                                   vertexCount * sizeof(VertexData), 
+                                   MTL::ResourceStorageModeShared);
+    vertexBuffer->setLabel(NS::String::string("Mesh Vertex Buffer", 
+                                            NS::ASCIIStringEncoding));
+
+    // Create index buffer
+    this->indexCount = indexCount;
+    indexBuffer = device->newBuffer(indexData,
+                                  indexCount * sizeof(uint32_t),
+                                  MTL::ResourceStorageModeShared);
+    indexBuffer->setLabel(NS::String::string("Mesh Index Buffer", 
+                                           NS::ASCIIStringEncoding));
+}
+
 Mesh::~Mesh() {
     diffuseTextures->release();
     diffuseTextureInfos->release();

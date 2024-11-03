@@ -17,6 +17,9 @@
 
 #include "vertexData.hpp"
 #include "texture.hpp"
+#include "Components/mesh.hpp"
+#include "Components/textureArray.hpp"
+
 #include <stb/stb_image.h>
 
 #include <simd/simd.h>
@@ -32,7 +35,7 @@ private:
     void initDevice();
     void initWindow();
 
-    void createCube();
+    void loadMeshes();
     void createBuffers();
 
     void createDepthAndMSAATextures();
@@ -58,6 +61,9 @@ private:
     NSWindow*           metalWindow;
     CAMetalLayer*       metalLayer;
     CA::MetalDrawable*  metalDrawable;
+    bool                windowResizeFlag = false;
+    int                 newWidth;
+    int                 newHeight;
 
     MTL::DepthStencilState*     depthStencilState;
     MTL::RenderPassDescriptor*  renderPassDescriptor;
@@ -69,8 +75,8 @@ private:
     MTL::CommandQueue*          metalCommandQueue;
     MTL::CommandBuffer*         metalCommandBuffer;
     MTL::RenderPipelineState*   metalRenderPSO;
-    MTL::Buffer*                cubeVertexBuffer;
-    MTL::Buffer*                transformationBuffer;
+
+    Mesh*                       mesh;
     MTL::RenderPipelineState*   metalLightSourceRenderPSO;
     MTL::Buffer*                lightVertexBuffer;
     MTL::Buffer*                lightTransformationBuffer;

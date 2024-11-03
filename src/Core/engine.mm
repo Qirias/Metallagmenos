@@ -4,10 +4,10 @@ void MTLEngine::init() {
     initDevice();
     initWindow();
 
-    createCube();
+    createCommandQueue();
+    loadMeshes();
     createBuffers();
     createDefaultLibrary();
-    createCommandQueue();
     createRenderPipeline();
     createLightSourceRenderPipeline();
     createDepthAndMSAATextures();
@@ -27,8 +27,8 @@ void MTLEngine::run() {
 
 void MTLEngine::cleanup() {
     glfwTerminate();
-    transformationBuffer->release();
-    lightTransformationBuffer->release();
+    delete mesh;
+ 
     msaaRenderTargetTexture->release();
     depthTexture->release();
     renderPassDescriptor->release();
@@ -86,60 +86,9 @@ void MTLEngine::initWindow() {
     metalDrawable = (__bridge CA::MetalDrawable*)[metalLayer nextDrawable];
 }
 
-void MTLEngine::createCube() {
-    // Cube for use in a right-handed coordinate system with triangle faces
-    // specified with a Counter-Clockwise winding order.
-    VertexData cubeVertices[] = {
-        // Front face
-        {{-0.5, -0.5, 0.5, 1.0}, {0.0, 0.0}},
-        {{0.5, -0.5, 0.5, 1.0}, {1.0, 0.0}},
-        {{0.5, 0.5, 0.5, 1.0}, {1.0, 1.0}},
-        {{0.5, 0.5, 0.5, 1.0}, {1.0, 1.0}},
-        {{-0.5, 0.5, 0.5, 1.0}, {0.0, 1.0}},
-        {{-0.5, -0.5, 0.5, 1.0}, {0.0, 0.0}},
-
-        // Back face
-        {{0.5, -0.5, -0.5, 1.0}, {0.0, 0.0}},
-        {{-0.5, -0.5, -0.5, 1.0}, {1.0, 0.0}},
-        {{-0.5, 0.5, -0.5, 1.0}, {1.0, 1.0}},
-        {{-0.5, 0.5, -0.5, 1.0}, {1.0, 1.0}},
-        {{0.5, 0.5, -0.5, 1.0}, {0.0, 1.0}},
-        {{0.5, -0.5, -0.5, 1.0}, {0.0, 0.0}},
-
-        // Top face
-        {{-0.5, 0.5, 0.5, 1.0}, {0.0, 0.0}},
-        {{0.5, 0.5, 0.5, 1.0}, {1.0, 0.0}},
-        {{0.5, 0.5, -0.5, 1.0}, {1.0, 1.0}},
-        {{0.5, 0.5, -0.5, 1.0}, {1.0, 1.0}},
-        {{-0.5, 0.5, -0.5, 1.0}, {0.0, 1.0}},
-        {{-0.5, 0.5, 0.5, 1.0}, {0.0, 0.0}},
-
-        // Bottom face
-        {{-0.5, -0.5, -0.5, 1.0}, {0.0, 0.0}},
-        {{0.5, -0.5, -0.5, 1.0}, {1.0, 0.0}},
-        {{0.5, -0.5, 0.5, 1.0}, {1.0, 1.0}},
-        {{0.5, -0.5, 0.5, 1.0}, {1.0, 1.0}},
-        {{-0.5, -0.5, 0.5, 1.0}, {0.0, 1.0}},
-        {{-0.5, -0.5, -0.5, 1.0}, {0.0, 0.0}},
-
-        // Left face
-        {{-0.5, -0.5, -0.5, 1.0}, {0.0, 0.0}},
-        {{-0.5, -0.5, 0.5, 1.0}, {1.0, 0.0}},
-        {{-0.5, 0.5, 0.5, 1.0}, {1.0, 1.0}},
-        {{-0.5, 0.5, 0.5, 1.0}, {1.0, 1.0}},
-        {{-0.5, 0.5, -0.5, 1.0}, {0.0, 1.0}},
-        {{-0.5, -0.5, -0.5, 1.0}, {0.0, 0.0}},
-
-        // Right face
-        {{0.5, -0.5, 0.5, 1.0}, {0.0, 0.0}},
-        {{0.5, -0.5, -0.5, 1.0}, {1.0, 0.0}},
-        {{0.5, 0.5, -0.5, 1.0}, {1.0, 1.0}},
-        {{0.5, 0.5, -0.5, 1.0}, {1.0, 1.0}},
-        {{0.5, 0.5, 0.5, 1.0}, {0.0, 1.0}},
-        {{0.5, -0.5, 0.5, 1.0}, {0.0, 0.0}},
-    };
-
-    cubeVertexBuffer = metalDevice->newBuffer(&cubeVertices, sizeof(cubeVertices), MTL::ResourceStorageModeShared);
+void MTLEngine::loadMeshes() {
+    std::string smgPath = std::string(MODELS_PATH) + "/SMG/smg.obj";
+    mesh = new Mesh(smgPath.c_str(), metalDevice);
 
     VertexData lightSource[] = {
         // Front face            // Normals
@@ -195,8 +144,7 @@ void MTLEngine::createCube() {
 }
 
 void MTLEngine::createBuffers() {
-    transformationBuffer = metalDevice->newBuffer(sizeof(TransformationData), MTL::ResourceStorageModeShared);
-    lightTransformationBuffer = metalDevice->newBuffer(sizeof(TransformationData), MTL::ResourceStorageModeShared);
+    //
 }
 
 void MTLEngine::createDefaultLibrary() {
@@ -349,72 +297,51 @@ void MTLEngine::sendRenderCommand() {
 }
 
 void MTLEngine::encodeRenderCommand(MTL::RenderCommandEncoder* renderCommandEncoder) {
-    // Moves the Cube 1 unit down the negative Z-axis
-    matrix_float4x4 translationMatrix = matrix4x4_translation(0.0f, -0.9f, 0.0f);
-
-    matrix_float4x4 modelMatrix = translationMatrix;
-    
-    float time = glfwGetTime();
-    float oscillation = sin(time);  // oscillates between -1 and 1
-    float zPosition = 1.5 + 1.5 * oscillation;  // maps oscillation to range [0, 3]
-
-    simd::float3 R = simd::float3 {1, 0, 0}; // Unit-Right
-    simd::float3 U = simd::float3 {0, 1, 0}; // Unit-Up
-    simd::float3 F = simd::float3 {0, 0,-1}; // Unit-Forward
-    simd::float3 P = simd::float3 {0, 0, 1}; // Camera Position in World Space
-    
-    matrix_float4x4 viewMatrix = matrix_make_rows(R.x, R.y, R.z, dot(-R, P),
-                                                  U.x, U.y, U.z, dot(-U, P),
-                                                 -F.x,-F.y,-F.z, dot( F, P),
-                                                  0, 0, 0, 1);
-    
-    float aspectRatio = (metalLayer.frame.size.width / metalLayer.frame.size.height);
-    float fov = 90 * (M_PI / 180.0f);
-    float nearZ = 0.1f;
-    float farZ = 100.0f;
-    
-    matrix_float4x4 perspectiveMatrix = matrix_perspective_right_hand(fov, aspectRatio, nearZ, farZ);
-    TransformationData transformationData = { modelMatrix, viewMatrix, perspectiveMatrix };
-    memcpy(transformationBuffer->contents(), &transformationData, sizeof(transformationData));
-    
-    // Cube Fragment Shader Data
-    simd_float4 cubeColor = simd_make_float4(0.5, 0.9, 0.7, 1.0);
-    simd_float4 lightColor = simd_make_float4(1.0, 1.0, 1.0, 1.0);
-    simd_float4 lightPosition = simd_make_float4(0 - 3*cos(glfwGetTime()/1.0), 1.2,-4 + sin(glfwGetTime()/1.0), 1);
-    simd_float4 cameraPosition = simd_make_float4(P.xyz, 1.0);
-
-    renderCommandEncoder->setFragmentBytes(&cubeColor, sizeof(cubeColor), 0);
-    renderCommandEncoder->setFragmentBytes(&lightColor, sizeof(lightColor), 1);
-    renderCommandEncoder->setFragmentBytes(&lightPosition, sizeof(lightPosition), 2);
-    renderCommandEncoder->setFragmentBytes(&cameraPosition, sizeof(cameraPosition), 3);
-    
     renderCommandEncoder->setFrontFacingWinding(MTL::WindingCounterClockwise);
     renderCommandEncoder->setCullMode(MTL::CullModeBack);
-//    renderCommandEncoder->setTriangleFillMode(MTL::TriangleFillModeLines);
+
+    //renderCommandEncoder->setTriangleFillMode(MTL::TriangleFillModeLines);
     renderCommandEncoder->setRenderPipelineState(metalRenderPSO);
     renderCommandEncoder->setDepthStencilState(depthStencilState);
-    renderCommandEncoder->setVertexBuffer(cubeVertexBuffer, 0, 0);
-    renderCommandEncoder->setVertexBuffer(transformationBuffer, 0, 1);
+    renderCommandEncoder->setVertexBuffer(mesh->vertexBuffer, 0, 0);
+    matrix_float4x4 rotationMatrix = matrix4x4_rotation(-125 * (M_PI / 180.0f), 0.0, 1.0, 0.0);
+    matrix_float4x4 modelMatrix = matrix4x4_translation(0.0f, 0.0f, -3.2f) * rotationMatrix;
+    // Aspect ratio should match the ratio between the window width and height,
+    // otherwise the image will look stretched.
+    float aspectRatio = (metalDrawable->layer()->drawableSize().width / metalDrawable->layer()->drawableSize().height);
+    float fov = 45.0f * (M_PI / 180.0f);
+    float nearZ = 0.1f;
+    float farZ = 100.0f;
+    matrix_float4x4 perspectiveMatrix = matrix_perspective_right_hand(fov, aspectRatio, nearZ, farZ);
+    renderCommandEncoder->setVertexBytes(&modelMatrix, sizeof(modelMatrix), 1);
+    renderCommandEncoder->setVertexBytes(&perspectiveMatrix, sizeof(perspectiveMatrix), 2);
+    simd_float4 cubeColor = simd_make_float4(1.0, 1.0, 1.0, 1.0);
+    simd_float4 lightColor = simd_make_float4(1.0, 1.0, 1.0, 1.0);
+    renderCommandEncoder->setFragmentBytes(&cubeColor, sizeof(cubeColor), 0);
+    renderCommandEncoder->setFragmentBytes(&lightColor, sizeof(lightColor), 1);
+    simd_float4 lightPosition = simd_make_float4(2 * cos(glfwGetTime()), 0.6,-0.5, 1);
+    renderCommandEncoder->setFragmentBytes(&lightPosition, sizeof(lightPosition), 2);
+    renderCommandEncoder->setFragmentTexture(mesh->diffuseTextures, 3);
+    renderCommandEncoder->setFragmentBuffer(mesh->diffuseTextureInfos, 0, 4);
+    
     MTL::PrimitiveType typeTriangle = MTL::PrimitiveTypeTriangle;
-    NS::UInteger vertexStart = 0;
-    NS::UInteger vertexCount = 36;
-//    renderCommandEncoder->setFragmentTexture(grassTexture->texture, 0);
+    renderCommandEncoder->drawIndexedPrimitives(typeTriangle, mesh->indexCount, MTL::IndexTypeUInt32, mesh->indexBuffer, 0);
 
-    renderCommandEncoder->drawPrimitives(typeTriangle, vertexStart, vertexCount);
+    matrix_float4x4 scaleMatrix = matrix4x4_scale(0.3f, 0.3f, 0.3f);
+    matrix_float4x4 translationMatrix = matrix4x4_translation(lightPosition.xyz);
     
-    matrix_float4x4 scaleMatrix = matrix4x4_scale(0.5f, 0.5f, 0.5f);
-    translationMatrix = matrix4x4_translation(lightPosition.xyz);
-    
-    modelMatrix = simd_mul(translationMatrix, scaleMatrix);
-        
+    modelMatrix = matrix_identity_float4x4;
+    modelMatrix = matrix_multiply(scaleMatrix, modelMatrix);
+    modelMatrix = matrix_multiply(translationMatrix, modelMatrix);
+    renderCommandEncoder->setFrontFacingWinding(MTL::WindingCounterClockwise);
+
     renderCommandEncoder->setRenderPipelineState(metalLightSourceRenderPSO);
-
-    transformationData = { modelMatrix, viewMatrix, perspectiveMatrix };
-    memcpy(lightTransformationBuffer->contents(), &transformationData, sizeof(transformationData));
-    
     renderCommandEncoder->setVertexBuffer(lightVertexBuffer, 0, 0);
-    renderCommandEncoder->setVertexBuffer(lightTransformationBuffer, 0, 1);
-
+    renderCommandEncoder->setVertexBytes(&modelMatrix, sizeof(modelMatrix), 1);
+    renderCommandEncoder->setVertexBytes(&perspectiveMatrix, sizeof(perspectiveMatrix), 2);
+    typeTriangle = MTL::PrimitiveTypeTriangle;
+    NS::UInteger vertexStart = 0;
+    NS::UInteger vertexCount = 6 * 6;
     renderCommandEncoder->setFragmentBytes(&lightColor, sizeof(lightColor), 0);
     renderCommandEncoder->drawPrimitives(typeTriangle, vertexStart, vertexCount);
 }

@@ -25,6 +25,7 @@ file(GLOB SHADER_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/data/shaders/*.metal")
 
 # Set texture path as a definition
 add_definitions(-DTEXTURE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/textures")
+add_definitions(-DMODELS_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/models")
 
 # Create source groups for Xcode
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES} ${SHADER_SOURCES})

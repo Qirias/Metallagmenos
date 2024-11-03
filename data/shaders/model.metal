@@ -27,10 +27,11 @@ vertex OutData vertexShader(
              uint vertexID [[vertex_id]],
              constant Vertex* vertexData,
              constant float4x4& modelMatrix,
+             constant float4x4& viewMatrix,
              constant float4x4& perspectiveMatrix)
 {
     OutData out;
-    out.position = perspectiveMatrix * modelMatrix * float4(vertexData[vertexID].position, 1.0f);
+    out.position = perspectiveMatrix * viewMatrix * modelMatrix * float4(vertexData[vertexID].position, 1.0f);
     out.normal = modelMatrix * float4(vertexData[vertexID].normal, 0.0f);
     out.fragmentPosition = modelMatrix * float4(vertexData[vertexID].position, 1.0f);
     out.textureCoordinate = vertexData[vertexID].textureCoordinate;

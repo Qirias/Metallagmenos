@@ -16,11 +16,17 @@ void MTLEngine::init() {
 
 void MTLEngine::run() {
     while (!glfwWindowShouldClose(glfwWindow)) {
+        float currentFrame = glfwGetTime();
+        float deltaTime = currentFrame - lastFrame;
+        lastFrame = currentFrame;
+        
+        camera.processKeyboardInput(glfwWindow, deltaTime);
+        
         @autoreleasepool {
             metalDrawable = (__bridge CA::MetalDrawable*)[metalLayer nextDrawable];
             draw();
         }
-
+        
         glfwPollEvents();
     }
 }
@@ -42,6 +48,16 @@ void MTLEngine::initDevice() {
 void MTLEngine::frameBufferSizeCallback(GLFWwindow *window, int width, int height) {
     MTLEngine* engine = (MTLEngine*)glfwGetWindowUserPointer(window);
     engine->resizeFrameBuffer(width, height);
+}
+
+void MTLEngine::mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
+    MTLEngine* engine = (MTLEngine*)glfwGetWindowUserPointer(window);
+    engine->camera.processMouseButton(window, button, action);
+}
+
+void MTLEngine::cursorPosCallback(GLFWwindow* window, double xpos, double ypos) {
+    MTLEngine* engine = (MTLEngine*)glfwGetWindowUserPointer(window);
+    engine->camera.processMouseMovement(xpos, ypos);
 }
 
 void MTLEngine::resizeFrameBuffer(int width, int height) {
@@ -82,6 +98,9 @@ void MTLEngine::initWindow() {
 
     glfwSetWindowUserPointer(glfwWindow, this);
     glfwSetFramebufferSizeCallback(glfwWindow, frameBufferSizeCallback);
+    glfwSetMouseButtonCallback(glfwWindow, mouseButtonCallback);
+    glfwSetCursorPosCallback(glfwWindow, cursorPosCallback);
+    lastFrame = glfwGetTime();
     
     metalDrawable = (__bridge CA::MetalDrawable*)[metalLayer nextDrawable];
 }
@@ -144,7 +163,7 @@ void MTLEngine::loadMeshes() {
 }
 
 void MTLEngine::createBuffers() {
-    //
+    
 }
 
 void MTLEngine::createDefaultLibrary() {
@@ -304,26 +323,35 @@ void MTLEngine::encodeRenderCommand(MTL::RenderCommandEncoder* renderCommandEnco
     renderCommandEncoder->setRenderPipelineState(metalRenderPSO);
     renderCommandEncoder->setDepthStencilState(depthStencilState);
     renderCommandEncoder->setVertexBuffer(mesh->vertexBuffer, 0, 0);
-    matrix_float4x4 rotationMatrix = matrix4x4_rotation(-125 * (M_PI / 180.0f), 0.0, 1.0, 0.0);
-    matrix_float4x4 modelMatrix = matrix4x4_translation(0.0f, 0.0f, -3.2f) * rotationMatrix;
+
     // Aspect ratio should match the ratio between the window width and height,
     // otherwise the image will look stretched.
-    float aspectRatio = (metalDrawable->layer()->drawableSize().width / metalDrawable->layer()->drawableSize().height);
-    float fov = 45.0f * (M_PI / 180.0f);
-    float nearZ = 0.1f;
-    float farZ = 100.0f;
-    matrix_float4x4 perspectiveMatrix = matrix_perspective_right_hand(fov, aspectRatio, nearZ, farZ);
+    float aspectRatio = metalDrawable->layer()->drawableSize().width / 
+                       metalDrawable->layer()->drawableSize().height;
+                       
+    matrix_float4x4 viewMatrix = camera.getViewMatrix();
+    matrix_float4x4 projectionMatrix = camera.getProjectionMatrix(aspectRatio);
+    
+    // Update your model-view-projection matrices
+    matrix_float4x4 rotationMatrix = matrix4x4_rotation(-125 * (M_PI / 180.0f), 0.0, 1.0, 0.0);
+    matrix_float4x4 modelMatrix = matrix4x4_translation(0.0f, 0.0f, 0.0f) * rotationMatrix;
+    
+    // Send matrices to shaders
     renderCommandEncoder->setVertexBytes(&modelMatrix, sizeof(modelMatrix), 1);
-    renderCommandEncoder->setVertexBytes(&perspectiveMatrix, sizeof(perspectiveMatrix), 2);
-    simd_float4 cubeColor = simd_make_float4(1.0, 1.0, 1.0, 1.0);
+    renderCommandEncoder->setVertexBytes(&viewMatrix, sizeof(viewMatrix), 2);
+    renderCommandEncoder->setVertexBytes(&projectionMatrix, sizeof(projectionMatrix), 3);
+
+    // Set up the light source
     simd_float4 lightColor = simd_make_float4(1.0, 1.0, 1.0, 1.0);
-    renderCommandEncoder->setFragmentBytes(&cubeColor, sizeof(cubeColor), 0);
     renderCommandEncoder->setFragmentBytes(&lightColor, sizeof(lightColor), 1);
+
+    // Light position
     simd_float4 lightPosition = simd_make_float4(2 * cos(glfwGetTime()), 0.6,-0.5, 1);
     renderCommandEncoder->setFragmentBytes(&lightPosition, sizeof(lightPosition), 2);
     renderCommandEncoder->setFragmentTexture(mesh->diffuseTextures, 3);
     renderCommandEncoder->setFragmentBuffer(mesh->diffuseTextureInfos, 0, 4);
     
+    // Tell the input assembler to draw triangles
     MTL::PrimitiveType typeTriangle = MTL::PrimitiveTypeTriangle;
     renderCommandEncoder->drawIndexedPrimitives(typeTriangle, mesh->indexCount, MTL::IndexTypeUInt32, mesh->indexBuffer, 0);
 
@@ -338,7 +366,8 @@ void MTLEngine::encodeRenderCommand(MTL::RenderCommandEncoder* renderCommandEnco
     renderCommandEncoder->setRenderPipelineState(metalLightSourceRenderPSO);
     renderCommandEncoder->setVertexBuffer(lightVertexBuffer, 0, 0);
     renderCommandEncoder->setVertexBytes(&modelMatrix, sizeof(modelMatrix), 1);
-    renderCommandEncoder->setVertexBytes(&perspectiveMatrix, sizeof(perspectiveMatrix), 2);
+    renderCommandEncoder->setVertexBytes(&viewMatrix, sizeof(viewMatrix), 2);
+    renderCommandEncoder->setVertexBytes(&projectionMatrix, sizeof(projectionMatrix), 3);
     typeTriangle = MTL::PrimitiveTypeTriangle;
     NS::UInteger vertexStart = 0;
     NS::UInteger vertexCount = 6 * 6;

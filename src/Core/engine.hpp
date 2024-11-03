@@ -13,12 +13,13 @@
 #include <QuartzCore/CAMetalLayer.h>
 #include <QuartzCore/QuartzCore.hpp>
 
-#include "AAPLMathUtilities.h"
+// #include "AAPLMathUtilities.h"
 
 #include "vertexData.hpp"
 #include "texture.hpp"
 #include "Components/mesh.hpp"
 #include "Components/textureArray.hpp"
+#include "Components/camera.hpp"
 
 #include <stb/stb_image.h>
 
@@ -30,6 +31,8 @@ public:
     void init();
     void run();
     void cleanup();
+
+    MTLEngine() : camera(simd::float3{0.0f, 0.0f, 3.0f}), lastFrame(0.0f) {}
 
 private:
     void initDevice();
@@ -64,6 +67,12 @@ private:
     bool                windowResizeFlag = false;
     int                 newWidth;
     int                 newHeight;
+
+    Camera              camera;
+    float               lastFrame;
+    
+    static void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
+    static void cursorPosCallback(GLFWwindow* window, double xpos, double ypos);
 
     MTL::DepthStencilState*     depthStencilState;
     MTL::RenderPassDescriptor*  renderPassDescriptor;

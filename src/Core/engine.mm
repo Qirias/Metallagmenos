@@ -9,6 +9,7 @@ void MTLEngine::init() {
     createDefaultLibrary();
     createCommandQueue();
     createRenderPipeline();
+    createLightSourceRenderPipeline();
     createDepthAndMSAATextures();
     createRenderPassDescriptor();
 }
@@ -27,11 +28,11 @@ void MTLEngine::run() {
 void MTLEngine::cleanup() {
     glfwTerminate();
     transformationBuffer->release();
+    lightTransformationBuffer->release();
     msaaRenderTargetTexture->release();
     depthTexture->release();
     renderPassDescriptor->release();
     metalDevice->release();
-    delete grassTexture;
 }
 
 void MTLEngine::initDevice() {
@@ -140,12 +141,62 @@ void MTLEngine::createCube() {
 
     cubeVertexBuffer = metalDevice->newBuffer(&cubeVertices, sizeof(cubeVertices), MTL::ResourceStorageModeShared);
 
-    std::string textureFilePath = std::string(TEXTURE_PATH) + "/mc_grass.jpeg";
-    grassTexture = new Texture(textureFilePath.c_str(), metalDevice);
+    VertexData lightSource[] = {
+        // Front face            // Normals
+        {{-0.5,-0.5, 0.5, 1.0}, {0.0, 0.0, 1.0, 1.0}},
+        {{ 0.5,-0.5, 0.5, 1.0}, {0.0, 0.0, 1.0, 1.0}},
+        {{ 0.5, 0.5, 0.5, 1.0}, {0.0, 0.0, 1.0, 1.0}},
+        {{ 0.5, 0.5, 0.5, 1.0}, {0.0, 0.0, 1.0, 1.0}},
+        {{-0.5, 0.5, 0.5, 1.0}, {0.0, 0.0, 1.0, 1.0}},
+        {{-0.5,-0.5, 0.5, 1.0}, {0.0, 0.0, 1.0, 1.0}},
+        
+        // Back face
+        {{ 0.5,-0.5,-0.5, 1.0}, {0.0, 0.0,-1.0, 1.0}},
+        {{-0.5,-0.5,-0.5, 1.0}, {0.0, 0.0,-1.0, 1.0}},
+        {{-0.5, 0.5,-0.5, 1.0}, {0.0, 0.0,-1.0, 1.0}},
+        {{-0.5, 0.5,-0.5, 1.0}, {0.0, 0.0,-1.0, 1.0}},
+        {{ 0.5, 0.5,-0.5, 1.0}, {0.0, 0.0,-1.0, 1.0}},
+        {{ 0.5,-0.5,-0.5, 1.0}, {0.0, 0.0,-1.0, 1.0}},
+
+        // Top face
+        {{-0.5, 0.5, 0.5, 1.0}, {0.0, 1.0, 0.0, 1.0}},
+        {{ 0.5, 0.5, 0.5, 1.0}, {0.0, 1.0, 0.0, 1.0}},
+        {{ 0.5, 0.5,-0.5, 1.0}, {0.0, 1.0, 0.0, 1.0}},
+        {{ 0.5, 0.5,-0.5, 1.0}, {0.0, 1.0, 0.0, 1.0}},
+        {{-0.5, 0.5,-0.5, 1.0}, {0.0, 1.0, 0.0, 1.0}},
+        {{-0.5, 0.5, 0.5, 1.0}, {0.0, 1.0, 0.0, 1.0}},
+
+        // Bottom face
+        {{-0.5,-0.5,-0.5, 1.0}, {0.0,-1.0, 0.0, 1.0}},
+        {{ 0.5,-0.5,-0.5, 1.0}, {0.0,-1.0, 0.0, 1.0}},
+        {{ 0.5,-0.5, 0.5, 1.0}, {0.0,-1.0, 0.0, 1.0}},
+        {{ 0.5,-0.5, 0.5, 1.0}, {0.0,-1.0, 0.0, 1.0}},
+        {{-0.5,-0.5, 0.5, 1.0}, {0.0,-1.0, 0.0, 1.0}},
+        {{-0.5,-0.5,-0.5, 1.0}, {0.0,-1.0, 0.0, 1.0}},
+
+        // Left face
+        {{-0.5,-0.5,-0.5, 1.0}, {-1.0,0.0, 0.0, 1.0}},
+        {{-0.5,-0.5, 0.5, 1.0}, {-1.0,0.0, 0.0, 1.0}},
+        {{-0.5, 0.5, 0.5, 1.0}, {-1.0,0.0, 0.0, 1.0}},
+        {{-0.5, 0.5, 0.5, 1.0}, {-1.0,0.0, 0.0, 1.0}},
+        {{-0.5, 0.5,-0.5, 1.0}, {-1.0,0.0, 0.0, 1.0}},
+        {{-0.5,-0.5,-0.5, 1.0}, {-1.0,0.0, 0.0, 1.0}},
+
+        // Right face
+        {{ 0.5,-0.5, 0.5, 1.0}, {1.0, 0.0, 0.0, 1.0}},
+        {{ 0.5,-0.5,-0.5, 1.0}, {1.0, 0.0, 0.0, 1.0}},
+        {{ 0.5, 0.5,-0.5, 1.0}, {1.0, 0.0, 0.0, 1.0}},
+        {{ 0.5, 0.5,-0.5, 1.0}, {1.0, 0.0, 0.0, 1.0}},
+        {{ 0.5, 0.5, 0.5, 1.0}, {1.0, 0.0, 0.0, 1.0}},
+        {{ 0.5,-0.5, 0.5, 1.0}, {1.0, 0.0, 0.0, 1.0}},
+    };
+    
+    lightVertexBuffer = metalDevice->newBuffer(&lightSource, sizeof(lightSource), MTL::ResourceStorageModeShared);
 }
 
 void MTLEngine::createBuffers() {
     transformationBuffer = metalDevice->newBuffer(sizeof(TransformationData), MTL::ResourceStorageModeShared);
+    lightTransformationBuffer = metalDevice->newBuffer(sizeof(TransformationData), MTL::ResourceStorageModeShared);
 }
 
 void MTLEngine::createDefaultLibrary() {
@@ -205,6 +256,30 @@ void MTLEngine::createRenderPipeline() {
     fragmentShader->release();
 }
 
+void MTLEngine::createLightSourceRenderPipeline() {
+    MTL::Function* vertexShader = metalDefaultLibrary->newFunction(NS::String::string("lightVertexShader", NS::ASCIIStringEncoding));
+    assert(vertexShader);
+    MTL::Function* fragmentShader = metalDefaultLibrary->newFunction(NS::String::string("lightFragmentShader", NS::ASCIIStringEncoding));
+    assert(fragmentShader);
+    
+    MTL::RenderPipelineDescriptor* renderPipelineDescriptor = MTL::RenderPipelineDescriptor::alloc()->init();
+    renderPipelineDescriptor->setVertexFunction(vertexShader);
+    renderPipelineDescriptor->setFragmentFunction(fragmentShader);
+    assert(renderPipelineDescriptor);
+    MTL::PixelFormat pixelFormat = (MTL::PixelFormat)metalLayer.pixelFormat;
+    renderPipelineDescriptor->colorAttachments()->object(0)->setPixelFormat(pixelFormat);
+    renderPipelineDescriptor->setSampleCount(4);
+    renderPipelineDescriptor->setLabel(NS::String::string("Light Source Render Pipeline", NS::ASCIIStringEncoding));
+    renderPipelineDescriptor->setDepthAttachmentPixelFormat(MTL::PixelFormatDepth32Float);
+    renderPipelineDescriptor->setTessellationOutputWindingOrder(MTL::WindingClockwise);
+    
+    NS::Error* error;
+    metalLightSourceRenderPSO = metalDevice->newRenderPipelineState(renderPipelineDescriptor, &error);
+    
+    renderPipelineDescriptor->release();
+    vertexShader->release();
+    fragmentShader->release();
+}
 
 void MTLEngine::createDepthAndMSAATextures() {
     MTL::TextureDescriptor* msaaTextureDescriptor = MTL::TextureDescriptor::alloc()->init();
@@ -274,38 +349,48 @@ void MTLEngine::sendRenderCommand() {
 }
 
 void MTLEngine::encodeRenderCommand(MTL::RenderCommandEncoder* renderCommandEncoder) {
-    // Moves the Cube 2 units down the negative Z-axis
-    matrix_float4x4 translationMatrix = matrix4x4_translation(0, 0,-1.0);
+    // Moves the Cube 1 unit down the negative Z-axis
+    matrix_float4x4 translationMatrix = matrix4x4_translation(0.0f, -0.9f, 0.0f);
 
-    float angleInDegrees = glfwGetTime()/2.0 * 45;
-    float angleInRadians = angleInDegrees * M_PI / 180.0f;
-    matrix_float4x4 rotationMatrix = matrix4x4_rotation(angleInRadians, 0.0, 1.0, 0.0);
-
-    matrix_float4x4 modelMatrix = simd_mul(translationMatrix, rotationMatrix);
+    matrix_float4x4 modelMatrix = translationMatrix;
+    
+    float time = glfwGetTime();
+    float oscillation = sin(time);  // oscillates between -1 and 1
+    float zPosition = 1.5 + 1.5 * oscillation;  // maps oscillation to range [0, 3]
 
     simd::float3 R = simd::float3 {1, 0, 0}; // Unit-Right
     simd::float3 U = simd::float3 {0, 1, 0}; // Unit-Up
     simd::float3 F = simd::float3 {0, 0,-1}; // Unit-Forward
     simd::float3 P = simd::float3 {0, 0, 1}; // Camera Position in World Space
-
+    
     matrix_float4x4 viewMatrix = matrix_make_rows(R.x, R.y, R.z, dot(-R, P),
                                                   U.x, U.y, U.z, dot(-U, P),
                                                  -F.x,-F.y,-F.z, dot( F, P),
                                                   0, 0, 0, 1);
-
+    
     float aspectRatio = (metalLayer.frame.size.width / metalLayer.frame.size.height);
     float fov = 90 * (M_PI / 180.0f);
     float nearZ = 0.1f;
     float farZ = 100.0f;
-
+    
     matrix_float4x4 perspectiveMatrix = matrix_perspective_right_hand(fov, aspectRatio, nearZ, farZ);
-
     TransformationData transformationData = { modelMatrix, viewMatrix, perspectiveMatrix };
     memcpy(transformationBuffer->contents(), &transformationData, sizeof(transformationData));
+    
+    // Cube Fragment Shader Data
+    simd_float4 cubeColor = simd_make_float4(0.5, 0.9, 0.7, 1.0);
+    simd_float4 lightColor = simd_make_float4(1.0, 1.0, 1.0, 1.0);
+    simd_float4 lightPosition = simd_make_float4(0 - 3*cos(glfwGetTime()/1.0), 1.2,-4 + sin(glfwGetTime()/1.0), 1);
+    simd_float4 cameraPosition = simd_make_float4(P.xyz, 1.0);
 
-    // renderCommandEncoder->setTriangleFillMode(MTL::TriangleFillModeLines);
+    renderCommandEncoder->setFragmentBytes(&cubeColor, sizeof(cubeColor), 0);
+    renderCommandEncoder->setFragmentBytes(&lightColor, sizeof(lightColor), 1);
+    renderCommandEncoder->setFragmentBytes(&lightPosition, sizeof(lightPosition), 2);
+    renderCommandEncoder->setFragmentBytes(&cameraPosition, sizeof(cameraPosition), 3);
+    
     renderCommandEncoder->setFrontFacingWinding(MTL::WindingCounterClockwise);
     renderCommandEncoder->setCullMode(MTL::CullModeBack);
+//    renderCommandEncoder->setTriangleFillMode(MTL::TriangleFillModeLines);
     renderCommandEncoder->setRenderPipelineState(metalRenderPSO);
     renderCommandEncoder->setDepthStencilState(depthStencilState);
     renderCommandEncoder->setVertexBuffer(cubeVertexBuffer, 0, 0);
@@ -313,7 +398,23 @@ void MTLEngine::encodeRenderCommand(MTL::RenderCommandEncoder* renderCommandEnco
     MTL::PrimitiveType typeTriangle = MTL::PrimitiveTypeTriangle;
     NS::UInteger vertexStart = 0;
     NS::UInteger vertexCount = 36;
-    renderCommandEncoder->setFragmentTexture(grassTexture->texture, 0);
+//    renderCommandEncoder->setFragmentTexture(grassTexture->texture, 0);
+
+    renderCommandEncoder->drawPrimitives(typeTriangle, vertexStart, vertexCount);
+    
+    matrix_float4x4 scaleMatrix = matrix4x4_scale(0.5f, 0.5f, 0.5f);
+    translationMatrix = matrix4x4_translation(lightPosition.xyz);
+    
+    modelMatrix = simd_mul(translationMatrix, scaleMatrix);
+        
+    renderCommandEncoder->setRenderPipelineState(metalLightSourceRenderPSO);
+
+    transformationData = { modelMatrix, viewMatrix, perspectiveMatrix };
+    memcpy(lightTransformationBuffer->contents(), &transformationData, sizeof(transformationData));
+    
+    renderCommandEncoder->setVertexBuffer(lightVertexBuffer, 0, 0);
+    renderCommandEncoder->setVertexBuffer(lightTransformationBuffer, 0, 1);
+
+    renderCommandEncoder->setFragmentBytes(&lightColor, sizeof(lightColor), 0);
     renderCommandEncoder->drawPrimitives(typeTriangle, vertexStart, vertexCount);
 }
-

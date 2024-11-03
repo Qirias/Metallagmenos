@@ -44,6 +44,7 @@ private:
     void createDefaultLibrary();
     void createCommandQueue();
     void createRenderPipeline();
+    void createLightSourceRenderPipeline();
 
     void encodeRenderCommand(MTL::RenderCommandEncoder* renderEncoder);
     void sendRenderCommand();
@@ -70,6 +71,9 @@ private:
     MTL::RenderPipelineState*   metalRenderPSO;
     MTL::Buffer*                cubeVertexBuffer;
     MTL::Buffer*                transformationBuffer;
+    MTL::RenderPipelineState*   metalLightSourceRenderPSO;
+    MTL::Buffer*                lightVertexBuffer;
+    MTL::Buffer*                lightTransformationBuffer;
 
     Texture*                    grassTexture;
 };

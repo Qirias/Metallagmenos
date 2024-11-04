@@ -2,166 +2,170 @@
 
 GLTFLoader::GLTFLoader(MTL::Device* device) : _device(device) {}
 
+
 GLTFLoader::GLTFModel GLTFLoader::loadModel(const std::string& filepath) {
-    tinygltf::Model gltfModel;
-    tinygltf::TinyGLTF loader;
-    std::string err, warn;
-    
-    loader.SetImageLoader(LoadImageData, nullptr); // Static function for loading images
-    
-    bool ret;
-    std::string extension = filepath.substr(filepath.find_last_of(".") + 1);
-    if (extension == "glb") {
-        ret = loader.LoadBinaryFromFile(&gltfModel, &err, &warn, filepath);
-    } else {
-        ret = loader.LoadASCIIFromFile(&gltfModel, &err, &warn, filepath);
-    }
-    
-    if (!ret) {
-        throw std::runtime_error("Failed to load GLTF model: " + err);
-    }
-    
-    GLTFModel model;
-    
-    // Process each mesh
-    for (const auto& mesh : gltfModel.meshes) {
-        for (const auto& primitive : mesh.primitives) {
-            model.meshes.push_back(processMesh(gltfModel, mesh, primitive));
-        }
-    }
-    
-    // Process materials
-    for (const auto& material : gltfModel.materials) {
-        model.materials.push_back(processMaterial(gltfModel, material));
-    }
-    
-    return model;
+	tinygltf::Model gltfModel;
+	tinygltf::TinyGLTF loader;
+	std::string err, warn;
+	
+	// Set up the callbacks before loading
+	loader.SetImageLoader(&GLTFLoader::LoadImageData, nullptr);
+	
+	bool ret;
+	std::string extension = filepath.substr(filepath.find_last_of(".") + 1);
+	if (extension == "glb") {
+		ret = loader.LoadBinaryFromFile(&gltfModel, &err, &warn, filepath);
+	} else {
+		ret = loader.LoadASCIIFromFile(&gltfModel, &err, &warn, filepath);
+	}
+	
+	if (!ret) {
+		throw std::runtime_error("Failed to load GLTF model: " + err);
+	}
+	
+	GLTFModel model;
+	std::vector<Vertex> allVertices;
+	std::vector<uint32_t> allIndices;
+	
+	// Process each mesh
+	for (const auto& mesh : gltfModel.meshes) {
+		for (const auto& primitive : mesh.primitives) {
+			// Get the processed mesh data
+			auto processedMesh = processMesh(gltfModel, mesh, primitive);
+			
+			// Calculate the base index for this primitive
+			uint32_t indexOffset = static_cast<uint32_t>(allVertices.size());
+			
+			// Add vertices
+			allVertices.insert(allVertices.end(),
+							 processedMesh.vertices.begin(),
+							 processedMesh.vertices.end());
+			
+			// Add indices with offset
+			for (uint32_t index : processedMesh.indices) {
+				allIndices.push_back(index + indexOffset);
+			}
+			
+			// Store the mesh for future reference if needed
+//			model.meshes.push_back(Mesh(_device,
+//									  processedMesh.vertices.data(),
+//									  processedMesh.vertices.size(),
+//									  processedMesh.indices.data(),
+//									  processedMesh.indices.size()));
+			
+		}
+	}
+	
+	// Store the combined vertex and index data
+	model.vertices = std::move(allVertices);
+	model.indices = std::move(allIndices);
+	
+	// Process materials
+	for (const auto& material : gltfModel.materials) {
+		model.materials.push_back(processMaterial(gltfModel, material));
+	}
+	
+	// Validate the data
+	if (model.vertices.empty() || model.indices.empty()) {
+		throw std::runtime_error("Failed to load model: No vertex or index data found");
+	}
+	
+	return model;
 }
 
-bool GLTFLoader::LoadImageData(tinygltf::Image* image, const int imageIndex,
-                         std::string* error, std::string* warning, 
-                         int req_width, int req_height,
-                         const unsigned char* bytes, int size, void* userData) {
-        
-        int width, height, channels;
-        unsigned char* data = stbi_load_from_memory(bytes, size, &width, &height, 
-                                                &channels, STBI_rgb_alpha);
-        
-        if (!data) {
-            if (error) {
-                *error = "Failed to load image: " + std::string(stbi_failure_reason());
-            }
-            return false;
-        }
-        
-        image->width = width;
-        image->height = height;
-        image->component = 4;
-        image->bits = 8;
-        image->pixel_type = TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE;
-        
-        image->image.resize(width * height * 4);
-        std::memcpy(image->image.data(), data, width * height * 4);
-        
-        stbi_image_free(data);
-        
-        return true;
-    }
-
-Mesh GLTFLoader::processMesh(const tinygltf::Model& model, 
-                             const tinygltf::Mesh& mesh,
-                             const tinygltf::Primitive& primitive) {
-    std::vector<Vertex> vertices;
-    std::vector<uint32_t> indices;
-    
-    // Get buffer data for positions
-    const float* positions = nullptr;
-    const float* normals = nullptr;
-    const float* texCoords = nullptr;
-    size_t vertexCount = 0;
-    
-    // Get attribute accessors
-    if (primitive.attributes.find("POSITION") != primitive.attributes.end()) {
-        const tinygltf::Accessor& accessor = 
-            model.accessors[primitive.attributes.at("POSITION")];
-        const tinygltf::BufferView& view = model.bufferViews[accessor.bufferView];
-        positions = reinterpret_cast<const float*>(&model.buffers[view.buffer]
-            .data[accessor.byteOffset + view.byteOffset]);
-        vertexCount = accessor.count;
-    }
-    
-    if (primitive.attributes.find("NORMAL") != primitive.attributes.end()) {
-        const tinygltf::Accessor& accessor = 
-            model.accessors[primitive.attributes.at("NORMAL")];
-        const tinygltf::BufferView& view = model.bufferViews[accessor.bufferView];
-        normals = reinterpret_cast<const float*>(&model.buffers[view.buffer]
-            .data[accessor.byteOffset + view.byteOffset]);
-    }
-    
-    if (primitive.attributes.find("TEXCOORD_0") != primitive.attributes.end()) {
-        const tinygltf::Accessor& accessor = 
-            model.accessors[primitive.attributes.at("TEXCOORD_0")];
-        const tinygltf::BufferView& view = model.bufferViews[accessor.bufferView];
-        texCoords = reinterpret_cast<const float*>(&model.buffers[view.buffer]
-            .data[accessor.byteOffset + view.byteOffset]);
-    }
-    
-    // Build vertex data
-    for (size_t i = 0; i < vertexCount; i++) {
-        Vertex vertex;
-        
-        if (positions) {
-            vertex.position = {
-                positions[i * 3 + 0],
-                positions[i * 3 + 1],
-                positions[i * 3 + 2]
-            };
-        }
-        
-        if (normals) {
-            vertex.normal = {
-                normals[i * 3 + 0],
-                normals[i * 3 + 1],
-                normals[i * 3 + 2]
-            };
-        }
-        
-        if (texCoords) {
-            vertex.textureCoordinate = {
-                texCoords[i * 2 + 0],
-                texCoords[i * 2 + 1]
-            };
-        }
-        // vertex.diffuseTextureIndex = primitive.material;
-        vertices.push_back(vertex);
-    }
-    
-    // Get indices
-    if (primitive.indices >= 0) {
-        const tinygltf::Accessor& accessor = model.accessors[primitive.indices];
-        const tinygltf::BufferView& view = model.bufferViews[accessor.bufferView];
-        const uint8_t* data = &model.buffers[view.buffer]
-            .data[accessor.byteOffset + view.byteOffset];
-        
-        switch (accessor.componentType) {
-            case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT: {
-                const uint16_t* indices16 = reinterpret_cast<const uint16_t*>(data);
-                for (size_t i = 0; i < accessor.count; i++) {
-                    indices.push_back(static_cast<uint32_t>(indices16[i]));
-                }
-                break;
-            }
-            case TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT: {
-                const uint32_t* indices32 = reinterpret_cast<const uint32_t*>(data);
-                for (size_t i = 0; i < accessor.count; i++) {
-                    indices.push_back(indices32[i]);
-                }
-                break;
-            }
-        }
-    }
-    
-    return Mesh(_device, vertices.data(), vertices.size(), indices.data(), indices.size());
+GLTFLoader::ProcessedMeshData GLTFLoader::processMesh(const tinygltf::Model& model,
+											const tinygltf::Mesh& mesh,
+											const tinygltf::Primitive& primitive) {
+	ProcessedMeshData result;
+	
+	// Get buffer data for positions
+	const float* positions = nullptr;
+	const float* normals = nullptr;
+	const float* texCoords = nullptr;
+	size_t vertexCount = 0;
+	
+	// Get attribute accessors
+	if (primitive.attributes.find("POSITION") != primitive.attributes.end()) {
+		const tinygltf::Accessor& accessor	= model.accessors[primitive.attributes.at("POSITION")];
+		const tinygltf::BufferView& view 	= model.bufferViews[accessor.bufferView];
+		
+		positions = reinterpret_cast<const float*>(&model.buffers[view.buffer].data[accessor.byteOffset + view.byteOffset]);
+		vertexCount = accessor.count;
+	}
+	
+	if (primitive.attributes.find("NORMAL") != primitive.attributes.end()) {
+		const tinygltf::Accessor& accessor 	= model.accessors[primitive.attributes.at("NORMAL")];
+		const tinygltf::BufferView& view 	= model.bufferViews[accessor.bufferView];
+		
+		normals = reinterpret_cast<const float*>(&model.buffers[view.buffer].data[accessor.byteOffset + view.byteOffset]);
+	}
+	
+	if (primitive.attributes.find("TEXCOORD_0") != primitive.attributes.end()) {
+		const tinygltf::Accessor& accessor 	= model.accessors[primitive.attributes.at("TEXCOORD_0")];
+		const tinygltf::BufferView& view 	= model.bufferViews[accessor.bufferView];
+		
+		texCoords = reinterpret_cast<const float*>(&model.buffers[view.buffer].data[accessor.byteOffset + view.byteOffset]);
+	}
+	
+	// Build vertex data
+	for (size_t i = 0; i < vertexCount; i++) {
+		Vertex vertex{};
+		
+		if (positions) {
+			vertex.position = {
+				positions[i * 3 + 0],
+				positions[i * 3 + 1],
+				positions[i * 3 + 2]
+			};
+		}
+		
+		if (normals) {
+			vertex.normal = {
+				normals[i * 3 + 0],
+				normals[i * 3 + 1],
+				normals[i * 3 + 2]
+			};
+		}
+		
+		if (texCoords) {
+			vertex.textureCoordinate = {
+				texCoords[i * 2 + 0],
+				texCoords[i * 2 + 1]
+			};
+		}
+		
+		vertex.diffuseTextureIndex = primitive.material;
+		result.vertices.push_back(vertex);
+	}
+	
+	// Get indices
+	if (primitive.indices >= 0) {
+		const tinygltf::Accessor& accessor = model.accessors[primitive.indices];
+		const tinygltf::BufferView& view = model.bufferViews[accessor.bufferView];
+		const uint8_t* data = &model.buffers[view.buffer]
+			.data[accessor.byteOffset + view.byteOffset];
+		
+		switch (accessor.componentType) {
+			case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT: {
+				const uint16_t* indices16 = reinterpret_cast<const uint16_t*>(data);
+				for (size_t i = 0; i < accessor.count; i++) {
+					result.indices.push_back(static_cast<uint32_t>(indices16[i]));
+				}
+				break;
+			}
+			case TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT: {
+				const uint32_t* indices32 = reinterpret_cast<const uint32_t*>(data);
+				for (size_t i = 0; i < accessor.count; i++) {
+					result.indices.push_back(indices32[i]);
+				}
+				break;
+			}
+			default:
+				throw std::runtime_error("Unsupported index component type");
+		}
+	}
+	
+	return result;
 }
 
 GLTFLoader::GLTFMaterial GLTFLoader::processMaterial(
@@ -172,14 +176,12 @@ GLTFLoader::GLTFMaterial GLTFLoader::processMaterial(
     
     // Process PBR Metallic Roughness
     if (material.pbrMetallicRoughness.baseColorTexture.index >= 0) {
-        const auto& texture = model.textures[
-            material.pbrMetallicRoughness.baseColorTexture.index];
+        const auto& texture = model.textures[material.pbrMetallicRoughness.baseColorTexture.index];
         result.baseColorTexture = loadTexture(model, texture);
     }
     
     if (material.pbrMetallicRoughness.metallicRoughnessTexture.index >= 0) {
-        const auto& texture = model.textures[
-            material.pbrMetallicRoughness.metallicRoughnessTexture.index];
+        const auto& texture = model.textures[material.pbrMetallicRoughness.metallicRoughnessTexture.index];
         result.metallicRoughnessTexture = loadTexture(model, texture);
     }
     
@@ -218,6 +220,35 @@ GLTFLoader::GLTFMaterial GLTFLoader::processMaterial(
     
     return result;
 }
+
+bool GLTFLoader::LoadImageData(tinygltf::Image* image, const int imageIndex,
+						 std::string* error, std::string* warning,
+						 int req_width, int req_height,
+						 const unsigned char* bytes, int size, void* userData) {
+		
+		int width, height, channels;
+		unsigned char* data = stbi_load_from_memory(bytes, size, &width, &height, &channels, STBI_rgb_alpha);
+		
+		if (!data) {
+			if (error) {
+				*error = "Failed to load image: " + std::string(stbi_failure_reason());
+			}
+			return false;
+		}
+		
+		image->width = width;
+		image->height = height;
+		image->component = 4;
+		image->bits = 8;
+		image->pixel_type = TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE;
+		
+		image->image.resize(width * height * 4);
+		std::memcpy(image->image.data(), data, width * height * 4);
+		
+		stbi_image_free(data);
+		
+		return true;
+	}
 
 NS::SharedPtr<MTL::Texture> GLTFLoader::loadTexture(
     const tinygltf::Model& model,

@@ -67,6 +67,7 @@ void Mesh::loadObj(std::string filePath) {
             diffuseTextureIndexMap[materials[i].diffuse_texname] = count++;
         }
     }
+
     textures = new TextureArray(diffuseFilePaths,
                                 device);
     

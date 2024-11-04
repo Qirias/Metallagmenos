@@ -55,6 +55,7 @@ foreach(SHADER_SOURCE ${SHADER_SOURCES})
                 -c ${SHADER_SOURCE} 
                 -o ${SHADER_AIR}
                 -I ${CMAKE_CURRENT_SOURCE_DIR}/src/core
+        DEPENDS ${SHADER_SOURCE}  # Add each shader source as a dependency
         COMMENT "Compiling ${SHADER_NAME}.metal to AIR"
     )
 endforeach()
@@ -67,12 +68,12 @@ add_definitions(-DSHADER_METALLIB="${SHADER_METALLIB}")
 add_custom_command(
     OUTPUT ${SHADER_METALLIB}
     COMMAND xcrun -sdk macosx metallib ${SHADER_OUTPUTS} -o ${SHADER_METALLIB}
-    DEPENDS ${SHADER_OUTPUTS}
+    DEPENDS ${SHADER_OUTPUTS}  # Ensure it depends on all AIR files
     COMMENT "Creating metallib from AIR files"
 )
 
 # Add custom target for shader compilation
-add_custom_target(shaders DEPENDS ${SHADER_METALLIB})
+add_custom_target(shaders DEPENDS ${SHADER_METALLIB} ${SHADER_SOURCES})
 set_target_properties(shaders PROPERTIES FOLDER "Hidden")
 
 # Add the executable target

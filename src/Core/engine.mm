@@ -122,11 +122,6 @@ void MTLEngine::loadMeshes() {
 				  gltfModel.indices.data(),
 				  gltfModel.indices.size());
 	
-//	mesh->diffuseTextures = gltfModel.diffuseTextureArray;
-//	mesh->diffuseTextureInfos = metalDevice->newBuffer(
-//		gltfModel.diffuseTextureInfos.data(),
-//		gltfModel.diffuseTextureInfos.size() * sizeof(TextureInfo),
-//		MTL::ResourceStorageModeShared);
 
     VertexData lightSource[] = {
         // Front face            // Normals
@@ -336,9 +331,9 @@ void MTLEngine::sendRenderCommand() {
 
 void MTLEngine::encodeRenderCommand(MTL::RenderCommandEncoder* renderCommandEncoder) {
     renderCommandEncoder->setFrontFacingWinding(MTL::WindingCounterClockwise);
-    renderCommandEncoder->setCullMode(MTL::CullModeBack);
+	renderCommandEncoder->setCullMode(MTL::CullModeBack);
 
-    //renderCommandEncoder->setTriangleFillMode(MTL::TriangleFillModeLines);
+    renderCommandEncoder->setTriangleFillMode(MTL::TriangleFillModeLines);
     renderCommandEncoder->setRenderPipelineState(metalRenderPSO);
     renderCommandEncoder->setDepthStencilState(depthStencilState);
     renderCommandEncoder->setVertexBuffer(mesh->vertexBuffer, 0, 0);
@@ -352,7 +347,7 @@ void MTLEngine::encodeRenderCommand(MTL::RenderCommandEncoder* renderCommandEnco
     matrix_float4x4 projectionMatrix = camera.getProjectionMatrix(aspectRatio);
     
     // Update your model-view-projection matrices
-    matrix_float4x4 rotationMatrix = matrix4x4_rotation(-125 * (M_PI / 180.0f), 0.0, 1.0, 0.0);
+    matrix_float4x4 rotationMatrix = matrix4x4_rotation(90 * (M_PI / 180.0f), 1.0, 0.0, 0.0);
     matrix_float4x4 modelMatrix = matrix4x4_translation(0.0f, 0.0f, 0.0f) * rotationMatrix;
     
     // Send matrices to shaders

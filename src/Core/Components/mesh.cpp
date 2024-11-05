@@ -9,29 +9,30 @@
 #include <unordered_map>
 #include <string>
 
+// For tinyobjloader
 Mesh::Mesh(std::string filePath, MTL::Device* metalDevice) {
     device = metalDevice;
     loadObj(filePath);
     createBuffers();
 }
 
-Mesh::Mesh(MTL::Device* device, const Vertex* vertexData, size_t vertexCount, 
-           const uint32_t* indexData, size_t indexCount) 
-    : device(device) {
-    // Create vertex buffer
-    vertexBuffer = device->newBuffer(vertexData, 
-                                   vertexCount * sizeof(VertexData), 
-                                   MTL::ResourceStorageModeShared);
-    vertexBuffer->setLabel(NS::String::string("Mesh Vertex Buffer", 
-                                            NS::ASCIIStringEncoding));
+// For tinyGLTF
+Mesh::Mesh(MTL::Device* device, const Vertex* vertexData, size_t vertexCount,
+		   const uint32_t* indexData, size_t indexCount)
+	: device(device) {
+	// Create vertex buffer with proper alignment
+	size_t vertexBufferSize = vertexCount * sizeof(Vertex);
+		
+	// Round up the buffer size to a multiple of 16 bytes
+	vertexBufferSize = (vertexBufferSize + 15) & ~15;
+	
+	vertexBuffer = device->newBuffer(vertexData, vertexBufferSize, MTL::ResourceStorageModeShared);
+	vertexBuffer->setLabel(NS::String::string("Mesh Vertex Buffer", NS::ASCIIStringEncoding));
 
-    // Create index buffer
-    this->indexCount = indexCount;
-    indexBuffer = device->newBuffer(indexData,
-                                  indexCount * sizeof(uint32_t),
-                                  MTL::ResourceStorageModeShared);
-    indexBuffer->setLabel(NS::String::string("Mesh Index Buffer", 
-                                           NS::ASCIIStringEncoding));
+	// Create index buffer
+	this->indexCount = indexCount;
+	indexBuffer = device->newBuffer(indexData, indexCount * sizeof(uint32_t), MTL::ResourceStorageModeShared);
+	indexBuffer->setLabel(NS::String::string("Mesh Index Buffer", NS::ASCIIStringEncoding));
 }
 
 Mesh::~Mesh() {

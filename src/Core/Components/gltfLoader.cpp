@@ -73,9 +73,10 @@ GLTFLoader::GLTFModel GLTFLoader::loadModel(const std::string& filepath) {
 	return model;
 }
 
+
 GLTFLoader::ProcessedMeshData GLTFLoader::processMesh(const tinygltf::Model& model,
-											const tinygltf::Mesh& mesh,
-											const tinygltf::Primitive& primitive) {
+													 const tinygltf::Mesh& mesh,
+													 const tinygltf::Primitive& primitive) {
 	ProcessedMeshData result;
 	
 	// Get buffer data for positions
@@ -84,53 +85,74 @@ GLTFLoader::ProcessedMeshData GLTFLoader::processMesh(const tinygltf::Model& mod
 	const float* texCoords = nullptr;
 	size_t vertexCount = 0;
 	
-	// Get attribute accessors
+	// Get positions
 	if (primitive.attributes.find("POSITION") != primitive.attributes.end()) {
-		const tinygltf::Accessor& accessor	= model.accessors[primitive.attributes.at("POSITION")];
-		const tinygltf::BufferView& view 	= model.bufferViews[accessor.bufferView];
+		const tinygltf::Accessor& accessor = model.accessors[primitive.attributes.at("POSITION")];
+		const tinygltf::BufferView& bufferView = model.bufferViews[accessor.bufferView];
+		const tinygltf::Buffer& buffer = model.buffers[bufferView.buffer];
 		
-		positions = reinterpret_cast<const float*>(&model.buffers[view.buffer].data[accessor.byteOffset + view.byteOffset]);
+		// Calculate the actual byte offset into the buffer
+		size_t byteOffset = bufferView.byteOffset + accessor.byteOffset;
+		positions = reinterpret_cast<const float*>(&buffer.data[byteOffset]);
 		vertexCount = accessor.count;
 	}
 	
+	// Get normals
 	if (primitive.attributes.find("NORMAL") != primitive.attributes.end()) {
-		const tinygltf::Accessor& accessor 	= model.accessors[primitive.attributes.at("NORMAL")];
-		const tinygltf::BufferView& view 	= model.bufferViews[accessor.bufferView];
+		const tinygltf::Accessor& accessor = model.accessors[primitive.attributes.at("NORMAL")];
+		const tinygltf::BufferView& bufferView = model.bufferViews[accessor.bufferView];
+		const tinygltf::Buffer& buffer = model.buffers[bufferView.buffer];
 		
-		normals = reinterpret_cast<const float*>(&model.buffers[view.buffer].data[accessor.byteOffset + view.byteOffset]);
+		size_t byteOffset = bufferView.byteOffset + accessor.byteOffset;
+		normals = reinterpret_cast<const float*>(&buffer.data[byteOffset]);
 	}
 	
+	// Get texture coordinates
 	if (primitive.attributes.find("TEXCOORD_0") != primitive.attributes.end()) {
-		const tinygltf::Accessor& accessor 	= model.accessors[primitive.attributes.at("TEXCOORD_0")];
-		const tinygltf::BufferView& view 	= model.bufferViews[accessor.bufferView];
+		const tinygltf::Accessor& accessor = model.accessors[primitive.attributes.at("TEXCOORD_0")];
+		const tinygltf::BufferView& bufferView = model.bufferViews[accessor.bufferView];
+		const tinygltf::Buffer& buffer = model.buffers[bufferView.buffer];
 		
-		texCoords = reinterpret_cast<const float*>(&model.buffers[view.buffer].data[accessor.byteOffset + view.byteOffset]);
+		size_t byteOffset = bufferView.byteOffset + accessor.byteOffset;
+		texCoords = reinterpret_cast<const float*>(&buffer.data[byteOffset]);
 	}
 	
-	// Build vertex data
+	// Process vertices taking into account stride
 	for (size_t i = 0; i < vertexCount; i++) {
 		Vertex vertex{};
 		
+		// Handle positions with stride
 		if (positions) {
+			const tinygltf::Accessor& accessor = model.accessors[primitive.attributes.at("POSITION")];
+			const tinygltf::BufferView& bufferView = model.bufferViews[accessor.bufferView];
+			size_t stride = bufferView.byteStride ? bufferView.byteStride / sizeof(float) : 3;
 			vertex.position = {
-				positions[i * 3 + 0],
-				positions[i * 3 + 1],
-				positions[i * 3 + 2]
+				positions[i * stride + 0],
+				positions[i * stride + 1],
+				positions[i * stride + 2]
 			};
 		}
 		
+		// Handle normals with stride
 		if (normals) {
+			const tinygltf::Accessor& accessor = model.accessors[primitive.attributes.at("NORMAL")];
+			const tinygltf::BufferView& bufferView = model.bufferViews[accessor.bufferView];
+			size_t stride = bufferView.byteStride ? bufferView.byteStride / sizeof(float) : 3;
 			vertex.normal = {
-				normals[i * 3 + 0],
-				normals[i * 3 + 1],
-				normals[i * 3 + 2]
+				normals[i * stride + 0],
+				normals[i * stride + 1],
+				normals[i * stride + 2]
 			};
 		}
 		
+		// Handle texture coordinates with stride
 		if (texCoords) {
+			const tinygltf::Accessor& accessor = model.accessors[primitive.attributes.at("TEXCOORD_0")];
+			const tinygltf::BufferView& bufferView = model.bufferViews[accessor.bufferView];
+			size_t stride = bufferView.byteStride ? bufferView.byteStride / sizeof(float) : 2;
 			vertex.textureCoordinate = {
-				texCoords[i * 2 + 0],
-				texCoords[i * 2 + 1]
+				texCoords[i * stride + 0],
+				texCoords[i * stride + 1]
 			};
 		}
 		
@@ -138,25 +160,27 @@ GLTFLoader::ProcessedMeshData GLTFLoader::processMesh(const tinygltf::Model& mod
 		result.vertices.push_back(vertex);
 	}
 	
-	// Get indices
+	// Process indices
 	if (primitive.indices >= 0) {
 		const tinygltf::Accessor& accessor = model.accessors[primitive.indices];
-		const tinygltf::BufferView& view = model.bufferViews[accessor.bufferView];
-		const uint8_t* data = &model.buffers[view.buffer]
-			.data[accessor.byteOffset + view.byteOffset];
+		const tinygltf::BufferView& bufferView = model.bufferViews[accessor.bufferView];
+		const tinygltf::Buffer& buffer = model.buffers[bufferView.buffer];
+		
+		size_t byteOffset = bufferView.byteOffset + accessor.byteOffset;
+		const uint8_t* data = &buffer.data[byteOffset];
 		
 		switch (accessor.componentType) {
 			case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT: {
-				const uint16_t* indices16 = reinterpret_cast<const uint16_t*>(data);
+				const uint16_t* indices = reinterpret_cast<const uint16_t*>(data);
 				for (size_t i = 0; i < accessor.count; i++) {
-					result.indices.push_back(static_cast<uint32_t>(indices16[i]));
+					result.indices.push_back(static_cast<uint32_t>(indices[i]));
 				}
 				break;
 			}
 			case TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT: {
-				const uint32_t* indices32 = reinterpret_cast<const uint32_t*>(data);
+				const uint32_t* indices = reinterpret_cast<const uint32_t*>(data);
 				for (size_t i = 0; i < accessor.count; i++) {
-					result.indices.push_back(indices32[i]);
+					result.indices.push_back(indices[i]);
 				}
 				break;
 			}
@@ -167,6 +191,8 @@ GLTFLoader::ProcessedMeshData GLTFLoader::processMesh(const tinygltf::Model& mod
 	
 	return result;
 }
+
+
 
 GLTFLoader::GLTFMaterial GLTFLoader::processMaterial(
     const tinygltf::Model& model,

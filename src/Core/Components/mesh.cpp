@@ -36,6 +36,8 @@ Mesh::Mesh(MTL::Device* device, const Vertex* vertexData, size_t vertexCount,
 }
 
 Mesh::~Mesh() {
+	normalTextures->release();
+	normalTextureInfos->release();
     diffuseTextures->release();
     diffuseTextureInfos->release();
     vertexBuffer->release();
@@ -43,90 +45,152 @@ Mesh::~Mesh() {
 }
 
 void Mesh::loadObj(std::string filePath) {
-    tinyobj::attrib_t vertexArrays;
-    std::vector<tinyobj::shape_t> shapes;
-    std::vector<tinyobj::material_t> materials;
-    
-    std::string baseDirectory = filePath.substr(0, filePath.find_last_of("/\\") + 1); // Base directory for the .mtl file
-    std::string warning;
-    std::string error;
-    
-    tinyobj::LoadObj(&vertexArrays, &shapes, &materials, &error, filePath.c_str(), baseDirectory.c_str());
-    if (!error.empty())
-        std::cout << "TINYOBJ::ERROR: " << error << std::endl;
-    
-    
-    std::unordered_map<std::string, int> diffuseTextureIndexMap;
-    int count = 0;
-    // Load Textures
-    std::vector<std::string> diffuseFilePaths;
-    std::cout << "Loading Textures..." << std::endl;
-	for(int i = 0; i < materials.size(); i++) {
-		if (!materials[i].diffuse_texname.empty()) {
-			std::string texturePath = baseDirectory + materials[i].diffuse_texname;
-			
-			// Replace any backslashes with forward slashes
+	tinyobj::attrib_t vertexArrays;
+	std::vector<tinyobj::shape_t> shapes;
+	std::vector<tinyobj::material_t> materials;
+	
+	std::string baseDirectory = filePath.substr(0, filePath.find_last_of("/\\") + 1);
+	std::string warning;
+	std::string error;
+	
+	bool ret = tinyobj::LoadObj(&vertexArrays, &shapes, &materials, &error,
+							   filePath.c_str(), baseDirectory.c_str(), true);
+	
+	// Create texture mappings for both diffuse and normal textures
+	std::unordered_map<std::string, int> diffuseTextureIndexMap;
+	std::unordered_map<std::string, int> normalTextureIndexMap;
+	std::vector<std::string> diffuseFilePaths;
+	std::vector<std::string> normalFilePaths;
+	
+	std::cout << "Loading Textures..." << std::endl;
+	// First pass: collect all textures
+	for (const auto& material : materials) {
+		// Handle diffuse textures
+		if (!material.diffuse_texname.empty()) {
+			std::string texturePath = baseDirectory + material.diffuse_texname;
 			std::replace(texturePath.begin(), texturePath.end(), '\\', '/');
 			
-			std::cout << count + 1 << ".) " << texturePath << std::endl;
-			diffuseFilePaths.push_back(texturePath);
-			diffuseTextureIndexMap[materials[i].diffuse_texname] = count++;
+			if (diffuseTextureIndexMap.find(material.diffuse_texname) == diffuseTextureIndexMap.end()) {
+				int textureIndex = static_cast<int>(diffuseFilePaths.size());
+				diffuseTextureIndexMap[material.diffuse_texname] = textureIndex;
+				diffuseFilePaths.push_back(texturePath);
+				std::cout << "Diffuse Texture " << textureIndex << ": " << texturePath << std::endl;
+			}
+		}
+		
+		// Handle normal textures (both bump and normal map)
+		std::string normalTexName = material.normal_texname;
+		if (normalTexName.empty()) {
+			normalTexName = material.bump_texname; // Use bump map if normal map isn't specified
+		}
+		
+		if (!normalTexName.empty()) {
+			std::string texturePath = baseDirectory + normalTexName;
+			std::replace(texturePath.begin(), texturePath.end(), '\\', '/');
+			
+			if (normalTextureIndexMap.find(normalTexName) == normalTextureIndexMap.end()) {
+				int textureIndex = static_cast<int>(normalFilePaths.size());
+				normalTextureIndexMap[normalTexName] = textureIndex;
+				normalFilePaths.push_back(texturePath);
+				std::cout << "Normal Texture " << textureIndex << ": " << texturePath << std::endl;
+			}
 		}
 	}
 
-    textures = new TextureArray(diffuseFilePaths,
-                                device);
-    
-    // Loop over Shapes
-    for (int s = 0; s < shapes.size(); s++) {
-        // Loop over Faces (polygon)
-        int index_offset = 0;
-        for (int f = 0; f < shapes[s].mesh.num_face_vertices.size(); f++) {
-            // Get the diffuse texture name for a particular face
-            int material_id = shapes[s].mesh.material_ids[f];
-            std::string diffuseTextureName = materials[material_id].diffuse_texname;
-            // Hardcode loading triangles
-            int fv = 3;
-            // Loop over vertices in the face
-            for (int v = 0; v < fv; v++) {
-                // Access to Vertex
-                tinyobj::index_t idx = shapes[s].mesh.indices[index_offset + v];
-                
-                Vertex vertex{};
-                // Vertex position
-                vertex.position = {
-                    vertexArrays.vertices[3 * idx.vertex_index + 0],
-                    vertexArrays.vertices[3 * idx.vertex_index + 1],
-                    vertexArrays.vertices[3 * idx.vertex_index + 2],
-					0.0f
-                };
-                // Vertex Normal
-                vertex.normal = {
-                    vertexArrays.normals[3 * idx.normal_index + 0],
-                    vertexArrays.normals[3 * idx.normal_index + 1],
-                    vertexArrays.normals[3 * idx.normal_index + 2],
-					0.0f
-                };
-                // Vertex Texture Coordinates
-                vertex.textureCoordinate = {
-                    vertexArrays.texcoords[2 * idx.texcoord_index + 0],
-                    vertexArrays.texcoords[2 * idx.texcoord_index + 1]
-                };
-                // Texture Indices
-                vertex.diffuseTextureIndex = {
-                    diffuseTextureIndexMap[diffuseTextureName]
-                };
-                // Vertex Indices
-                if (vertexMap.count(vertex) == 0) {
-                    vertexMap[vertex] = (uint32_t)vertices.size();
-                    vertices.push_back(vertex);
-                }
-                
-                vertexIndices.push_back(vertexMap[vertex]);
-            }
-            index_offset += fv;
-        }
-    }
+	// Create texture arrays
+	diffuseTexturesArray = new TextureArray(diffuseFilePaths, device, TextureType::DIFFUSE);
+	normalTexturesArray = new TextureArray(normalFilePaths, device, TextureType::NORMAL);
+
+	// Process geometry
+	vertices.clear();
+	vertexIndices.clear();
+	vertexMap.clear();
+
+	for (const auto& shape : shapes) {
+		size_t index_offset = 0;
+		
+		for (size_t f = 0; f < shape.mesh.num_face_vertices.size(); f++) {
+			int material_id = shape.mesh.material_ids[f];
+			if (material_id < 0 || material_id >= materials.size()) {
+				std::cerr << "Invalid material ID: " << material_id << std::endl;
+				continue;
+			}
+			
+			// Get texture indices for both diffuse and normal maps
+			int diffuseTextureIndex = -1;
+			int normalTextureIndex = -1;
+			
+			const auto& material = materials[material_id];
+			
+			if (!material.diffuse_texname.empty()) {
+				auto it = diffuseTextureIndexMap.find(material.diffuse_texname);
+				if (it != diffuseTextureIndexMap.end()) {
+					diffuseTextureIndex = it->second;
+				}
+			}
+			
+			std::string normalTexName = material.normal_texname;
+			if (normalTexName.empty()) {
+				normalTexName = material.bump_texname;
+			}
+			
+			if (!normalTexName.empty()) {
+				auto it = normalTextureIndexMap.find(normalTexName);
+				if (it != normalTextureIndexMap.end()) {
+					normalTextureIndex = it->second;
+				}
+			}
+
+			// Process vertices
+			int fv = 3;
+			for (int v = 0; v < fv; v++) {
+				tinyobj::index_t idx = shape.mesh.indices[index_offset + v];
+				
+				Vertex vertex{};
+				
+				if (idx.vertex_index >= 0) {
+					vertex.position = {
+						vertexArrays.vertices[3 * idx.vertex_index + 0],
+						vertexArrays.vertices[3 * idx.vertex_index + 1],
+						vertexArrays.vertices[3 * idx.vertex_index + 2],
+						0.0f
+					};
+				}
+				
+				if (idx.normal_index >= 0) {
+					vertex.normal = {
+						vertexArrays.normals[3 * idx.normal_index + 0],
+						vertexArrays.normals[3 * idx.normal_index + 1],
+						vertexArrays.normals[3 * idx.normal_index + 2],
+						0.0f
+					};
+				}
+				
+				if (idx.texcoord_index >= 0) {
+					vertex.textureCoordinate = {
+						vertexArrays.texcoords[2 * idx.texcoord_index + 0],
+						1.0f - vertexArrays.texcoords[2 * idx.texcoord_index + 1]
+					};
+				}
+				
+				vertex.diffuseTextureIndex = diffuseTextureIndex;
+				vertex.normalTextureIndex = normalTextureIndex;
+				
+				uint32_t vertexIndex;
+				auto vertexIt = vertexMap.find(vertex);
+				if (vertexIt == vertexMap.end()) {
+					vertexIndex = static_cast<uint32_t>(vertices.size());
+					vertexMap[vertex] = vertexIndex;
+					vertices.push_back(vertex);
+				} else {
+					vertexIndex = vertexIt->second;
+				}
+				
+				vertexIndices.push_back(vertexIndex);
+			}
+			index_offset += fv;
+		}
+	}
 }
 
 void Mesh::createBuffers() {
@@ -141,13 +205,24 @@ void Mesh::createBuffers() {
     indexCount = vertexIndices.size();
     unsigned long indexBufferSize = sizeof(uint32_t) * vertexIndices.size();
     indexBuffer = device->newBuffer(vertexIndices.data(), indexBufferSize, MTL::ResourceStorageModeShared);
+	
     // Pass previously created Texture Array Pointer
-    diffuseTextures = textures->diffuseTextureArray;
+	diffuseTextures = diffuseTexturesArray->diffuseTextureArray;
     diffuseTextures->setLabel(NS::String::string("Diffuse Texture Array", NS::ASCIIStringEncoding));
     // Create Diffuse Texture Info
-    size_t bufferSize = textures->diffuseTextureInfos.size() * sizeof(TextureInfo);
-    std::cout << "Diffuse Texture Count: " << textures->diffuseTextureInfos.size() << std::endl;
+    size_t diffuseBufferSize = diffuseTexturesArray->diffuseTextureInfos.size() * sizeof(TextureInfo);
+    std::cout << "Diffuse Texture Count: " << diffuseTexturesArray->diffuseTextureInfos.size() << std::endl;
     std::cout << "TextureInfo size: " << sizeof(TextureInfo) << std::endl;
-    diffuseTextureInfos = device->newBuffer(textures->diffuseTextureInfos.data(), bufferSize, MTL::ResourceStorageModeShared);
+    diffuseTextureInfos = device->newBuffer(diffuseTexturesArray->diffuseTextureInfos.data(), diffuseBufferSize, MTL::ResourceStorageModeShared);
     diffuseTextureInfos->setLabel(NS::String::string("Diffuse Texture Info Array", NS::ASCIIStringEncoding));
+	
+	// Pass previously created Texture Array Pointer
+	normalTextures = normalTexturesArray->normalTextureArray;
+	normalTextures->setLabel(NS::String::string("Normal Texture Array", NS::ASCIIStringEncoding));
+	// Create normal Texture Info
+	size_t normalBufferSize = normalTexturesArray->normalTextureInfos.size() * sizeof(TextureInfo);
+	std::cout << "Normal Texture Count: " << normalTexturesArray->normalTextureInfos.size() << std::endl;
+	std::cout << "TextureInfo size: " << sizeof(TextureInfo) << std::endl;
+	normalTextureInfos = device->newBuffer(normalTexturesArray->normalTextureInfos.data(), normalBufferSize, MTL::ResourceStorageModeShared);
+	normalTextureInfos->setLabel(NS::String::string("Normal Texture Info Array", NS::ASCIIStringEncoding));
 }

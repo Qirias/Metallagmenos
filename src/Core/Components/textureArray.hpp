@@ -18,16 +18,18 @@ enum TextureType {
 
 class TextureArray {
 public:
-    TextureArray(std::vector<std::string>& diffuseFilePaths,
-                 MTL::Device* metalDevice);
+    TextureArray(std::vector<std::string>& FilePaths,
+                 MTL::Device* metalDevice, TextureType type);
     ~TextureArray();
     
     void loadTextures(std::vector<std::string>& filePaths,
                       TextureType type);
     
     MTL::Texture* diffuseTextureArray;
-    // Vectors to store texture info for each texture type
     std::vector<TextureInfo> diffuseTextureInfos;
+	
+	MTL::Texture* normalTextureArray;
+	std::vector<TextureInfo> normalTextureInfos;
 
 private:
     MTL::Device* device;

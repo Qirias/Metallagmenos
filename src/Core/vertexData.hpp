@@ -8,7 +8,8 @@ struct Vertex {
     float4 normal;
     float2 textureCoordinate;
     int diffuseTextureIndex;
-    float3 padding;
+	int normalTextureIndex;
+    float2 padding;
 };
 
 struct TextureInfo {

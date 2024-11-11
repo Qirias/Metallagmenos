@@ -7,12 +7,12 @@
 
 #include "textureArray.hpp"
 
-TextureArray::TextureArray(std::vector<std::string>& diffuseFilePaths,
-                           MTL::Device* metalDevice) {
+TextureArray::TextureArray(std::vector<std::string>& FilePaths,
+                           MTL::Device* metalDevice, TextureType type) {
     device = metalDevice;
     
-    if (!diffuseFilePaths.empty())
-        loadTextures(diffuseFilePaths, TextureType::DIFFUSE);
+    if (!FilePaths.empty())
+		loadTextures(FilePaths, type);
 }
 
 void TextureArray::loadTextures(std::vector<std::string> &filePaths, TextureType type) {
@@ -61,6 +61,9 @@ void TextureArray::loadTextures(std::vector<std::string> &filePaths, TextureType
     for (int i = 0; i < images.size(); i++) {
         if (type == DIFFUSE)
             diffuseTextureInfos.push_back({widths[i], heights[i]});
+		if (type == NORMAL)
+			normalTextureInfos.push_back({widths[i], heights[i]});
+		
         MTL::Region region = MTL::Region(0, 0, 0, widths[i], heights[i], 1);
         NS::UInteger bytesPerRow = 4 * widths[i];
         
@@ -70,9 +73,12 @@ void TextureArray::loadTextures(std::vector<std::string> &filePaths, TextureType
     
     if (type == DIFFUSE)
         diffuseTextureArray = textureArray;
+	if (type == NORMAL)
+		normalTextureArray = textureArray;
 }
 
 TextureArray::~TextureArray() {
     std::cout << "TextureArray->release()" << std::endl;
     diffuseTextureArray->release();
+	normalTextureArray->release();
 }

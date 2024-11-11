@@ -361,7 +361,9 @@ void MTLEngine::encodeRenderCommand(MTL::RenderCommandEncoder* renderCommandEnco
     simd_float4 lightPosition = simd_make_float4(2 * cos(glfwGetTime()), 0.6,-0.5, 1);
     renderCommandEncoder->setFragmentBytes(&lightPosition, sizeof(lightPosition), 2);
     renderCommandEncoder->setFragmentTexture(mesh->diffuseTextures, 3);
-    renderCommandEncoder->setFragmentBuffer(mesh->diffuseTextureInfos, 0, 4);
+	renderCommandEncoder->setFragmentTexture(mesh->normalTextures, 4);
+    renderCommandEncoder->setFragmentBuffer(mesh->diffuseTextureInfos, 0, 5);
+	renderCommandEncoder->setFragmentBuffer(mesh->normalTextureInfos, 0, 6);
     
     // Tell the input assembler to draw triangles
     MTL::PrimitiveType typeTriangle = MTL::PrimitiveTypeTriangle;

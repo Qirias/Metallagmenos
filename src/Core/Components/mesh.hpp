@@ -69,7 +69,8 @@ private:
     
     std::vector<Vertex>                     vertices;
     std::vector<uint32_t>                   vertexIndices;
-    TextureArray*                           textures;
+    TextureArray*                           diffuseTexturesArray;
+	TextureArray*                           normalTexturesArray;
     std::unordered_map<Vertex, uint32_t>    vertexMap;
     
 public:
@@ -78,5 +79,7 @@ public:
     MTL::Buffer*    indexBuffer;
     unsigned long   indexCount;
     MTL::Texture*   diffuseTextures;
+	MTL::Texture*   normalTextures;
     MTL::Buffer*    diffuseTextureInfos;
+	MTL::Buffer*    normalTextureInfos;
 };

@@ -106,21 +106,21 @@ void MTLEngine::initWindow() {
 }
 
 void MTLEngine::loadMeshes() {
-//    std::string smgPath = std::string(MODELS_PATH) + "/SMG/smg.obj";
-//    mesh = new Mesh(smgPath.c_str(), metalDevice);
+    std::string smgPath = std::string(SCENES_PATH) + "/sponza/sponza.obj";
+    mesh = new Mesh(smgPath.c_str(), metalDevice);
 //	
 	
      GLTFLoader gltfLoader(metalDevice);
 	
-     std::string modelPath = std::string(SCENES_PATH) + "/DamagedHelmet/DamagedHelmet.gltf";
-     auto gltfModel = gltfLoader.loadModel(modelPath);
-	
-	// Create mesh from the loaded data
-	mesh = new Mesh(metalDevice,
-				  gltfModel.vertices.data(),
-				  gltfModel.vertices.size(),
-				  gltfModel.indices.data(),
-				  gltfModel.indices.size());
+//     std::string modelPath = std::string(SCENES_PATH) + "/DamagedHelmet/DamagedHelmet.gltf";
+//     auto gltfModel = gltfLoader.loadModel(modelPath);
+//	
+//	// Create mesh from the loaded data
+//	mesh = new Mesh(metalDevice,
+//				  gltfModel.vertices.data(),
+//				  gltfModel.vertices.size(),
+//				  gltfModel.indices.data(),
+//				  gltfModel.indices.size());
 	
 
     VertexData lightSource[] = {
@@ -333,7 +333,7 @@ void MTLEngine::encodeRenderCommand(MTL::RenderCommandEncoder* renderCommandEnco
     renderCommandEncoder->setFrontFacingWinding(MTL::WindingCounterClockwise);
 	renderCommandEncoder->setCullMode(MTL::CullModeBack);
 
-    renderCommandEncoder->setTriangleFillMode(MTL::TriangleFillModeLines);
+//    renderCommandEncoder->setTriangleFillMode(MTL::TriangleFillModeLines);
     renderCommandEncoder->setRenderPipelineState(metalRenderPSO);
     renderCommandEncoder->setDepthStencilState(depthStencilState);
     renderCommandEncoder->setVertexBuffer(mesh->vertexBuffer, 0, 0);
@@ -348,7 +348,7 @@ void MTLEngine::encodeRenderCommand(MTL::RenderCommandEncoder* renderCommandEnco
     
     // Update your model-view-projection matrices
     matrix_float4x4 rotationMatrix = matrix4x4_rotation(90 * (M_PI / 180.0f), 1.0, 0.0, 0.0);
-    matrix_float4x4 modelMatrix = matrix4x4_translation(0.0f, 0.0f, 0.0f) * rotationMatrix;
+	matrix_float4x4 modelMatrix = matrix4x4_translation(0.0f, 0.0f, 0.0f);// * rotationMatrix;
     
     // Send matrices to shaders
     renderCommandEncoder->setVertexBytes(&modelMatrix, sizeof(modelMatrix), 1);
@@ -357,11 +357,11 @@ void MTLEngine::encodeRenderCommand(MTL::RenderCommandEncoder* renderCommandEnco
 
     // Set up the light source
     simd_float4 lightColor = simd_make_float4(1.0, 1.0, 1.0, 1.0);
-//    renderCommandEncoder->setFragmentBytes(&lightColor, sizeof(lightColor), 1);
+    renderCommandEncoder->setFragmentBytes(&lightColor, sizeof(lightColor), 1);
     simd_float4 lightPosition = simd_make_float4(2 * cos(glfwGetTime()), 0.6,-0.5, 1);
-//    renderCommandEncoder->setFragmentBytes(&lightPosition, sizeof(lightPosition), 2);
-//    renderCommandEncoder->setFragmentTexture(mesh->diffuseTextures, 3);
-//    renderCommandEncoder->setFragmentBuffer(mesh->diffuseTextureInfos, 0, 4);
+    renderCommandEncoder->setFragmentBytes(&lightPosition, sizeof(lightPosition), 2);
+    renderCommandEncoder->setFragmentTexture(mesh->diffuseTextures, 3);
+    renderCommandEncoder->setFragmentBuffer(mesh->diffuseTextureInfos, 0, 4);
     
     // Tell the input assembler to draw triangles
     MTL::PrimitiveType typeTriangle = MTL::PrimitiveTypeTriangle;

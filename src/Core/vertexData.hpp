@@ -4,8 +4,8 @@
 using namespace simd;
 
 struct Vertex {
-    float3 position;
-    float3 normal;
+    float4 position;
+    float4 normal;
     float2 textureCoordinate;
     int diffuseTextureIndex;
     float3 padding;

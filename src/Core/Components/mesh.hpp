@@ -47,8 +47,8 @@ namespace std {
 
     template<> struct hash<Vertex> {
         size_t operator()(Vertex const& vertex) const {
-            size_t h1 = hash<float3>{}(vertex.position);
-            size_t h2 = hash<float3>{}(vertex.normal);
+            size_t h1 = hash<float3>{}(vertex.position.xyz);
+            size_t h2 = hash<float3>{}(vertex.normal.xyz);
             size_t h3 = hash<float2>{}(vertex.textureCoordinate);
             size_t h4 = hash<int>{}(vertex.diffuseTextureIndex);
             

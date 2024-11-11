@@ -61,13 +61,18 @@ void Mesh::loadObj(std::string filePath) {
     // Load Textures
     std::vector<std::string> diffuseFilePaths;
     std::cout << "Loading Textures..." << std::endl;
-    for(int i = 0; i < materials.size(); i++) {
-        if (!materials[i].diffuse_texname.empty()) {
-            std::cout << count+1 << ".) " << baseDirectory + materials[i].diffuse_texname << std::endl;
-            diffuseFilePaths.push_back(baseDirectory + materials[i].diffuse_texname);
-            diffuseTextureIndexMap[materials[i].diffuse_texname] = count++;
-        }
-    }
+	for(int i = 0; i < materials.size(); i++) {
+		if (!materials[i].diffuse_texname.empty()) {
+			std::string texturePath = baseDirectory + materials[i].diffuse_texname;
+			
+			// Replace any backslashes with forward slashes
+			std::replace(texturePath.begin(), texturePath.end(), '\\', '/');
+			
+			std::cout << count + 1 << ".) " << texturePath << std::endl;
+			diffuseFilePaths.push_back(texturePath);
+			diffuseTextureIndexMap[materials[i].diffuse_texname] = count++;
+		}
+	}
 
     textures = new TextureArray(diffuseFilePaths,
                                 device);
@@ -93,12 +98,14 @@ void Mesh::loadObj(std::string filePath) {
                     vertexArrays.vertices[3 * idx.vertex_index + 0],
                     vertexArrays.vertices[3 * idx.vertex_index + 1],
                     vertexArrays.vertices[3 * idx.vertex_index + 2],
+					0.0f
                 };
                 // Vertex Normal
                 vertex.normal = {
                     vertexArrays.normals[3 * idx.normal_index + 0],
                     vertexArrays.normals[3 * idx.normal_index + 1],
-                    vertexArrays.normals[3 * idx.normal_index + 2]
+                    vertexArrays.normals[3 * idx.normal_index + 2],
+					0.0f
                 };
                 // Vertex Texture Coordinates
                 vertex.textureCoordinate = {

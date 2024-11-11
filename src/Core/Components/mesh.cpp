@@ -169,7 +169,7 @@ void Mesh::loadObj(std::string filePath) {
 				if (idx.texcoord_index >= 0) {
 					vertex.textureCoordinate = {
 						vertexArrays.texcoords[2 * idx.texcoord_index + 0],
-						1.0f - vertexArrays.texcoords[2 * idx.texcoord_index + 1]
+						vertexArrays.texcoords[2 * idx.texcoord_index + 1]
 					};
 				}
 				

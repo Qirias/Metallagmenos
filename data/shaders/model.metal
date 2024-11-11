@@ -1,7 +1,3 @@
-//
-//  cube.metal
-//  MetalTutorial
-//
 #define METAL
 #include <metal_stdlib>
 using namespace metal;
@@ -24,7 +20,6 @@ struct Mesh {
     constant Vertex* vertices;
 };
 
-
 float3 perturbNormal(float3 N, float3 V, float2 texcoord, texture2d_array<float> normalMap,
 					int normalMapIndex, sampler textureSampler) {
 	// Sample the normal map and convert from [0,1] to [-1,1] range
@@ -40,7 +35,6 @@ float3 perturbNormal(float3 N, float3 V, float2 texcoord, texture2d_array<float>
 	float3 T = normalize(Q1 * st2.y - Q2 * st1.y);
 	float3 B = normalize(Q2 * st1.x - Q1 * st2.x);
 	
-	// Create TBN matrix
 	float3x3 TBN = float3x3(T, B, N);
 	
 	return normalize(TBN * tangentNormal);
@@ -95,7 +89,7 @@ fragment float4 fragmentShader(OutData in [[stage_in]],
 			discard_fragment();
 		}
 	} else {
-		baseColor = float4(1.0);  // White default for surfaces without diffuse texture
+		baseColor = float4(0.9608, 0.9608, 0.8627, 1.0); // Beige default for surfaces without diffuse texture
 	}
 	
 	
@@ -116,18 +110,14 @@ fragment float4 fragmentShader(OutData in [[stage_in]],
 	float3 V = normalize(in.fragmentPosition.xyz);
 	float3 R = reflect(-L, N);
 	
-	// Ambient
 	float3 ambient = 0.2 * lightColor.rgb;
 	
-	// Diffuse
 	float diff = max(dot(N, L), 0.0);
 	float3 diffuse = diff * lightColor.rgb;
 	
-	// Specular
 	float spec = pow(max(dot(V, R), 0.0), 32.0);
 	float3 specular = 0.5 * spec * lightColor.rgb;
 	
-	// Final color
 	float3 finalColor = (ambient + diffuse + specular) * baseColor.rgb;
 	
 	return float4(finalColor, baseColor.a);

@@ -358,7 +358,7 @@ void MTLEngine::encodeRenderCommand(MTL::RenderCommandEncoder* renderCommandEnco
     // Set up the light source
     simd_float4 lightColor = simd_make_float4(1.0, 1.0, 1.0, 1.0);
     renderCommandEncoder->setFragmentBytes(&lightColor, sizeof(lightColor), 1);
-    simd_float4 lightPosition = simd_make_float4(2 * cos(glfwGetTime()), 0.6,-0.5, 1);
+    simd_float4 lightPosition = simd_make_float4(2 * cos(glfwGetTime()), 6.0, -0.5, 1);
     renderCommandEncoder->setFragmentBytes(&lightPosition, sizeof(lightPosition), 2);
     renderCommandEncoder->setFragmentTexture(mesh->diffuseTextures, 3);
 	renderCommandEncoder->setFragmentTexture(mesh->normalTextures, 4);
@@ -369,24 +369,23 @@ void MTLEngine::encodeRenderCommand(MTL::RenderCommandEncoder* renderCommandEnco
     MTL::PrimitiveType typeTriangle = MTL::PrimitiveTypeTriangle;
     renderCommandEncoder->drawIndexedPrimitives(typeTriangle, mesh->indexCount, MTL::IndexTypeUInt32, mesh->indexBuffer, 0);
 
-//	
 //	// Light Shader
-//    matrix_float4x4 scaleMatrix = matrix4x4_scale(0.3f, 0.3f, 0.3f);
-//    matrix_float4x4 translationMatrix = matrix4x4_translation(lightPosition.xyz);
-//    
-//    modelMatrix = matrix_identity_float4x4;
-//    modelMatrix = matrix_multiply(scaleMatrix, modelMatrix);
-//    modelMatrix = matrix_multiply(translationMatrix, modelMatrix);
-//    renderCommandEncoder->setFrontFacingWinding(MTL::WindingCounterClockwise);
-//
-//    renderCommandEncoder->setRenderPipelineState(metalLightSourceRenderPSO);
-//    renderCommandEncoder->setVertexBuffer(lightVertexBuffer, 0, 0);
-//    renderCommandEncoder->setVertexBytes(&modelMatrix, sizeof(modelMatrix), 1);
-//    renderCommandEncoder->setVertexBytes(&viewMatrix, sizeof(viewMatrix), 2);
-//    renderCommandEncoder->setVertexBytes(&projectionMatrix, sizeof(projectionMatrix), 3);
-//    typeTriangle = MTL::PrimitiveTypeTriangle;
-//    NS::UInteger vertexStart = 0;
-//    NS::UInteger vertexCount = 6 * 6;
-//    renderCommandEncoder->setFragmentBytes(&lightColor, sizeof(lightColor), 0);
-//    renderCommandEncoder->drawPrimitives(typeTriangle, vertexStart, vertexCount);
+    matrix_float4x4 scaleMatrix = matrix4x4_scale(0.3f, 0.3f, 0.3f);
+    matrix_float4x4 translationMatrix = matrix4x4_translation(lightPosition.xyz);
+    
+    modelMatrix = matrix_identity_float4x4;
+    modelMatrix = matrix_multiply(scaleMatrix, modelMatrix);
+    modelMatrix = matrix_multiply(translationMatrix, modelMatrix);
+    renderCommandEncoder->setFrontFacingWinding(MTL::WindingCounterClockwise);
+
+    renderCommandEncoder->setRenderPipelineState(metalLightSourceRenderPSO);
+    renderCommandEncoder->setVertexBuffer(lightVertexBuffer, 0, 0);
+    renderCommandEncoder->setVertexBytes(&modelMatrix, sizeof(modelMatrix), 1);
+    renderCommandEncoder->setVertexBytes(&viewMatrix, sizeof(viewMatrix), 2);
+    renderCommandEncoder->setVertexBytes(&projectionMatrix, sizeof(projectionMatrix), 3);
+    typeTriangle = MTL::PrimitiveTypeTriangle;
+    NS::UInteger vertexStart = 0;
+    NS::UInteger vertexCount = 6 * 6;
+    renderCommandEncoder->setFragmentBytes(&lightColor, sizeof(lightColor), 0);
+    renderCommandEncoder->drawPrimitives(typeTriangle, vertexStart, vertexCount);
 }

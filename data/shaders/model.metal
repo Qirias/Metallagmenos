@@ -73,7 +73,14 @@ fragment float4 fragmentShader(OutData in [[stage_in]],
 							 constant TextureInfo* diffuseTextureInfos [[buffer(5)]],
 							 constant TextureInfo* normalTextureInfos [[buffer(6)]]) {
 	
-	constexpr sampler textureSampler(mag_filter::linear, min_filter::linear);
+	constexpr sampler textureSampler(
+		mag_filter::linear,
+		min_filter::linear,
+		mip_filter::linear,  // Add mip filtering if you have mipmaps
+		address::repeat,     // This makes the texture repeat instead of stretch
+		s_address::repeat,   // Explicit repeat for s coordinate
+		t_address::repeat    // Explicit repeat for t coordinate
+	);
 	
 	// Get base color
 	float4 baseColor;
@@ -91,6 +98,7 @@ fragment float4 fragmentShader(OutData in [[stage_in]],
 		baseColor = float4(1.0);  // White default for surfaces without diffuse texture
 	}
 	
+	
 	// Calculate normal from normal map if available
 	float3 N = normalize(in.normal.xyz);
 	if (in.normalTextureIndex >= 0 && (uint)in.normalTextureIndex < normalTextures.get_array_size()) {
@@ -105,7 +113,7 @@ fragment float4 fragmentShader(OutData in [[stage_in]],
 	
 	// Lighting calculations with the new normal
 	float3 L = normalize(lightPosition.xyz - in.fragmentPosition.xyz);
-	float3 V = normalize(-in.fragmentPosition.xyz);
+	float3 V = normalize(in.fragmentPosition.xyz);
 	float3 R = reflect(-L, N);
 	
 	// Ambient

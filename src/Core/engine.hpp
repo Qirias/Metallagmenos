@@ -94,5 +94,6 @@ private:
 
     MTL::SamplerState*          samplerState;
 
-    Texture*                    grassTexture;
+	float 						sunAzimuth = 0.0f;
+	float 						sunAltitude = 45.0f;
 };

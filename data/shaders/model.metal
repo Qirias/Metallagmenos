@@ -106,7 +106,7 @@ fragment float4 fragmentShader(OutData in [[stage_in]],
 	}
 	
 	// Lighting calculations with the new normal
-	float3 L = normalize(lightPosition.xyz - in.fragmentPosition.xyz);
+	float3 L = normalize(lightPosition.xyz);
 	float3 V = normalize(in.fragmentPosition.xyz);
 	float3 R = reflect(-L, N);
 	

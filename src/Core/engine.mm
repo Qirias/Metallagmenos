@@ -108,12 +108,10 @@ void MTLEngine::initWindow() {
 void MTLEngine::loadMeshes() {
     std::string smgPath = std::string(SCENES_PATH) + "/sponza/sponza.obj";
     mesh = new Mesh(smgPath.c_str(), metalDevice);
-//	
 	
-     GLTFLoader gltfLoader(metalDevice);
-	
-//     std::string modelPath = std::string(SCENES_PATH) + "/DamagedHelmet/DamagedHelmet.gltf";
-//     auto gltfModel = gltfLoader.loadModel(modelPath);
+//	GLTFLoader gltfLoader(metalDevice);
+//	std::string modelPath = std::string(SCENES_PATH) + "/DamagedHelmet/DamagedHelmet.gltf";
+//	auto gltfModel = gltfLoader.loadModel(modelPath);
 //	
 //	// Create mesh from the loaded data
 //	mesh = new Mesh(metalDevice,
@@ -330,36 +328,50 @@ void MTLEngine::sendRenderCommand() {
 }
 
 void MTLEngine::encodeRenderCommand(MTL::RenderCommandEncoder* renderCommandEncoder) {
-    renderCommandEncoder->setFrontFacingWinding(MTL::WindingCounterClockwise);
+	renderCommandEncoder->setFrontFacingWinding(MTL::WindingCounterClockwise);
 	renderCommandEncoder->setCullMode(MTL::CullModeBack);
-
-//    renderCommandEncoder->setTriangleFillMode(MTL::TriangleFillModeLines);
-    renderCommandEncoder->setRenderPipelineState(metalRenderPSO);
-    renderCommandEncoder->setDepthStencilState(depthStencilState);
-    renderCommandEncoder->setVertexBuffer(mesh->vertexBuffer, 0, 0);
-
-    // Aspect ratio should match the ratio between the window width and height,
-    // otherwise the image will look stretched.
-    float aspectRatio = metalDrawable->layer()->drawableSize().width / 
-                        metalDrawable->layer()->drawableSize().height;
-
-    matrix_float4x4 viewMatrix = camera.getViewMatrix();
-    matrix_float4x4 projectionMatrix = camera.getProjectionMatrix(aspectRatio);
-    
-    // Update your model-view-projection matrices
-    matrix_float4x4 rotationMatrix = matrix4x4_rotation(90 * (M_PI / 180.0f), 1.0, 0.0, 0.0);
+	
+	//    renderCommandEncoder->setTriangleFillMode(MTL::TriangleFillModeLines);
+	renderCommandEncoder->setRenderPipelineState(metalRenderPSO);
+	renderCommandEncoder->setDepthStencilState(depthStencilState);
+	renderCommandEncoder->setVertexBuffer(mesh->vertexBuffer, 0, 0);
+	
+	// Aspect ratio should match the ratio between the window width and height,
+	// otherwise the image will look stretched.
+	float aspectRatio = metalDrawable->layer()->drawableSize().width /
+	metalDrawable->layer()->drawableSize().height;
+	
+	matrix_float4x4 viewMatrix = camera.getViewMatrix();
+	matrix_float4x4 projectionMatrix = camera.getProjectionMatrix(aspectRatio);
+	
+	// Update your model-view-projection matrices
+	matrix_float4x4 rotationMatrix = matrix4x4_rotation(90 * (M_PI / 180.0f), 1.0, 0.0, 0.0);
 	matrix_float4x4 modelMatrix = matrix4x4_translation(0.0f, 0.0f, 0.0f);// * rotationMatrix;
-    
-    // Send matrices to shaders
-    renderCommandEncoder->setVertexBytes(&modelMatrix, sizeof(modelMatrix), 1);
-    renderCommandEncoder->setVertexBytes(&viewMatrix, sizeof(viewMatrix), 2);
-    renderCommandEncoder->setVertexBytes(&projectionMatrix, sizeof(projectionMatrix), 3);
-
+	
+	// Send matrices to shaders
+	renderCommandEncoder->setVertexBytes(&modelMatrix, sizeof(modelMatrix), 1);
+	renderCommandEncoder->setVertexBytes(&viewMatrix, sizeof(viewMatrix), 2);
+	renderCommandEncoder->setVertexBytes(&projectionMatrix, sizeof(projectionMatrix), 3);
+	
+	sunAzimuth += 0.5f; // Increase the azimuth (horizontal angle) over time
+	if (sunAzimuth >= 360.0f) {
+		sunAzimuth -= 360.0f;
+	}
+	
+	// Calculate the light direction based on the sun position
+	float3 lightDirection = float3{
+		cosf(sunAzimuth * M_PI / 180.0f) * cosf(sunAltitude * M_PI / 180.0f),
+		sinf(sunAltitude * M_PI / 180.0f),
+		sinf(sunAzimuth * M_PI / 180.0f) * cosf(sunAltitude * M_PI / 180.0f)
+	};
+	simd_float4 lightDir = simd_make_float4(lightDirection.x, lightDirection.y, lightDirection.z, 0.0);
+	
     // Set up the light source
     simd_float4 lightColor = simd_make_float4(1.0, 1.0, 1.0, 1.0);
     renderCommandEncoder->setFragmentBytes(&lightColor, sizeof(lightColor), 1);
-    simd_float4 lightPosition = simd_make_float4(2 * cos(glfwGetTime()), 6.0, -0.5, 1);
-    renderCommandEncoder->setFragmentBytes(&lightPosition, sizeof(lightPosition), 2);
+	simd_float4 lightPosition = simd_make_float4(-0.5, -1.0, 1.0, 0.0);
+	
+	renderCommandEncoder->setFragmentBytes(&lightDir, sizeof(lightDir), 2);
     renderCommandEncoder->setFragmentTexture(mesh->diffuseTextures, 3);
 	renderCommandEncoder->setFragmentTexture(mesh->normalTextures, 4);
     renderCommandEncoder->setFragmentBuffer(mesh->diffuseTextureInfos, 0, 5);
@@ -370,22 +382,22 @@ void MTLEngine::encodeRenderCommand(MTL::RenderCommandEncoder* renderCommandEnco
     renderCommandEncoder->drawIndexedPrimitives(typeTriangle, mesh->indexCount, MTL::IndexTypeUInt32, mesh->indexBuffer, 0);
 
 //	// Light Shader
-    matrix_float4x4 scaleMatrix = matrix4x4_scale(0.3f, 0.3f, 0.3f);
-    matrix_float4x4 translationMatrix = matrix4x4_translation(lightPosition.xyz);
-    
-    modelMatrix = matrix_identity_float4x4;
-    modelMatrix = matrix_multiply(scaleMatrix, modelMatrix);
-    modelMatrix = matrix_multiply(translationMatrix, modelMatrix);
-    renderCommandEncoder->setFrontFacingWinding(MTL::WindingCounterClockwise);
-
-    renderCommandEncoder->setRenderPipelineState(metalLightSourceRenderPSO);
-    renderCommandEncoder->setVertexBuffer(lightVertexBuffer, 0, 0);
-    renderCommandEncoder->setVertexBytes(&modelMatrix, sizeof(modelMatrix), 1);
-    renderCommandEncoder->setVertexBytes(&viewMatrix, sizeof(viewMatrix), 2);
-    renderCommandEncoder->setVertexBytes(&projectionMatrix, sizeof(projectionMatrix), 3);
-    typeTriangle = MTL::PrimitiveTypeTriangle;
-    NS::UInteger vertexStart = 0;
-    NS::UInteger vertexCount = 6 * 6;
-    renderCommandEncoder->setFragmentBytes(&lightColor, sizeof(lightColor), 0);
-    renderCommandEncoder->drawPrimitives(typeTriangle, vertexStart, vertexCount);
+//    matrix_float4x4 scaleMatrix = matrix4x4_scale(0.3f, 0.3f, 0.3f);
+//    matrix_float4x4 translationMatrix = matrix4x4_translation(lightPosition.xyz);
+//    
+//    modelMatrix = matrix_identity_float4x4;
+//    modelMatrix = matrix_multiply(scaleMatrix, modelMatrix);
+//    modelMatrix = matrix_multiply(translationMatrix, modelMatrix);
+//    renderCommandEncoder->setFrontFacingWinding(MTL::WindingCounterClockwise);
+//
+//    renderCommandEncoder->setRenderPipelineState(metalLightSourceRenderPSO);
+//    renderCommandEncoder->setVertexBuffer(lightVertexBuffer, 0, 0);
+//    renderCommandEncoder->setVertexBytes(&modelMatrix, sizeof(modelMatrix), 1);
+//    renderCommandEncoder->setVertexBytes(&viewMatrix, sizeof(viewMatrix), 2);
+//    renderCommandEncoder->setVertexBytes(&projectionMatrix, sizeof(projectionMatrix), 3);
+//    typeTriangle = MTL::PrimitiveTypeTriangle;
+//    NS::UInteger vertexStart = 0;
+//    NS::UInteger vertexCount = 6 * 6;
+//    renderCommandEncoder->setFragmentBytes(&lightColor, sizeof(lightColor), 0);
+//    renderCommandEncoder->drawPrimitives(typeTriangle, vertexStart, vertexCount);
 }

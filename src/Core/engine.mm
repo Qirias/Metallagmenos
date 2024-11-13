@@ -4,9 +4,7 @@ Engine::Engine()
 : camera(simd::float3{0.0f, 0.0f, 3.0f})
 , lastFrame(0.0f)
 , frameNumber(0)
-, currentFrameIndex(0)
-, sunAzimuth(0)
-, sunAltitude(45) {
+, currentFrameIndex(0) {
 	inFlightSemaphore = dispatch_semaphore_create(MaxFramesInFlight);
 
     for (int i = 0; i < MaxFramesInFlight; i++) {
@@ -22,8 +20,8 @@ void Engine::init() {
 	loadScene();
     createBuffers();
     createDefaultLibrary();
-    createRenderPipeline();
-    createDepthAndMSAATextures();
+    createRenderPipelines();
+    createDepthTexture();
     createRenderPassDescriptor();
 }
 
@@ -52,9 +50,12 @@ void Engine::cleanup() {
 		frameDataBuffers[i]->release();
     }
 	
-    msaaRenderTargetTexture->release();
     depthTexture->release();
+	shadowMap->release();
     renderPassDescriptor->release();
+	shadowRenderPassDescriptor->release();
+    metalRenderPSO->release();
+    shadowPipelineState->release();
     metalDevice->release();
 }
 
@@ -80,15 +81,11 @@ void Engine::cursorPosCallback(GLFWwindow* window, double xpos, double ypos) {
 void Engine::resizeFrameBuffer(int width, int height) {
     metalLayer.drawableSize = CGSizeMake(width, height);
     // Deallocate the textures if they have been created
-    if (msaaRenderTargetTexture) {
-        msaaRenderTargetTexture->release();
-        msaaRenderTargetTexture = nullptr;
-    }
     if (depthTexture) {
         depthTexture->release();
         depthTexture = nullptr;
     }
-    createDepthAndMSAATextures();
+    createDepthTexture();
     metalDrawable = (__bridge CA::MetalDrawable*)[metalLayer nextDrawable];
     updateRenderPassDescriptor();
 }
@@ -123,7 +120,7 @@ void Engine::initWindow() {
 }
 
 MTL::CommandBuffer* Engine::beginFrame(bool isPaused) {
-    
+
     // Wait on the semaphore for the current frame
     dispatch_semaphore_wait(frameSemaphores[currentFrameIndex], DISPATCH_TIME_FOREVER);
 
@@ -132,12 +129,12 @@ MTL::CommandBuffer* Engine::beginFrame(bool isPaused) {
 
     updateWorldState(isPaused);
 
-    // The idea is begin frame for the drawShadow, commit, and then draw the drawables
-    // After this moment we are supposed to draw the g-buffer geometry later on
-    // return command buffer here and after you drawShadow commit it
+    /// The idea is begin frame for the drawShadow, commit, and then draw the drawables
+    /// After this moment we are supposed to draw the g-buffer geometry later on
+    /// return command buffer here and after you drawShadow commit it
 
-    // then create another command buffer for g-buffer
-    // MTL::CommandBuffer* commandBuffer = metalCommandQueue->commandBuffer();
+    /// then create another command buffer for g-buffer
+    /// MTL::CommandBuffer* commandBuffer = metalCommandQueue->commandBuffer();
 
     /// Perform operations necessary to obtain a command buffer for rendering to the drawable. By
     /// endoding commands that are not dependant on the drawable in a separate command buffer, Metal
@@ -227,106 +224,197 @@ void Engine::updateWorldState(bool isPaused) {
     frameData->framebuffer_width = (uint)metalLayer.drawableSize.width;
     frameData->framebuffer_height = (uint)metalLayer.drawableSize.height;
 
-    sunAzimuth += 0.5f; // Increase the azimuth (horizontal angle) over time
-	if (sunAzimuth >= 360.0f) {
-		sunAzimuth -= 360.0f;
+    frameData->sun_color = simd_make_float4(1.0, 1.0, 1.0, 1.0);
+	
+	
+	float skyRotation = frameNumber * 0.005f - (M_PI_4*3);
+
+	float3 skyRotationAxis = {0, 1, 0};
+	float4x4 skyModelMatrix = matrix4x4_rotation(skyRotation, skyRotationAxis);
+	frameData->sky_modelview_matrix = skyModelMatrix;
+
+	// Update directional light color
+	float4 sun_color = {0.5, 0.5, 0.5, 1.0};
+	frameData->sun_color = sun_color;
+	frameData->sun_specular_intensity = 1;
+
+	// Update sun direction in view space
+	float4 sunModelPosition = {-0.25, -0.5, 1.0, 0.0};
+	float4 sunWorldPosition = skyModelMatrix * sunModelPosition;
+	float4 sunWorldDirection = -sunWorldPosition;
+
+	frameData->sun_eye_direction = /*frameData->view_matrix * */ sunWorldDirection; // I will need to change this in deferred?
+
+	{
+		float4 directionalLightUpVector = {0.0, 1.0, 1.0, 1.0};
+
+		directionalLightUpVector = skyModelMatrix * directionalLightUpVector;
+		directionalLightUpVector.xyz = normalize(directionalLightUpVector.xyz);
+
+		float4x4 shadowViewMatrix = matrix_look_at_left_hand(sunWorldDirection.xyz / 10, // adjust based on scene scale
+																 (float3){0,0,0},
+																 directionalLightUpVector.xyz);
+
+		// If scene changes multiply the model with shadowViewMatrx
+		float4x4 objectModelMatrix = matrix4x4_translation(0.0f, 0.0f, 0.0f); // sponza is set in this position
+		frameData->shadow_mvp_matrix = shadowProjectionMatrix * shadowViewMatrix * objectModelMatrix;
 	}
 
-    sunDirection = float4{
-        cosf(sunAzimuth * M_PI / 180.0f) * cosf(sunAltitude * M_PI / 180.0f),
-		sinf(sunAltitude * M_PI / 180.0f),
-		sinf(sunAzimuth * M_PI / 180.0f) * cosf(sunAltitude * M_PI / 180.0f),
-        0.0
-    };
+	{
+		// When calculating texture coordinates to sample from shadow map, flip the y/t coordinate and
+		// convert from the [-1, 1] range of clip coordinates to [0, 1] range of
+		// used for texture sampling
+		float4x4 shadowScale = matrix4x4_scale(0.5f, -0.5f, 1.0);
+		float4x4 shadowTranslate = matrix4x4_translation(0.5, 0.5, 0);
+		float4x4 shadowTransform = shadowTranslate * shadowScale;
 
-    frameData->sunDirection = sunDirection;
-    frameData->sunColor = simd_make_float4(1.0, 1.0, 1.0, 1.0);
+		frameData->shadow_mvp_xform_matrix = shadowTransform * frameData->shadow_mvp_matrix;
+	}
 }
 
 void Engine::createCommandQueue() {
     metalCommandQueue = metalDevice->newCommandQueue();
 }
 
-void Engine::createRenderPipeline() {
-    MTL::Function* vertexShader = metalDefaultLibrary->newFunction(NS::String::string("vertexShader", NS::ASCIIStringEncoding));
-    assert(vertexShader);
-    MTL::Function* fragmentShader = metalDefaultLibrary->newFunction(NS::String::string("fragmentShader", NS::ASCIIStringEncoding));
-    assert(fragmentShader);
-
-    MTL::RenderPipelineDescriptor* renderPipelineDescriptor = MTL::RenderPipelineDescriptor::alloc()->init();
-    renderPipelineDescriptor->setVertexFunction(vertexShader);
-    renderPipelineDescriptor->setFragmentFunction(fragmentShader);
-    assert(renderPipelineDescriptor);
-    MTL::PixelFormat pixelFormat = (MTL::PixelFormat)metalLayer.pixelFormat;
-    renderPipelineDescriptor->colorAttachments()->object(0)->setPixelFormat(pixelFormat);
-    renderPipelineDescriptor->setSampleCount(sampleCount);
-    renderPipelineDescriptor->setDepthAttachmentPixelFormat(MTL::PixelFormatDepth32Float);
-
+void Engine::createRenderPipelines() {
     NS::Error* error;
-    metalRenderPSO = metalDevice->newRenderPipelineState(renderPipelineDescriptor, &error);
 
-    if (metalRenderPSO == nil) {
-        std::cout << "Error creating render pipeline state: " << error << std::endl;
-        std::exit(0);
+    #pragma mark render pipeline setup
+    {
+        {
+            MTL::Function* vertexShader = metalDefaultLibrary->newFunction(NS::String::string("vertexShader", NS::ASCIIStringEncoding));
+            assert(vertexShader);
+            MTL::Function* fragmentShader = metalDefaultLibrary->newFunction(NS::String::string("fragmentShader", NS::ASCIIStringEncoding));
+            assert(fragmentShader);
+
+            MTL::RenderPipelineDescriptor* renderPipelineDescriptor = MTL::RenderPipelineDescriptor::alloc()->init();
+            renderPipelineDescriptor->setVertexFunction(vertexShader);
+            renderPipelineDescriptor->setFragmentFunction(fragmentShader);
+            assert(renderPipelineDescriptor);
+            MTL::PixelFormat pixelFormat = (MTL::PixelFormat)metalLayer.pixelFormat;
+            renderPipelineDescriptor->colorAttachments()->object(0)->setPixelFormat(pixelFormat);
+            renderPipelineDescriptor->setSampleCount(1);
+            renderPipelineDescriptor->setDepthAttachmentPixelFormat(MTL::PixelFormatDepth16Unorm);
+
+            metalRenderPSO = metalDevice->newRenderPipelineState(renderPipelineDescriptor, &error);
+
+            if (metalRenderPSO == nil) {
+                std::cout << "Error creating render pipeline state: " << error << std::endl;
+                std::exit(0);
+            }
+
+            MTL::DepthStencilDescriptor* depthStencilDescriptor = MTL::DepthStencilDescriptor::alloc()->init();
+            depthStencilDescriptor->setDepthCompareFunction(MTL::CompareFunctionLessEqual);
+            depthStencilDescriptor->setDepthWriteEnabled(true);
+            depthStencilState = metalDevice->newDepthStencilState(depthStencilDescriptor);
+
+            renderPipelineDescriptor->release();
+            vertexShader->release();
+            fragmentShader->release();
+        }
+
+        // Setup objects for shadow pass
+        {
+            MTL::PixelFormat shadowMapPixelFormat = MTL::PixelFormatDepth16Unorm;
+
+            #pragma mark shadow pass render pipeline setup
+            {
+                MTL::Function* shadowVertexFunction = metalDefaultLibrary->newFunction(NS::String::string("shadow_vertex", NS::ASCIIStringEncoding));
+
+                assert(shadowVertexFunction && "Failed to load shadow_vertex shader");
+
+                MTL::RenderPipelineDescriptor* renderPipelineDescriptor = MTL::RenderPipelineDescriptor::alloc()->init();
+                renderPipelineDescriptor->setLabel(NS::String::string("Shadow Gen", NS::ASCIIStringEncoding));
+                renderPipelineDescriptor->setVertexDescriptor(nullptr);
+                renderPipelineDescriptor->setVertexFunction(shadowVertexFunction);
+                renderPipelineDescriptor->setFragmentFunction(nullptr);
+                renderPipelineDescriptor->setDepthAttachmentPixelFormat(shadowMapPixelFormat);
+
+                shadowPipelineState = metalDevice->newRenderPipelineState(renderPipelineDescriptor, &error);
+                
+                assert(error == nil && "Failed to create shadow map render pipeline state");
+
+                renderPipelineDescriptor->release();
+                shadowVertexFunction->release();
+            }
+
+            #pragma mark shadow pass depth state setup
+            {
+                MTL::DepthStencilDescriptor* depthStencilDescriptor = MTL::DepthStencilDescriptor::alloc()->init();
+                depthStencilDescriptor->setLabel( NS::String::string("Shadow Gen", NS::ASCIIStringEncoding));
+                depthStencilDescriptor->setDepthCompareFunction(MTL::CompareFunctionLessEqual);
+                depthStencilDescriptor->setDepthWriteEnabled(true);
+                shadowDepthStencilState = metalDevice->newDepthStencilState( depthStencilDescriptor );
+                depthStencilDescriptor->release();
+            }
+
+            #pragma mark Shadow map setup
+            {
+                MTL::TextureDescriptor* shadowTextureDesc = MTL::TextureDescriptor::alloc()->init();
+
+                shadowTextureDesc->setPixelFormat(shadowMapPixelFormat);
+                shadowTextureDesc->setWidth(2048);
+                shadowTextureDesc->setHeight(2048);
+                shadowTextureDesc->setMipmapLevelCount(1);
+                shadowTextureDesc->setResourceOptions(MTL::ResourceStorageModePrivate);
+                shadowTextureDesc->setUsage(MTL::TextureUsageRenderTarget | MTL::TextureUsageShaderRead);
+
+                shadowMap = metalDevice->newTexture(shadowTextureDesc);
+                shadowMap->setLabel( NS::String::string("Shadow Map", NS::ASCIIStringEncoding));
+                
+                shadowTextureDesc->release();
+            }
+
+            #pragma mark Shadow render pass descriptor setup
+            {
+                shadowRenderPassDescriptor = MTL::RenderPassDescriptor::alloc()->init();
+                shadowRenderPassDescriptor->depthAttachment()->setTexture(shadowMap);
+                shadowRenderPassDescriptor->depthAttachment()->setLoadAction(MTL::LoadActionClear);
+                shadowRenderPassDescriptor->depthAttachment()->setStoreAction(MTL::StoreActionStore);
+                shadowRenderPassDescriptor->depthAttachment()->setClearDepth(1.0);
+            }
+
+            // Calculate projection matrix to render shadows
+            {
+				// left, right, bottom, top, near, far
+                shadowProjectionMatrix = matrix_ortho_left_hand(-23, 23, -3, 23, -23, 23);
+            }
+        }
     }
-
-    MTL::DepthStencilDescriptor* depthStencilDescriptor = MTL::DepthStencilDescriptor::alloc()->init();
-    depthStencilDescriptor->setDepthCompareFunction(MTL::CompareFunctionLessEqual);
-    depthStencilDescriptor->setDepthWriteEnabled(true);
-    depthStencilState = metalDevice->newDepthStencilState(depthStencilDescriptor);
-
-    renderPipelineDescriptor->release();
-    vertexShader->release();
-    fragmentShader->release();
 }
 
-void Engine::createDepthAndMSAATextures() {
-    MTL::TextureDescriptor* msaaTextureDescriptor = MTL::TextureDescriptor::alloc()->init();
-    msaaTextureDescriptor->setTextureType(MTL::TextureType2DMultisample);
-    msaaTextureDescriptor->setPixelFormat(MTL::PixelFormatBGRA8Unorm);
-    msaaTextureDescriptor->setWidth(metalLayer.drawableSize.width);
-    msaaTextureDescriptor->setHeight(metalLayer.drawableSize.height);
-    msaaTextureDescriptor->setSampleCount(sampleCount);
-    msaaTextureDescriptor->setUsage(MTL::TextureUsageRenderTarget);
+void Engine::createDepthTexture() {
+	MTL::TextureDescriptor* depthTextureDescriptor = MTL::TextureDescriptor::alloc()->init();
+	depthTextureDescriptor->setPixelFormat(MTL::PixelFormatDepth16Unorm);
+	depthTextureDescriptor->setWidth(metalLayer.drawableSize.width);
+	depthTextureDescriptor->setHeight(metalLayer.drawableSize.height);
+	depthTextureDescriptor->setUsage(MTL::TextureUsageRenderTarget);
+	depthTextureDescriptor->setSampleCount(1);
 
-    msaaRenderTargetTexture = metalDevice->newTexture(msaaTextureDescriptor);
-
-    MTL::TextureDescriptor* depthTextureDescriptor = MTL::TextureDescriptor::alloc()->init();
-    depthTextureDescriptor->setTextureType(MTL::TextureType2DMultisample);
-    depthTextureDescriptor->setPixelFormat(MTL::PixelFormatDepth32Float);
-    depthTextureDescriptor->setWidth(metalLayer.drawableSize.width);
-    depthTextureDescriptor->setHeight(metalLayer.drawableSize.height);
-    depthTextureDescriptor->setUsage(MTL::TextureUsageRenderTarget);
-    depthTextureDescriptor->setSampleCount(sampleCount);
-
-    depthTexture = metalDevice->newTexture(depthTextureDescriptor);
-
-    msaaTextureDescriptor->release();
-    depthTextureDescriptor->release();
+	depthTexture = metalDevice->newTexture(depthTextureDescriptor);
+	depthTextureDescriptor->release();
 }
 
 void Engine::createRenderPassDescriptor() {
-    renderPassDescriptor = MTL::RenderPassDescriptor::alloc()->init();
+	renderPassDescriptor = MTL::RenderPassDescriptor::alloc()->init();
 
-    MTL::RenderPassColorAttachmentDescriptor* colorAttachment = renderPassDescriptor->colorAttachments()->object(0);
-    MTL::RenderPassDepthAttachmentDescriptor* depthAttachment = renderPassDescriptor->depthAttachment();
+	MTL::RenderPassColorAttachmentDescriptor* colorAttachment = renderPassDescriptor->colorAttachments()->object(0);
+	MTL::RenderPassDepthAttachmentDescriptor* depthAttachment = renderPassDescriptor->depthAttachment();
 
-    colorAttachment->setTexture(msaaRenderTargetTexture);
-    colorAttachment->setResolveTexture(metalDrawable->texture());
-    colorAttachment->setLoadAction(MTL::LoadActionClear);
-    colorAttachment->setClearColor(MTL::ClearColor(41.0f/255.0f, 42.0f/255.0f, 48.0f/255.0f, 1.0));
-    colorAttachment->setStoreAction(MTL::StoreActionMultisampleResolve);
+	colorAttachment->setTexture(metalDrawable->texture());
+	colorAttachment->setLoadAction(MTL::LoadActionClear);
+	colorAttachment->setClearColor(MTL::ClearColor(41.0f/255.0f, 42.0f/255.0f, 48.0f/255.0f, 1.0));
+	colorAttachment->setStoreAction(MTL::StoreActionStore);
 
-    depthAttachment->setTexture(depthTexture);
-    depthAttachment->setLoadAction(MTL::LoadActionClear);
-    depthAttachment->setStoreAction(MTL::StoreActionDontCare);
-    depthAttachment->setClearDepth(1.0);
+	depthAttachment->setTexture(depthTexture);
+	depthAttachment->setLoadAction(MTL::LoadActionClear);
+	depthAttachment->setStoreAction(MTL::StoreActionDontCare);
+	depthAttachment->setClearDepth(1.0);
 }
 
 void Engine::updateRenderPassDescriptor() {
-    renderPassDescriptor->colorAttachments()->object(0)->setTexture(msaaRenderTargetTexture);
-    renderPassDescriptor->colorAttachments()->object(0)->setResolveTexture(metalDrawable->texture());
-    renderPassDescriptor->depthAttachment()->setTexture(depthTexture);
+	renderPassDescriptor->colorAttachments()->object(0)->setTexture(metalDrawable->texture());
+	renderPassDescriptor->depthAttachment()->setTexture(depthTexture);
 }
 
 void Engine::drawScene(MTL::RenderCommandEncoder* renderCommandEncoder) {
@@ -334,7 +422,6 @@ void Engine::drawScene(MTL::RenderCommandEncoder* renderCommandEncoder) {
 	renderCommandEncoder->setCullMode(MTL::CullModeBack);
 	
 	//    renderCommandEncoder->setTriangleFillMode(MTL::TriangleFillModeLines);
-	renderCommandEncoder->setRenderPipelineState(metalRenderPSO);
 	renderCommandEncoder->setDepthStencilState(depthStencilState);
 	renderCommandEncoder->setVertexBuffer(mesh->vertexBuffer, 0, 0);
 	
@@ -345,7 +432,6 @@ void Engine::drawScene(MTL::RenderCommandEncoder* renderCommandEncoder) {
 	// Send matrices to shaders
 	renderCommandEncoder->setVertexBytes(&modelMatrix, sizeof(modelMatrix), 1);
     renderCommandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, 2);
-
 		
     // Set up the light source
     renderCommandEncoder->setFragmentBuffer(frameDataBuffers[currentFrameIndex], 0, 0);
@@ -359,10 +445,29 @@ void Engine::drawScene(MTL::RenderCommandEncoder* renderCommandEncoder) {
     renderCommandEncoder->drawIndexedPrimitives(typeTriangle, mesh->indexCount, MTL::IndexTypeUInt32, mesh->indexBuffer, 0);
 }
 
+void Engine::drawShadow(MTL::CommandBuffer* commandBuffer)
+{
+    MTL::RenderCommandEncoder* renderCommandEncoder = commandBuffer->renderCommandEncoder(shadowRenderPassDescriptor);
+
+    renderCommandEncoder->setLabel( NS::String::string("Shadow Map Pass", NS::ASCIIStringEncoding));
+
+    renderCommandEncoder->setRenderPipelineState(shadowPipelineState);
+    renderCommandEncoder->setDepthStencilState(shadowDepthStencilState);
+    renderCommandEncoder->setCullMode(MTL::CullModeBack);
+    renderCommandEncoder->setDepthBias(0.015, 7, 0.02);
+
+	drawScene(renderCommandEncoder);
+
+    renderCommandEncoder->endEncoding();
+}
+
 void Engine::draw() {
     MTL::CommandBuffer* commandBuffer = beginFrame(false);
+    drawShadow(commandBuffer);
+
     updateRenderPassDescriptor();
     MTL::RenderCommandEncoder* renderCommandEncoder = commandBuffer->renderCommandEncoder(renderPassDescriptor);
+	renderCommandEncoder->setRenderPipelineState(metalRenderPSO);
     drawScene(renderCommandEncoder);
     renderCommandEncoder->endEncoding();
     endFrame(commandBuffer, metalDrawable);

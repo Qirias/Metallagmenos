@@ -51,7 +51,7 @@ private:
 	
 	void drawShadow(MTL::CommandBuffer* commandBuffer);
 
-    void createDepthAndMSAATextures();
+    void createDepthTexture();
     void createRenderPassDescriptor();
 
     // resizing window
@@ -59,7 +59,7 @@ private:
 
     void createDefaultLibrary();
     void createCommandQueue();
-    void createRenderPipeline();
+    void createRenderPipelines();
     void createLightSourceRenderPipeline();
 
     void encodeRenderCommand(MTL::RenderCommandEncoder* renderCommandEncoder);
@@ -75,7 +75,7 @@ private:
     uint8_t                                             currentFrameIndex;
 	
 	// Buffers used to store dynamically changing per-frame data
-	MTL::Buffer* frameDataBuffers[MaxFramesInFlight];
+	MTL::Buffer* 		frameDataBuffers[MaxFramesInFlight];
 
     MTL::Device*        metalDevice;
     GLFWwindow*         glfwWindow;
@@ -93,29 +93,29 @@ private:
     static void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
     static void cursorPosCallback(GLFWwindow* window, double xpos, double ypos);
 
+    // Depth stencil states
     MTL::DepthStencilState*     depthStencilState;
+    MTL::DepthStencilState*     shadowDepthStencilState;
+
+    // Renderpass descriptors
     MTL::RenderPassDescriptor*  renderPassDescriptor;
-    MTL::Texture*               msaaRenderTargetTexture = nullptr;
+    MTL::RenderPassDescriptor*  shadowRenderPassDescriptor;
+
     MTL::Texture*               depthTexture;
-    int                         sampleCount = 4;
+    MTL::Texture*               shadowMap;
 
     MTL::Library*               metalDefaultLibrary;
     MTL::CommandQueue*          metalCommandQueue;
-    // MTL::CommandBuffer*         metalCommandBuffer;
+
     MTL::RenderPipelineState*   metalRenderPSO;
+    MTL::RenderPipelineState*   shadowPipelineState;
 
     Mesh*                       mesh;
-    MTL::RenderPipelineState*   metalLightSourceRenderPSO;
-    MTL::Buffer*                lightVertexBuffer;
-    MTL::Buffer*                lightTransformationBuffer;
 
     MTL::SamplerState*          samplerState;
 
     uint64_t                    frameNumber;
     uint8_t                     frameDataBufferIndex;
-	float 						sunAzimuth;
-	float 						sunAltitude;
 
-    // remove these when you set up the frameData buffer
-    simd_float4                 sunDirection;
+    simd::float4x4              shadowProjectionMatrix;
 };

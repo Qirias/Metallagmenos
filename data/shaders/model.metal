@@ -104,17 +104,17 @@ fragment float4 fragmentShader(OutData in [[stage_in]],
 	}
 	
 	// Lighting calculations with the new normal
-	float3 L = normalize(frameData.sunDirection.xyz);
+	float3 L = normalize(frameData.sun_eye_direction.xyz);
 	float3 V = normalize(in.fragmentPosition.xyz);
 	float3 R = reflect(-L, N);
 	
-	float3 ambient = 0.2 * frameData.sunColor.rgb;
+	float3 ambient = 0.2 * frameData.sun_color.rgb;
 	
 	float diff = max(dot(N, L), 0.0);
-	float3 diffuse = diff * frameData.sunColor.rgb;
+	float3 diffuse = diff * frameData.sun_color.rgb;
 	
 	float spec = pow(max(dot(V, R), 0.0), 32.0);
-	float3 specular = 0.5 * spec * frameData.sunColor.rgb;
+	float3 specular = 0.5 * spec * frameData.sun_color.rgb;
 	
 	float3 finalColor = (ambient + diffuse + specular) * baseColor.rgb;
 	

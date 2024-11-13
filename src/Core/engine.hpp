@@ -21,26 +21,35 @@
 #include "components/textureArray.hpp"
 #include "components/camera.hpp"
 #include "components/gltfLoader.hpp"
+#include "../../data/shaders/shaderTypes.hpp"
 
 #include <stb/stb_image.h>
 
 #include <simd/simd.h>
 #include <filesystem>
 
-class MTLEngine {
+constexpr uint8_t MaxFramesInFlight = 3;
+
+class Engine {
 public:
     void init();
     void run();
     void cleanup();
 
-    MTLEngine() : camera(simd::float3{0.0f, 0.0f, 3.0f}), lastFrame(0.0f) {}
+	Engine();
 
 private:
     void initDevice();
     void initWindow();
 
-    void loadMeshes();
+    void loadScene();
     void createBuffers();
+	
+	MTL::CommandBuffer* beginFrame(bool isPaused);
+	void endFrame(MTL::CommandBuffer* commandBuffer, MTL::Drawable* currentDrawable);
+    void updateWorldState(bool isPaused);
+	
+	void drawShadow(MTL::CommandBuffer* commandBuffer);
 
     void createDepthAndMSAATextures();
     void createRenderPassDescriptor();
@@ -53,12 +62,20 @@ private:
     void createRenderPipeline();
     void createLightSourceRenderPipeline();
 
-    void encodeRenderCommand(MTL::RenderCommandEncoder* renderEncoder);
+    void encodeRenderCommand(MTL::RenderCommandEncoder* renderCommandEncoder);
     void sendRenderCommand();
     void draw();
+    void drawScene(MTL::RenderCommandEncoder* renderCommandEncoder);
 
     static void frameBufferSizeCallback(GLFWwindow *window, int width, int height);
     void resizeFrameBuffer(int width, int height);
+	
+	dispatch_semaphore_t                                inFlightSemaphore;
+    std::array<dispatch_semaphore_t, MaxFramesInFlight> frameSemaphores;
+    uint8_t                                             currentFrameIndex;
+	
+	// Buffers used to store dynamically changing per-frame data
+	MTL::Buffer* frameDataBuffers[MaxFramesInFlight];
 
     MTL::Device*        metalDevice;
     GLFWwindow*         glfwWindow;
@@ -84,7 +101,7 @@ private:
 
     MTL::Library*               metalDefaultLibrary;
     MTL::CommandQueue*          metalCommandQueue;
-    MTL::CommandBuffer*         metalCommandBuffer;
+    // MTL::CommandBuffer*         metalCommandBuffer;
     MTL::RenderPipelineState*   metalRenderPSO;
 
     Mesh*                       mesh;
@@ -94,6 +111,11 @@ private:
 
     MTL::SamplerState*          samplerState;
 
-	float 						sunAzimuth = 0.0f;
-	float 						sunAltitude = 45.0f;
+    uint64_t                    frameNumber;
+    uint8_t                     frameDataBufferIndex;
+	float 						sunAzimuth;
+	float 						sunAltitude;
+
+    // remove these when you set up the frameData buffer
+    simd_float4                 sunDirection;
 };

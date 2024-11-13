@@ -2,7 +2,7 @@
 
 int main() {
 
-    MTLEngine engine;
+    Engine engine;
     engine.init();
     engine.run();
     engine.cleanup();

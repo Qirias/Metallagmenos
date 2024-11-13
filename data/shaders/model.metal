@@ -3,6 +3,7 @@
 using namespace metal;
 
 #include "vertexData.hpp"
+#include "shaderTypes.hpp"
 
 struct OutData {
     // The [[position]] attribute of this member indicates that this value
@@ -44,11 +45,10 @@ vertex OutData vertexShader(
              uint vertexID [[vertex_id]],
              constant Vertex* vertexData,
              constant float4x4& modelMatrix,
-             constant float4x4& viewMatrix,
-             constant float4x4& perspectiveMatrix)
+             constant FrameData& frameData [[buffer(2)]])
 {
     OutData out;
-    out.position = perspectiveMatrix * viewMatrix * modelMatrix * float4(vertexData[vertexID].position.xyz, 1.0f);
+    out.position = frameData.projection_matrix * frameData.view_matrix * modelMatrix * float4(vertexData[vertexID].position.xyz, 1.0f);
     out.normal = modelMatrix * float4(vertexData[vertexID].normal.xyz, 0.0f);
     out.fragmentPosition = modelMatrix * float4(vertexData[vertexID].position.xyz, 1.0f);
     out.textureCoordinate = vertexData[vertexID].textureCoordinate;
@@ -59,13 +59,11 @@ vertex OutData vertexShader(
 
 
 fragment float4 fragmentShader(OutData in [[stage_in]],
-							 constant float4& cubeColor [[buffer(0)]],
-							 constant float4& lightColor [[buffer(1)]],
-							 constant float4& lightPosition [[buffer(2)]],
-							 texture2d_array<float> diffuseTextures [[texture(3)]],
-							 texture2d_array<float> normalTextures [[texture(4)]],
-							 constant TextureInfo* diffuseTextureInfos [[buffer(5)]],
-							 constant TextureInfo* normalTextureInfos [[buffer(6)]]) {
+							 constant FrameData& frameData [[ buffer(0) ]],
+							 texture2d_array<float> diffuseTextures [[texture(1)]],
+							 texture2d_array<float> normalTextures [[texture(2)]],
+							 constant TextureInfo* diffuseTextureInfos [[buffer(3)]],
+							 constant TextureInfo* normalTextureInfos [[buffer(4)]]) {
 	
 	constexpr sampler textureSampler(
 		mag_filter::linear,
@@ -106,17 +104,17 @@ fragment float4 fragmentShader(OutData in [[stage_in]],
 	}
 	
 	// Lighting calculations with the new normal
-	float3 L = normalize(lightPosition.xyz);
+	float3 L = normalize(frameData.sunDirection.xyz);
 	float3 V = normalize(in.fragmentPosition.xyz);
 	float3 R = reflect(-L, N);
 	
-	float3 ambient = 0.2 * lightColor.rgb;
+	float3 ambient = 0.2 * frameData.sunColor.rgb;
 	
 	float diff = max(dot(N, L), 0.0);
-	float3 diffuse = diff * lightColor.rgb;
+	float3 diffuse = diff * frameData.sunColor.rgb;
 	
 	float spec = pow(max(dot(V, R), 0.0), 32.0);
-	float3 specular = 0.5 * spec * lightColor.rgb;
+	float3 specular = 0.5 * spec * frameData.sunColor.rgb;
 	
 	float3 finalColor = (ambient + diffuse + specular) * baseColor.rgb;
 	

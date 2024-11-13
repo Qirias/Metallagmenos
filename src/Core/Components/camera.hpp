@@ -30,7 +30,7 @@ public:
             fov * (M_PI / 180.0f),
             aspectRatio,
             0.1f,
-            100.0f
+            400.0f
         );
     }
     

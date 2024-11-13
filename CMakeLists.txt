@@ -16,6 +16,7 @@ file(GLOB_RECURSE SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/external/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/external/*.cc"
     "${CMAKE_CURRENT_SOURCE_DIR}/external/*.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/data/shaders/*.hpp"
 )
 
 # Group sources into virtual folders for Xcode
@@ -51,8 +52,8 @@ foreach(SHADER_SOURCE ${SHADER_SOURCES})
     # Compile Metal shader to AIR with include paths
     add_custom_command(
         OUTPUT ${SHADER_AIR}
-        COMMAND xcrun -sdk macosx metal 
-                -c ${SHADER_SOURCE} 
+        COMMAND xcrun -sdk macosx metal
+                -c ${SHADER_SOURCE}
                 -o ${SHADER_AIR}
                 -I ${CMAKE_CURRENT_SOURCE_DIR}/src/core
         DEPENDS ${SHADER_SOURCE}  # Add each shader source as a dependency

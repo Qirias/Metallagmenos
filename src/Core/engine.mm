@@ -50,12 +50,15 @@ void Engine::cleanup() {
 		frameDataBuffers[i]->release();
     }
 	
+	defaultVertexDescriptor->release();
     depthTexture->release();
 	shadowMap->release();
     renderPassDescriptor->release();
 	shadowRenderPassDescriptor->release();
+//	viewRenderPassDescriptor->release();
     metalRenderPSO->release();
     shadowPipelineState->release();
+//	GBufferPipelineState->release();
     metalDevice->release();
 }
 
@@ -161,8 +164,10 @@ void Engine::endFrame(MTL::CommandBuffer* commandBuffer, MTL::Drawable* currentD
 }
 
 void Engine::loadScene() {
+	defaultVertexDescriptor = MTL::VertexDescriptor::alloc()->init();
+	
     std::string smgPath = std::string(SCENES_PATH) + "/sponza/sponza.obj";
-    mesh = new Mesh(smgPath.c_str(), metalDevice);
+	mesh = new Mesh(smgPath.c_str(), metalDevice, defaultVertexDescriptor);
 	
 //	GLTFLoader gltfLoader(metalDevice);
 //	std::string modelPath = std::string(SCENES_PATH) + "/DamagedHelmet/DamagedHelmet.gltf";
@@ -278,9 +283,47 @@ void Engine::createCommandQueue() {
 
 void Engine::createRenderPipelines() {
     NS::Error* error;
+	
+	albedoSpecularGBufferFormat = MTL::PixelFormatRGBA8Unorm_sRGB;
+	normalShadowGBufferFormat 	= MTL::PixelFormatRGBA8Snorm;
+	depthGBufferFormat			= MTL::PixelFormatR32Float;
 
     #pragma mark render pipeline setup
     {
+		
+		{
+//			MTL::Function* GBufferVertexFunction = metalDefaultLibrary->newFunction(NS::String::string("gbuffer_vertex", NS::ASCIIStringEncoding));
+//			MTL::Function* GBufferFragmentFunction = metalDefaultLibrary->newFunction(NS::String::string("gbuffer_fragment", NS::ASCIIStringEncoding));
+//
+//			assert(GBufferVertexFunction && "Failed to load gbuffer_vertex shader");
+//			assert(GBufferFragmentFunction && "Failed to load gbuffer_fragment shader");
+//
+//			MTL::RenderPipelineDescriptor* renderPipelineDescriptor = MTL::RenderPipelineDescriptor::alloc()->init();
+//
+//			renderPipelineDescriptor->setLabel(NS::String::string("G-buffer Creation", NS::ASCIIStringEncoding));
+//			renderPipelineDescriptor->setVertexDescriptor(///);
+//
+//			// MTL::PixelFormatInvalid if not single pass deferred rendering
+//			renderPipelineDescriptor->colorAttachments()->object(RenderTargetLighting)->setPixelFormat(MTL::PixelFormat::PixelFormatBGRA8Unorm_sRGB);
+//
+//			renderPipelineDescriptor->colorAttachments()->object(RenderTargetAlbedo)->setPixelFormat(albedoSpecularGBufferFormat);
+//			renderPipelineDescriptor->colorAttachments()->object(RenderTargetNormal)->setPixelFormat(normalShadowGBufferFormat);
+//			renderPipelineDescriptor->colorAttachments()->object(RenderTargetDepth)->setPixelFormat(depthGBufferFormat);
+//			renderPipelineDescriptor->setDepthAttachmentPixelFormat(MTL::PixelFormat::PixelFormatDepth32Float_Stencil8);
+//			renderPipelineDescriptor->setStencilAttachmentPixelFormat(MTL::PixelFormat::PixelFormatDepth32Float_Stencil8);
+//
+//			renderPipelineDescriptor->setVertexFunction(GBufferVertexFunction);
+//			renderPipelineDescriptor->setFragmentFunction(GBufferFragmentFunction);
+//
+//			GBufferPipelineState = metalDevice->newRenderPipelineState(renderPipelineDescriptor, &error);
+//
+//			assert(error == nil && "Failed to create GBuffer render pipeline state" );
+//			
+//			renderPipelineDescriptor->release();
+//			GBufferVertexFunction->release();
+//			GBufferFragmentFunction->release();
+		}
+		
         {
             MTL::Function* vertexShader = metalDefaultLibrary->newFunction(NS::String::string("vertexShader", NS::ASCIIStringEncoding));
             assert(vertexShader);
@@ -289,6 +332,7 @@ void Engine::createRenderPipelines() {
 
             MTL::RenderPipelineDescriptor* renderPipelineDescriptor = MTL::RenderPipelineDescriptor::alloc()->init();
             renderPipelineDescriptor->setVertexFunction(vertexShader);
+			renderPipelineDescriptor->setVertexDescriptor(defaultVertexDescriptor);
             renderPipelineDescriptor->setFragmentFunction(fragmentShader);
             assert(renderPipelineDescriptor);
             MTL::PixelFormat pixelFormat = (MTL::PixelFormat)metalLayer.pixelFormat;

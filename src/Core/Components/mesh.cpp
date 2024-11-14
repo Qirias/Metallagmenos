@@ -4,16 +4,17 @@
 //
 
 #include "mesh.hpp"
+#include "../../data/shaders/shaderTypes.hpp"
 
 #include <iostream>
 #include <unordered_map>
 #include <string>
 
 // For tinyobjloader
-Mesh::Mesh(std::string filePath, MTL::Device* metalDevice) {
+Mesh::Mesh(std::string filePath, MTL::Device* metalDevice, MTL::VertexDescriptor* vertexDescriptor) {
     device = metalDevice;
     loadObj(filePath);
-    createBuffers();
+    createBuffers(vertexDescriptor);
 }
 
 // For tinyGLTF
@@ -191,9 +192,53 @@ void Mesh::loadObj(std::string filePath) {
 			index_offset += fv;
 		}
 	}
+	
+	calculateTangentSpace(vertices, vertexIndices);
 }
 
-void Mesh::createBuffers() {
+void Mesh::calculateTangentSpace(std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices) {
+	for (size_t i = 0; i < indices.size(); i += 3) {
+		Vertex& v0 = vertices[indices[i]];
+		Vertex& v1 = vertices[indices[i + 1]];
+		Vertex& v2 = vertices[indices[i + 2]];
+
+		simd::float3 pos0{v0.position.x, v0.position.y, v0.position.z};
+		simd::float3 pos1{v1.position.x, v1.position.y, v1.position.z};
+		simd::float3 pos2{v2.position.x, v2.position.y, v2.position.z};
+
+		simd::float2 uv0 = v0.textureCoordinate;
+		simd::float2 uv1 = v1.textureCoordinate;
+		simd::float2 uv2 = v2.textureCoordinate;
+
+		simd::float3 edge1 = pos1 - pos0;
+		simd::float3 edge2 = pos2 - pos0;
+		simd::float2 deltaUV1 = uv1 - uv0;
+		simd::float2 deltaUV2 = uv2 - uv0;
+
+		float f = 1.0f / (deltaUV1.x * deltaUV2.y - deltaUV2.x * deltaUV1.y);
+
+		simd::float3 tangent;
+		tangent.x = f * (deltaUV2.y * edge1.x - deltaUV1.y * edge2.x);
+		tangent.y = f * (deltaUV2.y * edge1.y - deltaUV1.y * edge2.y);
+		tangent.z = f * (deltaUV2.y * edge1.z - deltaUV1.y * edge2.z);
+		tangent = simd::normalize(tangent);
+
+		simd::float3 bitangent;
+		bitangent.x = f * (-deltaUV2.x * edge1.x + deltaUV1.x * edge2.x);
+		bitangent.y = f * (-deltaUV2.x * edge1.y + deltaUV1.x * edge2.y);
+		bitangent.z = f * (-deltaUV2.x * edge1.z + deltaUV1.x * edge2.z);
+		bitangent = simd::normalize(bitangent);
+
+		// Assign to all three vertices
+		for (int j = 0; j < 3; ++j) {
+			Vertex& v = vertices[indices[i + j]];
+			v.tangent = simd::float4{tangent.x, tangent.y, tangent.z, 0.0f};
+			v.bitangent = simd::float4{bitangent.x, bitangent.y, bitangent.z, 0.0f};
+		}
+	}
+}
+
+void Mesh::createBuffers(MTL::VertexDescriptor* vertexDescriptor) {
     // Create Vertex Buffers
     unsigned long vertexCount = vertices.size();
     std::cout << "Mesh Vertex Count: " << vertexCount << std::endl;
@@ -225,4 +270,34 @@ void Mesh::createBuffers() {
 	std::cout << "TextureInfo size: " << sizeof(TextureInfo) << std::endl;
 	normalTextureInfos = device->newBuffer(normalTexturesArray->normalTextureInfos.data(), normalBufferSize, MTL::ResourceStorageModeShared);
 	normalTextureInfos->setLabel(NS::String::string("Normal Texture Info Array", NS::ASCIIStringEncoding));
+	
+	if (vertexDescriptor) {
+		// Position
+		vertexDescriptor->attributes()->object(VertexAttributePosition)->setFormat(MTL::VertexFormatFloat4);
+		vertexDescriptor->attributes()->object(VertexAttributePosition)->setOffset(offsetof(Vertex, position));
+		vertexDescriptor->attributes()->object(VertexAttributePosition)->setBufferIndex(0);
+
+		// Normal
+		vertexDescriptor->attributes()->object(VertexAttributeNormal)->setFormat(MTL::VertexFormatFloat4);
+		vertexDescriptor->attributes()->object(VertexAttributeNormal)->setOffset(offsetof(Vertex, normal));
+		vertexDescriptor->attributes()->object(VertexAttributeNormal)->setBufferIndex(0);
+
+		// Tangent
+		vertexDescriptor->attributes()->object(VertexAttributeTangent)->setFormat(MTL::VertexFormatFloat4);
+		vertexDescriptor->attributes()->object(VertexAttributeTangent)->setOffset(offsetof(Vertex, tangent));
+		vertexDescriptor->attributes()->object(VertexAttributeTangent)->setBufferIndex(0);
+
+		// Bitangent
+		vertexDescriptor->attributes()->object(VertexAttributeBitangent)->setFormat(MTL::VertexFormatFloat4);
+		vertexDescriptor->attributes()->object(VertexAttributeBitangent)->setOffset(offsetof(Vertex, bitangent));
+		vertexDescriptor->attributes()->object(VertexAttributeBitangent)->setBufferIndex(0);
+
+		// TextureCoordinate
+		vertexDescriptor->attributes()->object(VertexAttributeTexcoord)->setFormat(MTL::VertexFormatFloat2);
+		vertexDescriptor->attributes()->object(VertexAttributeTexcoord)->setOffset(offsetof(Vertex, textureCoordinate));
+		vertexDescriptor->attributes()->object(VertexAttributeTexcoord)->setBufferIndex(0);
+
+		// Set layout
+		vertexDescriptor->layouts()->object(0)->setStride(sizeof(Vertex));
+	}
 }

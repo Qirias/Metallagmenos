@@ -22,9 +22,24 @@ struct FrameData {
 	 uint padding;                                   // 4 bytes (Total: 144 bytes)
 };
 
-
-
 struct ShadowVertex
 {
     simd::float4 position;
 };
+
+typedef enum RenderTargetIndex
+{
+	RenderTargetLighting  = 0,
+	RenderTargetAlbedo    = 1,
+	RenderTargetNormal    = 2,
+	RenderTargetDepth     = 3
+} RenderTargetIndex;
+
+typedef enum VertexAttributes
+{
+	VertexAttributePosition  = 0,
+	VertexAttributeTexcoord  = 1,
+	VertexAttributeNormal    = 2,
+	VertexAttributeTangent   = 3,
+	VertexAttributeBitangent = 4
+} VertexAttributes;

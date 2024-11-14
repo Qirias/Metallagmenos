@@ -50,6 +50,7 @@ private:
     void updateWorldState(bool isPaused);
 	
 	void drawShadow(MTL::CommandBuffer* commandBuffer);
+	void drawGBuffer(MTL::RenderCommandEncoder* renderCommandEncoder);
 
     void createDepthTexture();
     void createRenderPassDescriptor();
@@ -100,15 +101,29 @@ private:
     // Renderpass descriptors
     MTL::RenderPassDescriptor*  renderPassDescriptor;
     MTL::RenderPassDescriptor*  shadowRenderPassDescriptor;
+	MTL::RenderPassDescriptor* 	viewRenderPassDescriptor;
+	
+	// GBuffer properties
+	MTL::PixelFormat 			albedoSpecularGBufferFormat;
+	MTL::PixelFormat 			normalShadowGBufferFormat;
+	MTL::PixelFormat 			depthGBufferFormat;
+	MTL::Texture* 				albedoSpecularGBuffer;
+	MTL::Texture* 				normalShadowGBuffer;
+	MTL::Texture* 				depthGBuffer;
+
+	MTL::StorageMode 			GBufferStorageMode;
 
     MTL::Texture*               depthTexture;
     MTL::Texture*               shadowMap;
 
+	MTL::VertexDescriptor*		defaultVertexDescriptor;
     MTL::Library*               metalDefaultLibrary;
     MTL::CommandQueue*          metalCommandQueue;
 
+	// Render Pipeline States
     MTL::RenderPipelineState*   metalRenderPSO;
     MTL::RenderPipelineState*   shadowPipelineState;
+	MTL::RenderPipelineState*   GBufferPipelineState;
 
     Mesh*                       mesh;
 

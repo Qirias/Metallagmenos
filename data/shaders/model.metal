@@ -6,57 +6,61 @@ using namespace metal;
 #include "shaderTypes.hpp"
 
 struct OutData {
-    // The [[position]] attribute of this member indicates that this value
-    // is the clip space position of the vertex when this structure is
-    // returned from the vertex function.
-    float4 position [[position]];
-    float4 normal;
-    float4 fragmentPosition;
-    float2 textureCoordinate;
-    int diffuseTextureIndex;
+	float4 position [[position]];
+	float4 normal;
+	float4 tangent;
+	float4 bitangent;
+	float4 fragmentPosition;
+	float2 textureCoordinate;
+	int diffuseTextureIndex;
 	int normalTextureIndex;
 };
 
+bool operator==(const device Vertex& a, const device Vertex& b) {
+	return all(a.position == b.position) &&
+		   all(a.normal == b.normal) &&
+		   all(a.tangent == b.tangent) &&
+		   all(a.bitangent == b.bitangent) &&
+		   all(a.textureCoordinate == b.textureCoordinate) &&
+		   a.diffuseTextureIndex == b.diffuseTextureIndex &&
+		   a.normalTextureIndex == b.normalTextureIndex;
+}
+
 struct Mesh {
-    constant Vertex* vertices;
+	constant Vertex* vertices;
 };
 
-float3 perturbNormal(float3 N, float3 V, float2 texcoord, texture2d_array<float> normalMap,
-					int normalMapIndex, sampler textureSampler) {
+float3 applyNormalMap(float3 N, float3 T, float3 B, float2 texcoord,
+					 texture2d_array<float> normalMap,
+					 int normalMapIndex, sampler textureSampler) {
 	// Sample the normal map and convert from [0,1] to [-1,1] range
 	float4 normalSample = normalMap.sample(textureSampler, texcoord, normalMapIndex);
 	float3 tangentNormal = normalSample.xyz * 2.0 - 1.0;
 	
-	// Calculate tangent and bitangent vectors
-	float3 Q1 = dfdx(V);
-	float3 Q2 = dfdy(V);
-	float2 st1 = dfdx(texcoord);
-	float2 st2 = dfdy(texcoord);
-	
-	float3 T = normalize(Q1 * st2.y - Q2 * st1.y);
-	float3 B = normalize(Q2 * st1.x - Q1 * st2.x);
-	
+	// Use precalculated TBN matrix
 	float3x3 TBN = float3x3(T, B, N);
-	
 	return normalize(TBN * tangentNormal);
 }
 
 vertex OutData vertexShader(
-             uint vertexID [[vertex_id]],
-             constant Vertex* vertexData,
-             constant float4x4& modelMatrix,
-             constant FrameData& frameData [[buffer(2)]])
+			 uint vertexID [[vertex_id]],
+			 constant Vertex* vertexData,
+			 constant float4x4& modelMatrix,
+			 constant FrameData& frameData [[buffer(2)]])
 {
-    OutData out;
-    out.position = frameData.projection_matrix * frameData.view_matrix * modelMatrix * float4(vertexData[vertexID].position.xyz, 1.0f);
-    out.normal = modelMatrix * float4(vertexData[vertexID].normal.xyz, 0.0f);
-    out.fragmentPosition = modelMatrix * float4(vertexData[vertexID].position.xyz, 1.0f);
-    out.textureCoordinate = vertexData[vertexID].textureCoordinate;
-    out.diffuseTextureIndex = vertexData[vertexID].diffuseTextureIndex;
-	out.normalTextureIndex = vertexData[vertexID].normalTextureIndex;
-    return out;
+	OutData out;
+	constant Vertex& vert = vertexData[vertexID];
+	
+	out.position = frameData.projection_matrix * frameData.view_matrix * modelMatrix * float4(vert.position.xyz, 1.0f);
+	out.normal = modelMatrix * float4(vert.normal.xyz, 0.0f);
+	out.tangent = modelMatrix * float4(vert.tangent.xyz, 0.0f);
+	out.bitangent = modelMatrix * float4(vert.bitangent.xyz, 0.0f);
+	out.fragmentPosition = modelMatrix * float4(vert.position.xyz, 1.0f);
+	out.textureCoordinate = vert.textureCoordinate;
+	out.diffuseTextureIndex = vert.diffuseTextureIndex;
+	out.normalTextureIndex = vert.normalTextureIndex;
+	return out;
 }
-
 
 fragment float4 fragmentShader(OutData in [[stage_in]],
 							 constant FrameData& frameData [[ buffer(0) ]],
@@ -68,10 +72,10 @@ fragment float4 fragmentShader(OutData in [[stage_in]],
 	constexpr sampler textureSampler(
 		mag_filter::linear,
 		min_filter::linear,
-		mip_filter::linear,  // Add mip filtering if you have mipmaps
-		address::repeat,     // This makes the texture repeat instead of stretch
-		s_address::repeat,   // Explicit repeat for s coordinate
-		t_address::repeat    // Explicit repeat for t coordinate
+		mip_filter::linear,
+		address::repeat,
+		s_address::repeat,
+		t_address::repeat
 	);
 	
 	// Get base color
@@ -87,11 +91,10 @@ fragment float4 fragmentShader(OutData in [[stage_in]],
 			discard_fragment();
 		}
 	} else {
-		baseColor = float4(0.9608, 0.9608, 0.8627, 1.0); // Beige default for surfaces without diffuse texture
+		baseColor = float4(0.9608, 0.9608, 0.8627, 1.0);
 	}
 	
-	
-	// Calculate normal from normal map if available
+	// Calculate normal from normal map using precalculated tangent space
 	float3 N = normalize(in.normal.xyz);
 	if (in.normalTextureIndex >= 0 && (uint)in.normalTextureIndex < normalTextures.get_array_size()) {
 		int idx = in.normalTextureIndex;
@@ -99,17 +102,17 @@ fragment float4 fragmentShader(OutData in [[stage_in]],
 			(float2(normalTextureInfos[idx].width, normalTextureInfos[idx].height) /
 			 float2(normalTextures.get_width(0), normalTextures.get_height(0)));
 		
-		float3 V = normalize(in.fragmentPosition.xyz);
-		N = perturbNormal(N, V, transformedUV, normalTextures, in.normalTextureIndex, textureSampler);
+		float3 T = normalize(in.tangent.xyz);
+		float3 B = normalize(in.bitangent.xyz);
+		N = applyNormalMap(N, T, B, transformedUV, normalTextures, in.normalTextureIndex, textureSampler);
 	}
 	
-	// Lighting calculations with the new normal
+	// Lighting calculations with the normal
 	float3 L = normalize(frameData.sun_eye_direction.xyz);
 	float3 V = normalize(in.fragmentPosition.xyz);
 	float3 R = reflect(-L, N);
 	
 	float3 ambient = 0.2 * frameData.sun_color.rgb;
-	
 	float diff = max(dot(N, L), 0.0);
 	float3 diffuse = diff * frameData.sun_color.rgb;
 	

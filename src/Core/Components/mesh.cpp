@@ -151,7 +151,7 @@ void Mesh::loadObj(std::string filePath) {
 						vertexArrays.vertices[3 * idx.vertex_index + 0],
 						vertexArrays.vertices[3 * idx.vertex_index + 1],
 						vertexArrays.vertices[3 * idx.vertex_index + 2],
-						0.0f
+						1.0f
 					};
 				}
 				

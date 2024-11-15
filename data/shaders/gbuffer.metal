@@ -22,11 +22,11 @@ struct ColorInOut
 
 struct DescriptorDefinedVertex
 {
-	float3 position  [[attribute(VertexAttributePosition)]];
+	float4 position  [[attribute(VertexAttributePosition)]];
 	float2 tex_coord [[attribute(VertexAttributeTexcoord)]];
-	half3 normal     [[attribute(VertexAttributeNormal)]];
-	half3 tangent    [[attribute(VertexAttributeTangent)]];
-	half3 bitangent  [[attribute(VertexAttributeBitangent)]];
+	half4 normal     [[attribute(VertexAttributeNormal)]];
+	half4 tangent    [[attribute(VertexAttributeTangent)]];
+	half4 bitangent  [[attribute(VertexAttributeBitangent)]];
 };
 
 vertex ColorInOut gbuffer_vertex(DescriptorDefinedVertex  	in        [[stage_in]],
@@ -37,7 +37,7 @@ vertex ColorInOut gbuffer_vertex(DescriptorDefinedVertex  	in        [[stage_in]
 	ColorInOut out;
 
 	// Convert model position to eye space and project to clip space
-	float4 model_position = float4(in.position, 1.0);
+	float4 model_position = in.position;
 	float4 eye_position = frameData.scene_modelview_matrix * model_position;
 	out.position = frameData.projection_matrix * eye_position;
 	out.tex_coord = in.tex_coord;
@@ -55,9 +55,9 @@ vertex ColorInOut gbuffer_vertex(DescriptorDefinedVertex  	in        [[stage_in]
 	out.shadow_depth = half(shadow_coord.z);
 
 	// Transform normal, tangent, and bitangent to eye space
-	out.tangent = normalize(normalMatrix * in.tangent);
-	out.bitangent = -normalize(normalMatrix * in.bitangent); // Note the inversion if required
-	out.normal = normalize(normalMatrix * in.normal);
+	out.tangent = normalize(normalMatrix * in.tangent.xyz);
+	out.bitangent = -normalize(normalMatrix * in.bitangent.xyz); // Note the inversion if required
+	out.normal = normalize(normalMatrix * in.normal.xyz);
 	
 	out.diffuseTextureIndex = vertexData[vertexID].diffuseTextureIndex;
 	out.normalTextureIndex = vertexData[vertexID].normalTextureIndex;
@@ -93,7 +93,7 @@ fragment GBufferData gbuffer_fragment(ColorInOut in                  [[stage_in]
 	}
 
 	// Sample the normal from the normal map texture array
-	half3 eye_normal = normalize(in.normal); // Default normal
+	half3 eye_normal = normalize(in.normal.xyz); // Default normal
 	if (in.normalTextureIndex >= 0 && (uint)in.normalTextureIndex < normalMap.get_array_size()) {
 		int idx = in.normalTextureIndex;
 		float2 transformedUV = in.tex_coord *
@@ -104,9 +104,9 @@ fragment GBufferData gbuffer_fragment(ColorInOut in                  [[stage_in]
 
 		// Calculate the tangent-space normal, and transform it to eye space
 		half3 tangent_normal = normalize((normal_sample.xyz * 2.0) - 1.0);
-		half3 T = normalize(in.tangent);
-		half3 B = normalize(in.bitangent);
-		eye_normal = normalize(tangent_normal.x * T + tangent_normal.y * B + tangent_normal.z * in.normal);
+		half3 T = normalize(in.tangent.xyz);
+		half3 B = normalize(in.bitangent.xyz);
+		eye_normal = normalize(tangent_normal.x * T + tangent_normal.y * B + tangent_normal.z * in.normal.xyz);
 	}
 
 	// Shadow sampling

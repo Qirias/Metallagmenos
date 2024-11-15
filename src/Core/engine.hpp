@@ -50,9 +50,11 @@ private:
 	void endFrame(MTL::CommandBuffer* commandBuffer, MTL::Drawable* currentDrawable);
     void updateWorldState(bool isPaused);
 	
+	void draw();
 	void drawShadow(MTL::CommandBuffer* commandBuffer);
 	void drawGBuffer(MTL::RenderCommandEncoder* renderCommandEncoder);
 	void drawMeshes(MTL::RenderCommandEncoder* renderCommandEncoder);
+	void drawScene(MTL::RenderCommandEncoder* renderCommandEncoder);
 
     void createDepthTexture();
     void createRenderPassDescriptor();
@@ -68,8 +70,7 @@ private:
 
     void encodeRenderCommand(MTL::RenderCommandEncoder* renderCommandEncoder);
     void sendRenderCommand();
-    void draw();
-    void drawScene(MTL::RenderCommandEncoder* renderCommandEncoder);
+
 
     static void frameBufferSizeCallback(GLFWwindow *window, int width, int height);
     void resizeFrameBuffer(int width, int height);

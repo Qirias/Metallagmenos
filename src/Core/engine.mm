@@ -245,7 +245,7 @@ void Engine::updateWorldState(bool isPaused) {
 	frameData->sun_specular_intensity = 1;
 
 	// Update sun direction in view space
-	float4 sunModelPosition = {-0.25, -0.5, 1.0, 0.0};
+	float4 sunModelPosition = {-0.25, -0.5, -0.5, 0.0};
 	float4 sunWorldPosition = skyModelMatrix * sunModelPosition;
 	float4 sunWorldDirection = -sunWorldPosition;
 
@@ -343,7 +343,7 @@ void Engine::createRenderPipelines() {
 		#endif
 			MTL::DepthStencilDescriptor* depthStencilDesc = MTL::DepthStencilDescriptor::alloc()->init();
 			depthStencilDesc->setLabel(NS::String::string("G-buffer Creation", NS::ASCIIStringEncoding));
-			depthStencilDesc->setDepthCompareFunction( MTL::CompareFunctionLess );
+			depthStencilDesc->setDepthCompareFunction(MTL::CompareFunctionLess);
 			depthStencilDesc->setDepthWriteEnabled(true);
 			depthStencilDesc->setFrontFaceStencil(stencilStateDesc);
 			depthStencilDesc->setBackFaceStencil(stencilStateDesc);
@@ -414,7 +414,7 @@ void Engine::createRenderPipelines() {
                 depthStencilDescriptor->setLabel( NS::String::string("Shadow Gen", NS::ASCIIStringEncoding));
                 depthStencilDescriptor->setDepthCompareFunction(MTL::CompareFunctionLessEqual);
                 depthStencilDescriptor->setDepthWriteEnabled(true);
-                shadowDepthStencilState = metalDevice->newDepthStencilState( depthStencilDescriptor );
+                shadowDepthStencilState = metalDevice->newDepthStencilState(depthStencilDescriptor);
                 depthStencilDescriptor->release();
             }
 
@@ -447,7 +447,7 @@ void Engine::createRenderPipelines() {
             // Calculate projection matrix to render shadows
             {
 				// left, right, bottom, top, near, far
-                shadowProjectionMatrix = matrix_ortho_left_hand(-23, 23, -3, 23, -23, 23);
+                shadowProjectionMatrix = matrix_ortho_left_hand(-23, 23, -23, 23, -53, 53);
             }
         }
     }
@@ -582,7 +582,7 @@ void Engine::drawMeshes(MTL::RenderCommandEncoder* renderCommandEncoder) {
 	renderCommandEncoder->setFrontFacingWinding(MTL::WindingCounterClockwise);
 	renderCommandEncoder->setCullMode(MTL::CullModeBack);
 	
-	renderCommandEncoder->setTriangleFillMode(MTL::TriangleFillModeLines);
+//	renderCommandEncoder->setTriangleFillMode(MTL::TriangleFillModeLines);
 	renderCommandEncoder->setDepthStencilState(depthStencilState);
 	renderCommandEncoder->setVertexBuffer(mesh->vertexBuffer, 0, 0);
 	

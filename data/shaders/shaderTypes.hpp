@@ -28,12 +28,6 @@ struct FrameData {
 	uint8_t _pad2[32];                           // 32 bytes padding to reach 640 bytes total
 };  // Total size: 640 bytesTotal size: 608 bytes
 
-
-struct ShadowVertex
-{
-    simd::float4 position;
-};
-
 typedef enum RenderTargetIndex
 {
 	RenderTargetLighting  = 0,

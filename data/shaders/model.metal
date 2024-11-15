@@ -46,8 +46,7 @@ vertex OutData vertexShader(
 			 uint vertexID [[vertex_id]],
 			 constant Vertex* vertexData,
 			 constant float4x4& modelMatrix,
-			 constant FrameData& frameData [[buffer(2)]])
-{
+			 constant FrameData& frameData [[buffer(2)]]) {
 	OutData out;
 	constant Vertex& vert = vertexData[vertexID];
 	

@@ -22,6 +22,7 @@
 #include "components/camera.hpp"
 #include "components/gltfLoader.hpp"
 #include "../../data/shaders/shaderTypes.hpp"
+#include "../../data/shaders/config.hpp"
 
 #include <stb/stb_image.h>
 
@@ -51,9 +52,11 @@ private:
 	
 	void drawShadow(MTL::CommandBuffer* commandBuffer);
 	void drawGBuffer(MTL::RenderCommandEncoder* renderCommandEncoder);
+	void drawMeshes(MTL::RenderCommandEncoder* renderCommandEncoder);
 
     void createDepthTexture();
     void createRenderPassDescriptor();
+	void createViewRenderPassDescriptor();
 
     // resizing window
     void updateRenderPassDescriptor();
@@ -97,6 +100,7 @@ private:
     // Depth stencil states
     MTL::DepthStencilState*     depthStencilState;
     MTL::DepthStencilState*     shadowDepthStencilState;
+	MTL::DepthStencilState* 	GBufferDepthStencilState;
 
     // Renderpass descriptors
     MTL::RenderPassDescriptor*  renderPassDescriptor;

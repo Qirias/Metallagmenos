@@ -23,9 +23,6 @@ Mesh::Mesh(MTL::Device* device, const Vertex* vertexData, size_t vertexCount,
 	: device(device) {
 	// Create vertex buffer with proper alignment
 	size_t vertexBufferSize = vertexCount * sizeof(Vertex);
-		
-	// Round up the buffer size to a multiple of 16 bytes
-	vertexBufferSize = (vertexBufferSize + 15) & ~15;
 	
 	vertexBuffer = device->newBuffer(vertexData, vertexBufferSize, MTL::ResourceStorageModeShared);
 	vertexBuffer->setLabel(NS::String::string("Mesh Vertex Buffer", NS::ASCIIStringEncoding));
@@ -296,6 +293,16 @@ void Mesh::createBuffers(MTL::VertexDescriptor* vertexDescriptor) {
 		vertexDescriptor->attributes()->object(VertexAttributeTexcoord)->setFormat(MTL::VertexFormatFloat2);
 		vertexDescriptor->attributes()->object(VertexAttributeTexcoord)->setOffset(offsetof(Vertex, textureCoordinate));
 		vertexDescriptor->attributes()->object(VertexAttributeTexcoord)->setBufferIndex(0);
+		
+		// DiffuseTextureIndex
+		vertexDescriptor->attributes()->object(VertexAttributeDiffuseIndex)->setFormat(MTL::VertexFormatInt);
+		vertexDescriptor->attributes()->object(VertexAttributeDiffuseIndex)->setOffset(offsetof(Vertex, diffuseTextureIndex));
+		vertexDescriptor->attributes()->object(VertexAttributeDiffuseIndex)->setBufferIndex(0);
+		
+		// NormalTextureIndex
+		vertexDescriptor->attributes()->object(VertexAttributeNormalIndex)->setFormat(MTL::VertexFormatInt);
+		vertexDescriptor->attributes()->object(VertexAttributeNormalIndex)->setOffset(offsetof(Vertex, normalTextureIndex));
+		vertexDescriptor->attributes()->object(VertexAttributeNormalIndex)->setBufferIndex(0);
 
 		// Set layout
 		vertexDescriptor->layouts()->object(0)->setStride(sizeof(Vertex));

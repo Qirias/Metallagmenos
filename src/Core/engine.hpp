@@ -47,17 +47,17 @@ private:
     void createBuffers();
 	
 	MTL::CommandBuffer* beginFrame(bool isPaused);
+	MTL::CommandBuffer* beginDrawableCommands();
 	void endFrame(MTL::CommandBuffer* commandBuffer, MTL::Drawable* currentDrawable);
     void updateWorldState(bool isPaused);
 	
 	void draw();
-	void drawShadow(MTL::CommandBuffer* commandBuffer);
-	void drawGBuffer(MTL::RenderCommandEncoder* renderCommandEncoder);
 	void drawMeshes(MTL::RenderCommandEncoder* renderCommandEncoder);
-	void drawScene(MTL::RenderCommandEncoder* renderCommandEncoder);
+	void drawShadow(MTL::CommandBuffer* renderCommandEncoder);
+	void drawGBuffer(MTL::RenderCommandEncoder* renderCommandEncoder);
+	void drawDirectionalLight(MTL::RenderCommandEncoder* renderCommandEncoder);
 
     void createDepthTexture();
-    void createRenderPassDescriptor();
 	void createViewRenderPassDescriptor();
 
     // resizing window
@@ -102,9 +102,9 @@ private:
     MTL::DepthStencilState*     depthStencilState;
     MTL::DepthStencilState*     shadowDepthStencilState;
 	MTL::DepthStencilState* 	GBufferDepthStencilState;
+	MTL::DepthStencilState*		directionalLightDepthStencilState;
 
     // Renderpass descriptors
-    MTL::RenderPassDescriptor*  renderPassDescriptor;
     MTL::RenderPassDescriptor*  shadowRenderPassDescriptor;
 	MTL::RenderPassDescriptor* 	viewRenderPassDescriptor;
 	
@@ -120,15 +120,17 @@ private:
 
     MTL::Texture*               depthTexture;
     MTL::Texture*               shadowMap;
+	MTL::Texture* 				depthStencilTexture;
 
 	MTL::VertexDescriptor*		defaultVertexDescriptor;
     MTL::Library*               metalDefaultLibrary;
     MTL::CommandQueue*          metalCommandQueue;
 
 	// Render Pipeline States
-    MTL::RenderPipelineState*   metalRenderPSO;
     MTL::RenderPipelineState*   shadowPipelineState;
 	MTL::RenderPipelineState*   GBufferPipelineState;
+	MTL::RenderPipelineState*   directionalLightPipelineState;
+	
 
     Mesh*                       mesh;
 

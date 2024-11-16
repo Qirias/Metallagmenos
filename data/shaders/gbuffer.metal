@@ -11,7 +11,7 @@ struct ColorInOut
 	float4 position [[position]];
 	float2 tex_coord;
 	float2 shadow_uv;
-	half   shadow_depth;
+	float   shadow_depth;
 	float3 eye_position;
 	half3  tangent;
 	half3  bitangent;
@@ -50,9 +50,9 @@ vertex ColorInOut gbuffer_vertex(DescriptorDefinedVertex  	in        [[stage_in]
 	half3x3 normalMatrix = half3x3(frameData.scene_normal_matrix);
 
 	// Calculate shadow UV and depth
-	float3 shadow_coord = (frameData.shadow_mvp_matrix * model_position).xyz;
+	float3 shadow_coord = (frameData.shadow_mvp_xform_matrix * model_position).xyz;
 	out.shadow_uv = shadow_coord.xy;
-	out.shadow_depth = half(shadow_coord.z);
+	out.shadow_depth = (shadow_coord.z);
 
 	// Transform normal, tangent, and bitangent to eye space
 	out.tangent = normalize(normalMatrix * in.tangent.xyz);
@@ -115,6 +115,7 @@ fragment GBufferData gbuffer_fragment(ColorInOut in                  [[stage_in]
 									mip_filter::none,
 									address::clamp_to_edge,
 									compare_func::less);
+	
 	half shadow_sample = shadowMap.sample_compare(shadowSampler, in.shadow_uv, in.shadow_depth);
 
 	// Prepare GBuffer output

@@ -11,3 +11,9 @@ struct GBufferData
     half4 normal_shadow   [[color(RenderTargetNormal),   raster_order_group(GBufferROG)]];
     float depth           [[color(RenderTargetDepth),    raster_order_group(GBufferROG)]];
 };
+
+// Final buffer outputs using Raster Order Groups
+struct AccumLightBuffer
+{
+	half4 lighting [[color(RenderTargetLighting), raster_order_group(LightingROG)]];
+};

@@ -59,7 +59,7 @@ fragment AccumLightBuffer deferred_directional_lighting_fragment(VertexOut 				i
 	
 	// Add ambient lighting parameters
 	const half3 ambientColor = half3(1.0h);
-	const half ambientIntensity = 0.3h;
+	const half ambientIntensity = 0.4h;
 
 	// Calculate ambient term
 	half3 ambient = ambientColor * albedo * ambientIntensity;

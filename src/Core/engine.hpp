@@ -118,7 +118,6 @@ private:
 
 	MTL::StorageMode 			GBufferStorageMode;
 
-    MTL::Texture*               depthTexture;
     MTL::Texture*               shadowMap;
 	MTL::Texture* 				depthStencilTexture;
 

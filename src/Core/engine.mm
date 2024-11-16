@@ -22,7 +22,6 @@ void Engine::init() {
     createDefaultLibrary();
     createRenderPipelines();
 	createViewRenderPassDescriptor();
-    createDepthTexture();
 }
 
 void Engine::run() {
@@ -51,9 +50,7 @@ void Engine::cleanup() {
     }
 	
 	defaultVertexDescriptor->release();
-    depthTexture->release();
 	shadowMap->release();
-	depthStencilTexture->release();
 	shadowRenderPassDescriptor->release();
 	viewRenderPassDescriptor->release();
     shadowPipelineState->release();
@@ -84,11 +81,25 @@ void Engine::cursorPosCallback(GLFWwindow* window, double xpos, double ypos) {
 void Engine::resizeFrameBuffer(int width, int height) {
     metalLayer.drawableSize = CGSizeMake(width, height);
     // Deallocate the textures if they have been created
-    if (depthTexture) {
-        depthTexture->release();
-        depthTexture = nullptr;
-    }
-    createDepthTexture();
+	if (albedoSpecularGBuffer) {
+		albedoSpecularGBuffer->release();
+		albedoSpecularGBuffer = nullptr;
+	}
+	if (normalShadowGBuffer) {
+		normalShadowGBuffer->release();
+		normalShadowGBuffer = nullptr;
+	}
+	if (depthGBuffer) {
+		depthGBuffer->release();
+		depthGBuffer = nullptr;
+	}
+	if (depthStencilTexture) {
+		depthStencilTexture->release();
+		depthStencilTexture = nullptr;
+	}
+	
+	// Recreate G-buffer textures and descriptors
+	createViewRenderPassDescriptor();
     metalDrawable = (__bridge CA::MetalDrawable*)[metalLayer nextDrawable];
     updateRenderPassDescriptor();
 }
@@ -233,8 +244,8 @@ void Engine::updateWorldState(bool isPaused) {
 	frameData->sun_specular_intensity = 1.0;
 
 	// Calculate the sun's X position oscillating over time
-	float oscillationSpeed = 0.001f;
-	float oscillationAmplitude = 5.0f;
+	float oscillationSpeed = 0.002f;
+	float oscillationAmplitude = 4.0f;
 	float sunZ = sin(frameNumber * oscillationSpeed) * oscillationAmplitude;
 
 	float sunY = 10.0f;
@@ -245,7 +256,7 @@ void Engine::updateWorldState(bool isPaused) {
 	float4 sunWorldDirection = -sunWorldPosition;
 
 	// Update the sun direction in view space
-	frameData->sun_eye_direction = normalize(frameData->view_matrix * sunWorldDirection);
+	frameData->sun_eye_direction = sunWorldDirection;
 
 	// Compute shadow view matrix for sun
 	float4 directionalLightUpVector = {0.0, 1.0, 0.0, 0.0};
@@ -471,18 +482,6 @@ void Engine::createRenderPipelines() {
     }
 }
 
-void Engine::createDepthTexture() {
-	MTL::TextureDescriptor* depthTextureDescriptor = MTL::TextureDescriptor::alloc()->init();
-	depthTextureDescriptor->setPixelFormat(MTL::PixelFormatDepth16Unorm);
-	depthTextureDescriptor->setWidth(metalLayer.drawableSize.width);
-	depthTextureDescriptor->setHeight(metalLayer.drawableSize.height);
-	depthTextureDescriptor->setUsage(MTL::TextureUsageRenderTarget);
-	depthTextureDescriptor->setSampleCount(1);
-
-	depthTexture = metalDevice->newTexture(depthTextureDescriptor);
-	depthTextureDescriptor->release();
-}
-
 void Engine::createViewRenderPassDescriptor() {
 	MTL::TextureDescriptor* gbufferTextureDesc = MTL::TextureDescriptor::alloc()->init();
 
@@ -555,8 +554,14 @@ void Engine::createViewRenderPassDescriptor() {
 }
 
 void Engine::updateRenderPassDescriptor() {
-	viewRenderPassDescriptor->colorAttachments()->object(0)->setTexture(metalDrawable->texture());
-	viewRenderPassDescriptor->depthAttachment()->setTexture(depthTexture);
+	// Update all render pass descriptor attachments with resized textures
+	viewRenderPassDescriptor->colorAttachments()->object(RenderTargetAlbedo)->setTexture(albedoSpecularGBuffer);
+	viewRenderPassDescriptor->colorAttachments()->object(RenderTargetNormal)->setTexture(normalShadowGBuffer);
+	viewRenderPassDescriptor->colorAttachments()->object(RenderTargetDepth)->setTexture(depthGBuffer);
+
+	// Update depth/stencil attachment
+	viewRenderPassDescriptor->depthAttachment()->setTexture(depthStencilTexture);
+	viewRenderPassDescriptor->stencilAttachment()->setTexture(depthStencilTexture);
 }
 
 void Engine::drawMeshes(MTL::RenderCommandEncoder* renderCommandEncoder) {

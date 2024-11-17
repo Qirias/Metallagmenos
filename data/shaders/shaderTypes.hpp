@@ -1,4 +1,5 @@
 #include <simd/simd.h>
+#include "config.hpp"
 
 struct FrameData {
 	// Per Frame Constants
@@ -26,7 +27,10 @@ struct FrameData {
 	// Note: float3x3 is padded to float4x3 in GPU memory
 	simd::float3x3 scene_normal_matrix;          // 48 bytes (offset: 560) - Each row padded to float4
 	uint8_t _pad2[32];                           // 32 bytes padding to reach 640 bytes total
-};  // Total size: 640 bytesTotal size: 608 bytes
+	
+	simd::float4x4 	shadow_cascade_mvp_matrices[SHADOW_CASCADE_COUNT];
+	simd::float4x4 	shadow_cascade_mvp_xform_matrices[SHADOW_CASCADE_COUNT];
+};
 
 typedef enum RenderTargetIndex
 {

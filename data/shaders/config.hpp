@@ -13,3 +13,7 @@
 // will have expensive lighting calculations executed than is actually
 // necessary.
 #define LIGHT_STENCIL_CULLING      1
+
+
+// The number of shadow cascades for the sun light.
+#define SHADOW_CASCADE_COUNT       3

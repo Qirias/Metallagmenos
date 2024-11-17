@@ -11,7 +11,7 @@ struct ColorInOut
 	float4 position [[position]];
 	float2 tex_coord;
 	float2 shadow_uv;
-	float   shadow_depth;
+	float  shadow_depth;
 	float3 eye_position;
 	half3  tangent;
 	half3  bitangent;
@@ -29,10 +29,10 @@ struct DescriptorDefinedVertex
 	half4 bitangent  [[attribute(VertexAttributeBitangent)]];
 };
 
-vertex ColorInOut gbuffer_vertex(DescriptorDefinedVertex  	in        [[stage_in]],
-								 uint 						vertexID [[vertex_id]],
+vertex ColorInOut gbuffer_vertex(DescriptorDefinedVertex  	in        	[[stage_in]],
+								 uint 						vertexID  	[[vertex_id]],
 								 constant Vertex* 			vertexData,
-								 constant FrameData&		frameData [[buffer(2)]]) {
+								 constant FrameData&		frameData 	[[buffer(2)]]) {
 	
 	ColorInOut out;
 

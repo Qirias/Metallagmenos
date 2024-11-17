@@ -67,6 +67,11 @@ private:
     void createCommandQueue();
     void createRenderPipelines();
     void createLightSourceRenderPipeline();
+	
+	void calculateCascadeSplits(float nearClip, float farClip, float* splits);
+	void setupShadowCascades();
+	simd::float4x4 calculateCascadeProjectionMatrix(const simd::float3* frustumCorners, float nearDist, float farDist);
+
 
     void encodeRenderCommand(MTL::RenderCommandEncoder* renderCommandEncoder);
     void sendRenderCommand();
@@ -107,6 +112,7 @@ private:
     // Renderpass descriptors
     MTL::RenderPassDescriptor*  shadowRenderPassDescriptor;
 	MTL::RenderPassDescriptor* 	viewRenderPassDescriptor;
+	MTL::RenderPassDescriptor* 	shadowCascadeRenderPassDescriptors[SHADOW_CASCADE_COUNT];
 	
 	// GBuffer properties
 	MTL::PixelFormat 			albedoSpecularGBufferFormat;
@@ -120,6 +126,7 @@ private:
 
     MTL::Texture*               shadowMap;
 	MTL::Texture* 				depthStencilTexture;
+	MTL::Texture* 				shadowCascadeMaps[SHADOW_CASCADE_COUNT];
 
 	MTL::VertexDescriptor*		defaultVertexDescriptor;
     MTL::Library*               metalDefaultLibrary;
@@ -139,4 +146,5 @@ private:
     uint8_t                     frameDataBufferIndex;
 
     simd::float4x4              shadowProjectionMatrix;
+	simd::float4x4 				shadowCascadeProjectionMatrices[SHADOW_CASCADE_COUNT];
 };

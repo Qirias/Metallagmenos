@@ -1,7 +1,7 @@
 #include "engine.hpp"
 
 Engine::Engine()
-: camera(simd::float3{0.0f, 0.0f, 3.0f})
+: camera(simd::float3{0.0f, 0.0f, 3.0f}, 0.1, 1000)
 , lastFrame(0.0f)
 , frameNumber(0)
 , currentFrameIndex(0) {
@@ -134,7 +134,7 @@ void Engine::initWindow() {
 }
 
 MTL::CommandBuffer* Engine::beginFrame(bool isPaused) {
-
+	
     // Wait on the semaphore for the current frame
     dispatch_semaphore_wait(frameSemaphores[currentFrameIndex], DISPATCH_TIME_FOREVER);
 
@@ -158,7 +158,6 @@ MTL::CommandBuffer* Engine::beginDrawableCommands() {
 		dispatch_semaphore_signal(frameSemaphores[currentFrameIndex]);
 	};
 	commandBuffer->addCompletedHandler(handler);
-
 	
 	return commandBuffer;
 }
@@ -176,13 +175,13 @@ void Engine::endFrame(MTL::CommandBuffer* commandBuffer, MTL::Drawable* currentD
 void Engine::loadScene() {
 	defaultVertexDescriptor = MTL::VertexDescriptor::alloc()->init();
 	
-    std::string smgPath = std::string(SCENES_PATH) + "/sponza/sponza.obj";
-	mesh = new Mesh(smgPath.c_str(), metalDevice, defaultVertexDescriptor);
+    std::string modelPath = std::string(SCENES_PATH) + "/sponza/sponza.obj";
+	mesh = new Mesh(modelPath.c_str(), metalDevice, defaultVertexDescriptor);
 	
 //	GLTFLoader gltfLoader(metalDevice);
 //	std::string modelPath = std::string(SCENES_PATH) + "/DamagedHelmet/DamagedHelmet.gltf";
 //	auto gltfModel = gltfLoader.loadModel(modelPath);
-//	
+	
 //	// Create mesh from the loaded data
 //	mesh = new Mesh(metalDevice,
 //				  gltfModel.vertices.data(),
@@ -230,8 +229,9 @@ void Engine::updateWorldState(bool isPaused) {
 	FrameData *frameData = (FrameData *)(frameDataBuffers[currentFrameIndex]->contents());
 
 	float aspectRatio = metalDrawable->layer()->drawableSize().width / metalDrawable->layer()->drawableSize().height;
-
-	frameData->projection_matrix = camera.getProjectionMatrix(aspectRatio);
+	
+	camera.setProjectionMatrix(45, aspectRatio, 0.1f, 400.0f);
+	frameData->projection_matrix = camera.getProjectionMatrix();
 	frameData->projection_matrix_inverse = matrix_invert(frameData->projection_matrix);
 	frameData->view_matrix = camera.getViewMatrix();
 
@@ -276,7 +276,39 @@ void Engine::updateWorldState(bool isPaused) {
 	float4x4 shadowTransform = shadowTranslate * shadowScale;
 
 	frameData->shadow_mvp_xform_matrix = shadowTransform * frameData->shadow_mvp_matrix;
+	
+	  
+	// Calculate cascade splits
+	float cascade_splits[SHADOW_CASCADE_COUNT];
+	calculateCascadeSplits(0.1f, 400.0f, cascade_splits);
+	
+	simd::float3 frustumCorners[8];
+	
+	float prevSplitDist = 0.1f;
+	for (int i = 0; i < SHADOW_CASCADE_COUNT; i++) {
+		camera.setFrustumCornersWorldSpace(frustumCorners, prevSplitDist, cascade_splits[i]);
+		
+		for (int j = 0; j < 4; j++) {
+			simd::float3 dist = frustumCorners[j + 4] - frustumCorners[j]; // Direction vector
+			
+			// Move frustum corners closer of further. Based on the cascade split
+			// Can be closer because we are doing logarithmic split
+			frustumCorners[j + 4] = frustumCorners[j] + dist * cascade_splits[i];
+			// Near corners adjusted based on the previous cascades far split
+			frustumCorners[j] = frustumCorners[j] + dist * prevSplitDist;
+		}
+
+		// Calculate optimal projection matrix for this cascade
+		shadowCascadeProjectionMatrices[i] = calculateCascadeProjectionMatrix(frustumCorners, prevSplitDist, cascade_splits[i]);
+
+		// Update frame data with cascade information
+		frameData->shadow_cascade_mvp_matrices[i] = shadowCascadeProjectionMatrices[i] * shadowViewMatrix * frameData->scene_model_matrix;
+		frameData->shadow_cascade_mvp_xform_matrices[i] = shadowTransform * frameData->shadow_cascade_mvp_matrices[i];
+
+		prevSplitDist = cascade_splits[i];
+	}
 }
+
 
 void Engine::createCommandQueue() {
     metalCommandQueue = metalDevice->newCommandQueue();
@@ -564,6 +596,79 @@ void Engine::updateRenderPassDescriptor() {
 	viewRenderPassDescriptor->stencilAttachment()->setTexture(depthStencilTexture);
 }
 
+void Engine::calculateCascadeSplits(float nearClip, float farClip, float* splits) {
+	// Using practical split scheme: https://developer.nvidia.com/gpugems/GPUGems3/gpugems3_ch10.html
+	const float lambda = 0.5f; // Balance between logarithmic and uniform
+	
+	for (int i = 0; i < SHADOW_CASCADE_COUNT; i++) {
+		float p = (i + 1) / float(SHADOW_CASCADE_COUNT);
+		float log = nearClip * pow(farClip / nearClip, p);
+		float uniform = nearClip + (farClip - nearClip) * p;
+		float d = lambda * (log - uniform) + uniform;
+		// d = λ*log + (1 - λ)*uni => λ*log + uni - λ*uni => λ*(log - uni) + uni
+		splits[i] = d;
+	}
+}
+
+void Engine::setupShadowCascades() {
+	MTL::TextureDescriptor* shadowTextureDesc = MTL::TextureDescriptor::alloc()->init();
+	shadowTextureDesc->setPixelFormat(MTL::PixelFormatDepth32Float);
+	shadowTextureDesc->setWidth(2048);
+	shadowTextureDesc->setHeight(2048);
+	shadowTextureDesc->setMipmapLevelCount(1);
+	shadowTextureDesc->setResourceOptions(MTL::ResourceStorageModePrivate);
+	shadowTextureDesc->setUsage(MTL::TextureUsageRenderTarget | MTL::TextureUsageShaderRead);
+	
+	for (int i = 0; i < SHADOW_CASCADE_COUNT; i++) {
+		shadowCascadeMaps[i] = metalDevice->newTexture(shadowTextureDesc);
+		shadowCascadeMaps[i]->setLabel(NS::String::string("Shadow Cascade Map", NS::ASCIIStringEncoding));
+		
+		shadowCascadeRenderPassDescriptors[i] = MTL::RenderPassDescriptor::alloc()->init();
+		shadowCascadeRenderPassDescriptors[i]->depthAttachment()->setTexture(shadowCascadeMaps[i]);
+		shadowCascadeRenderPassDescriptors[i]->depthAttachment()->setLoadAction(MTL::LoadActionClear);
+		shadowCascadeRenderPassDescriptors[i]->depthAttachment()->setStoreAction(MTL::StoreActionStore);
+		shadowCascadeRenderPassDescriptors[i]->depthAttachment()->setClearDepth(1.0);
+	}
+	
+	shadowTextureDesc->release();
+}
+
+simd::float4x4 Engine::calculateCascadeProjectionMatrix(const simd::float3* frustumCorners, float nearDist, float farDist) {
+	// First calculate frustum center
+	simd::float3 frustumCenter = simd::float3{0.0f, 0.0f, 0.0f};
+	for (int j = 0; j < 8; j++) {
+		frustumCenter += frustumCorners[j];
+	}
+
+	frustumCenter = frustumCenter / 8.0f;
+
+	// Calculate radius (maximum distance from center to any corner)
+	float radius = 0.0f;
+	for (int j = 0; j < 8; j++) {
+		float distance = simd::length(frustumCorners[j] - frustumCenter);
+		radius = std::max(radius, distance);
+	}
+	// Round up radius to help reduce shadow swimming
+	radius = std::ceil(radius * 16.0f) / 16.0f;
+
+	simd::float3 max = radius;
+	simd::float3 min = -max;
+
+	for (int i = 0; i < 8; i++) {
+		min = simd::min(min, frustumCorners[i]);
+		max = simd::max(max, frustumCorners[i]);
+	}
+
+	// Padding to avoid edge artifacts
+	simd::float3 scale = (max - min) * 0.1f;
+	min -= scale;
+	max += scale;
+
+	return matrix_ortho_right_hand(min.x, max.x,
+								   min.y, max.y,
+								   min.z, max.z - min.z);
+}
+
 void Engine::drawMeshes(MTL::RenderCommandEncoder* renderCommandEncoder) {
 	renderCommandEncoder->setFrontFacingWinding(MTL::WindingCounterClockwise);
 	renderCommandEncoder->setCullMode(MTL::CullModeBack);
@@ -600,6 +705,27 @@ void Engine::drawShadow(MTL::CommandBuffer* commandBuffer)
 
     renderCommandEncoder->endEncoding();
 }
+
+//void Engine::drawShadow(MTL::CommandBuffer* commandBuffer) {
+//	for (int i = 0; i < SHADOW_CASCADE_COUNT; i++) {
+//		MTL::RenderCommandEncoder* shadowPass =
+//			commandBuffer->renderCommandEncoder(shadowCascadeRenderPassDescriptors[i]);
+//			
+//		if (shadowPass) {
+//			shadowPass->setLabel(NS::String::string("Shadow Pass", NS::ASCIIStringEncoding));
+//			shadowPass->setRenderPipelineState(shadowPipelineState);
+//			shadowPass->setDepthStencilState(shadowDepthStencilState);
+//			
+//			// Set the current cascade index for the shader
+//			shadowPass->setVertexBytes(&i, sizeof(int), 30);
+//			
+//			// Draw meshes
+//			drawMeshes(shadowPass);
+//			
+//			shadowPass->endEncoding();
+//		}
+//	}
+//}
 
 void Engine::drawGBuffer(MTL::RenderCommandEncoder* renderCommandEncoder)
 {
@@ -653,7 +779,9 @@ void Engine::draw() {
 	MTL::RenderCommandEncoder* gBufferEncoder = commandBuffer->renderCommandEncoder(viewRenderPassDescriptor);
 	if (gBufferEncoder) {
 		drawGBuffer(gBufferEncoder);
+		
 		drawDirectionalLight(gBufferEncoder);
+		
 		gBufferEncoder->endEncoding();
 	}
 	

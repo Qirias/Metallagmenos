@@ -80,6 +80,14 @@ set_target_properties(shaders PROPERTIES FOLDER "Hidden")
 # Add the executable target
 add_executable(${PROJECT_NAME} ${SOURCES} ${SHADER_SOURCES})
 
+# Prevent xcode running multiple executables
+set_target_properties(${PROJECT_NAME} PROPERTIES
+    MACOSX_BUNDLE TRUE
+    XCODE_GENERATE_SCHEME TRUE
+    XCODE_SCHEME_WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    XCODE_SCHEME_LAUNCH_MODE "0"
+)
+
 # Set the Xcode specific attributes
 set_target_properties(${PROJECT_NAME} PROPERTIES
     XCODE_GENERATE_SCHEME TRUE

@@ -50,8 +50,6 @@ private:
 	void endFrame(MTL::CommandBuffer* commandBuffer, MTL::Drawable* currentDrawable);
     void updateWorldState(bool isPaused);
 	
-	void drawShadow(MTL::CommandBuffer* commandBuffer);
-	void drawGBuffer(MTL::RenderCommandEncoder* renderCommandEncoder);
 	void drawMeshes(MTL::RenderCommandEncoder* renderCommandEncoder);
 
     void createDepthTexture();
@@ -99,23 +97,9 @@ private:
 
     // Depth stencil states
     MTL::DepthStencilState*     depthStencilState;
-    MTL::DepthStencilState*     shadowDepthStencilState;
-	MTL::DepthStencilState* 	GBufferDepthStencilState;
 
     // Renderpass descriptors
     MTL::RenderPassDescriptor*  renderPassDescriptor;
-    MTL::RenderPassDescriptor*  shadowRenderPassDescriptor;
-	MTL::RenderPassDescriptor* 	viewRenderPassDescriptor;
-	
-	// GBuffer properties
-	MTL::PixelFormat 			albedoSpecularGBufferFormat;
-	MTL::PixelFormat 			normalShadowGBufferFormat;
-	MTL::PixelFormat 			depthGBufferFormat;
-	MTL::Texture* 				albedoSpecularGBuffer;
-	MTL::Texture* 				normalShadowGBuffer;
-	MTL::Texture* 				depthGBuffer;
-
-	MTL::StorageMode 			GBufferStorageMode;
 
     MTL::Texture*               depthTexture;
     MTL::Texture*               shadowMap;
@@ -126,8 +110,6 @@ private:
 
 	// Render Pipeline States
     MTL::RenderPipelineState*   metalRenderPSO;
-    MTL::RenderPipelineState*   shadowPipelineState;
-	MTL::RenderPipelineState*   GBufferPipelineState;
 
     Mesh*                       mesh;
 
@@ -135,6 +117,4 @@ private:
 
     uint64_t                    frameNumber;
     uint8_t                     frameDataBufferIndex;
-
-    simd::float4x4              shadowProjectionMatrix;
 };

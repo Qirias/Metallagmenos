@@ -21,7 +21,6 @@ void Engine::init() {
     createBuffers();
     createDefaultLibrary();
     createRenderPipelines();
-	createViewRenderPassDescriptor();
     createDepthTexture();
     createRenderPassDescriptor();
 }
@@ -55,11 +54,7 @@ void Engine::cleanup() {
     depthTexture->release();
 	shadowMap->release();
     renderPassDescriptor->release();
-	shadowRenderPassDescriptor->release();
-	viewRenderPassDescriptor->release();
     metalRenderPSO->release();
-    shadowPipelineState->release();
-	GBufferPipelineState->release();
     metalDevice->release();
 }
 
@@ -132,14 +127,7 @@ MTL::CommandBuffer* Engine::beginFrame(bool isPaused) {
     MTL::CommandBuffer* commandBuffer = metalCommandQueue->commandBuffer();
 
     updateWorldState(isPaused);
-
-    /// The idea is begin frame for the drawShadow, commit, and then draw the drawables
-    /// After this moment we are supposed to draw the g-buffer geometry later on
-    /// return command buffer here and after you drawShadow commit it
-
-    /// then create another command buffer for g-buffer
-    /// MTL::CommandBuffer* commandBuffer = metalCommandQueue->commandBuffer();
-
+    
     /// Perform operations necessary to obtain a command buffer for rendering to the drawable. By
     /// endoding commands that are not dependant on the drawable in a separate command buffer, Metal
     /// can begin executing encoded commands for the frame (commands from the previous command buffer)
@@ -150,7 +138,7 @@ MTL::CommandBuffer* Engine::beginFrame(bool isPaused) {
     };
     commandBuffer->addCompletedHandler(handler);
 
-    
+
     return commandBuffer;
 }
 
@@ -265,8 +253,6 @@ void Engine::updateWorldState(bool isPaused) {
 		frameData->scene_model_matrix = matrix4x4_translation(0.0f, 0.0f, 0.0f); // sponza is set in this position
 		frameData->scene_modelview_matrix = frameData->view_matrix * frameData->scene_model_matrix;
 		frameData->scene_normal_matrix = matrix3x3_upper_left(frameData->scene_model_matrix);
-		
-		frameData->shadow_mvp_matrix = shadowProjectionMatrix * shadowViewMatrix * frameData->scene_model_matrix;
 	}
 
 	{
@@ -287,169 +273,35 @@ void Engine::createCommandQueue() {
 
 void Engine::createRenderPipelines() {
     NS::Error* error;
-	
-	albedoSpecularGBufferFormat = MTL::PixelFormatRGBA8Unorm_sRGB;
-	normalShadowGBufferFormat 	= MTL::PixelFormatRGBA8Snorm;
-	depthGBufferFormat			= MTL::PixelFormatR32Float;
 
-    #pragma mark render pipeline setup
     {
-		
-		{
-			MTL::Function* GBufferVertexFunction = metalDefaultLibrary->newFunction(NS::String::string("gbuffer_vertex", NS::ASCIIStringEncoding));
-			MTL::Function* GBufferFragmentFunction = metalDefaultLibrary->newFunction(NS::String::string("gbuffer_fragment", NS::ASCIIStringEncoding));
+        MTL::Function* vertexShader = metalDefaultLibrary->newFunction(NS::String::string("vertexShader", NS::ASCIIStringEncoding));
+        assert(vertexShader);
+        MTL::Function* fragmentShader = metalDefaultLibrary->newFunction(NS::String::string("fragmentShader", NS::ASCIIStringEncoding));
+        assert(fragmentShader);
 
-			assert(GBufferVertexFunction && "Failed to load gbuffer_vertex shader");
-			assert(GBufferFragmentFunction && "Failed to load gbuffer_fragment shader");
+        MTL::RenderPipelineDescriptor* renderPipelineDescriptor = MTL::RenderPipelineDescriptor::alloc()->init();
+        renderPipelineDescriptor->setVertexFunction(vertexShader);
+        renderPipelineDescriptor->setVertexDescriptor(defaultVertexDescriptor);
+        renderPipelineDescriptor->setFragmentFunction(fragmentShader);
+        assert(renderPipelineDescriptor);
+        MTL::PixelFormat pixelFormat = (MTL::PixelFormat)metalLayer.pixelFormat;
+        renderPipelineDescriptor->colorAttachments()->object(0)->setPixelFormat(pixelFormat);
+        renderPipelineDescriptor->setSampleCount(1);
+        renderPipelineDescriptor->setDepthAttachmentPixelFormat(MTL::PixelFormatDepth16Unorm);
 
-			MTL::RenderPipelineDescriptor* renderPipelineDescriptor = MTL::RenderPipelineDescriptor::alloc()->init();
+        metalRenderPSO = metalDevice->newRenderPipelineState(renderPipelineDescriptor, &error);
 
-			renderPipelineDescriptor->setLabel(NS::String::string("G-buffer Creation", NS::ASCIIStringEncoding));
-			renderPipelineDescriptor->setVertexDescriptor(defaultVertexDescriptor);
+        assert(error == nil && "Failed to create view render pipeline state");
 
-			// MTL::PixelFormatInvalid if not single pass deferred rendering
-			renderPipelineDescriptor->colorAttachments()->object(RenderTargetLighting)->setPixelFormat(MTL::PixelFormat::PixelFormatInvalid); // MTL::PixelFormat::PixelFormatBGRA8Unorm_sRGB
+        MTL::DepthStencilDescriptor* depthStencilDescriptor = MTL::DepthStencilDescriptor::alloc()->init();
+        depthStencilDescriptor->setDepthCompareFunction(MTL::CompareFunctionLessEqual);
+        depthStencilDescriptor->setDepthWriteEnabled(true);
+        depthStencilState = metalDevice->newDepthStencilState(depthStencilDescriptor);
 
-			renderPipelineDescriptor->colorAttachments()->object(RenderTargetAlbedo)->setPixelFormat(albedoSpecularGBufferFormat);
-			renderPipelineDescriptor->colorAttachments()->object(RenderTargetNormal)->setPixelFormat(normalShadowGBufferFormat);
-			renderPipelineDescriptor->colorAttachments()->object(RenderTargetDepth)->setPixelFormat(depthGBufferFormat);
-			renderPipelineDescriptor->setDepthAttachmentPixelFormat(MTL::PixelFormat::PixelFormatDepth32Float_Stencil8);
-			renderPipelineDescriptor->setStencilAttachmentPixelFormat(MTL::PixelFormat::PixelFormatDepth32Float_Stencil8);
-
-			renderPipelineDescriptor->setVertexFunction(GBufferVertexFunction);
-			renderPipelineDescriptor->setFragmentFunction(GBufferFragmentFunction);
-
-			GBufferPipelineState = metalDevice->newRenderPipelineState(renderPipelineDescriptor, &error);
-
-			assert(error == nil && "Failed to create GBuffer render pipeline state");
-			
-			renderPipelineDescriptor->release();
-			GBufferVertexFunction->release();
-			GBufferFragmentFunction->release();
-		}
-		
-		#pragma mark GBuffer depth state setup
-		{
-		#if LIGHT_STENCIL_CULLING
-			MTL::StencilDescriptor* stencilStateDesc = MTL::StencilDescriptor::alloc()->init();
-			stencilStateDesc->setStencilCompareFunction(MTL::CompareFunctionAlways);
-			stencilStateDesc->setStencilFailureOperation(MTL::StencilOperationKeep);
-			stencilStateDesc->setDepthFailureOperation(MTL::StencilOperationKeep);
-			stencilStateDesc->setDepthStencilPassOperation(MTL::StencilOperationReplace);
-			stencilStateDesc->setReadMask(0x0);
-			stencilStateDesc->setWriteMask(0xFF);
-		#else
-			MTL::StencilDescriptor* stencilStateDesc = MTL::StencilDescriptor::alloc()->init();
-		#endif
-			MTL::DepthStencilDescriptor* depthStencilDesc = MTL::DepthStencilDescriptor::alloc()->init();
-			depthStencilDesc->setLabel(NS::String::string("G-buffer Creation", NS::ASCIIStringEncoding));
-			depthStencilDesc->setDepthCompareFunction( MTL::CompareFunctionLess );
-			depthStencilDesc->setDepthWriteEnabled(true);
-			depthStencilDesc->setFrontFaceStencil(stencilStateDesc);
-			depthStencilDesc->setBackFaceStencil(stencilStateDesc);
-
-			GBufferDepthStencilState = metalDevice->newDepthStencilState(depthStencilDesc);
-			depthStencilDesc->release();
-			stencilStateDesc->release();
-		}
-		
-        {
-            MTL::Function* vertexShader = metalDefaultLibrary->newFunction(NS::String::string("vertexShader", NS::ASCIIStringEncoding));
-            assert(vertexShader);
-            MTL::Function* fragmentShader = metalDefaultLibrary->newFunction(NS::String::string("fragmentShader", NS::ASCIIStringEncoding));
-            assert(fragmentShader);
-
-            MTL::RenderPipelineDescriptor* renderPipelineDescriptor = MTL::RenderPipelineDescriptor::alloc()->init();
-            renderPipelineDescriptor->setVertexFunction(vertexShader);
-			renderPipelineDescriptor->setVertexDescriptor(defaultVertexDescriptor);
-            renderPipelineDescriptor->setFragmentFunction(fragmentShader);
-            assert(renderPipelineDescriptor);
-            MTL::PixelFormat pixelFormat = (MTL::PixelFormat)metalLayer.pixelFormat;
-            renderPipelineDescriptor->colorAttachments()->object(0)->setPixelFormat(pixelFormat);
-            renderPipelineDescriptor->setSampleCount(1);
-            renderPipelineDescriptor->setDepthAttachmentPixelFormat(MTL::PixelFormatDepth16Unorm);
-
-            metalRenderPSO = metalDevice->newRenderPipelineState(renderPipelineDescriptor, &error);
-
-			assert(error == nil && "Failed to create view render pipeline state");
-
-            MTL::DepthStencilDescriptor* depthStencilDescriptor = MTL::DepthStencilDescriptor::alloc()->init();
-            depthStencilDescriptor->setDepthCompareFunction(MTL::CompareFunctionLessEqual);
-            depthStencilDescriptor->setDepthWriteEnabled(true);
-            depthStencilState = metalDevice->newDepthStencilState(depthStencilDescriptor);
-
-            renderPipelineDescriptor->release();
-            vertexShader->release();
-            fragmentShader->release();
-        }
-
-        // Setup objects for shadow pass
-        {
-            MTL::PixelFormat shadowMapPixelFormat = MTL::PixelFormatDepth16Unorm;
-
-            #pragma mark shadow pass render pipeline setup
-            {
-                MTL::Function* shadowVertexFunction = metalDefaultLibrary->newFunction(NS::String::string("shadow_vertex", NS::ASCIIStringEncoding));
-
-                assert(shadowVertexFunction && "Failed to load shadow_vertex shader");
-
-                MTL::RenderPipelineDescriptor* renderPipelineDescriptor = MTL::RenderPipelineDescriptor::alloc()->init();
-                renderPipelineDescriptor->setLabel(NS::String::string("Shadow Gen", NS::ASCIIStringEncoding));
-                renderPipelineDescriptor->setVertexDescriptor(nullptr);
-                renderPipelineDescriptor->setVertexFunction(shadowVertexFunction);
-                renderPipelineDescriptor->setFragmentFunction(nullptr);
-                renderPipelineDescriptor->setDepthAttachmentPixelFormat(shadowMapPixelFormat);
-
-                shadowPipelineState = metalDevice->newRenderPipelineState(renderPipelineDescriptor, &error);
-                
-                assert(error == nil && "Failed to create shadow map render pipeline state");
-
-                renderPipelineDescriptor->release();
-                shadowVertexFunction->release();
-            }
-
-            #pragma mark shadow pass depth state setup
-            {
-                MTL::DepthStencilDescriptor* depthStencilDescriptor = MTL::DepthStencilDescriptor::alloc()->init();
-                depthStencilDescriptor->setLabel( NS::String::string("Shadow Gen", NS::ASCIIStringEncoding));
-                depthStencilDescriptor->setDepthCompareFunction(MTL::CompareFunctionLessEqual);
-                depthStencilDescriptor->setDepthWriteEnabled(true);
-                shadowDepthStencilState = metalDevice->newDepthStencilState( depthStencilDescriptor );
-                depthStencilDescriptor->release();
-            }
-
-            #pragma mark Shadow map setup
-            {
-                MTL::TextureDescriptor* shadowTextureDesc = MTL::TextureDescriptor::alloc()->init();
-
-                shadowTextureDesc->setPixelFormat(shadowMapPixelFormat);
-                shadowTextureDesc->setWidth(2048);
-                shadowTextureDesc->setHeight(2048);
-                shadowTextureDesc->setMipmapLevelCount(1);
-                shadowTextureDesc->setResourceOptions(MTL::ResourceStorageModePrivate);
-                shadowTextureDesc->setUsage(MTL::TextureUsageRenderTarget | MTL::TextureUsageShaderRead);
-
-                shadowMap = metalDevice->newTexture(shadowTextureDesc);
-                shadowMap->setLabel( NS::String::string("Shadow Map", NS::ASCIIStringEncoding));
-                
-                shadowTextureDesc->release();
-            }
-
-            #pragma mark Shadow render pass descriptor setup
-            {
-                shadowRenderPassDescriptor = MTL::RenderPassDescriptor::alloc()->init();
-                shadowRenderPassDescriptor->depthAttachment()->setTexture(shadowMap);
-                shadowRenderPassDescriptor->depthAttachment()->setLoadAction(MTL::LoadActionClear);
-                shadowRenderPassDescriptor->depthAttachment()->setStoreAction(MTL::StoreActionStore);
-                shadowRenderPassDescriptor->depthAttachment()->setClearDepth(1.0);
-            }
-
-            // Calculate projection matrix to render shadows
-            {
-				// left, right, bottom, top, near, far
-                shadowProjectionMatrix = matrix_ortho_left_hand(-23, 23, -3, 23, -23, 23);
-            }
-        }
+        renderPipelineDescriptor->release();
+        vertexShader->release();
+        fragmentShader->release();
     }
 }
 
@@ -480,71 +332,6 @@ void Engine::createRenderPassDescriptor() {
 	depthAttachment->setLoadAction(MTL::LoadActionClear);
 	depthAttachment->setStoreAction(MTL::StoreActionDontCare);
 	depthAttachment->setClearDepth(1.0);
-}
-
-void Engine::createViewRenderPassDescriptor() {
-	viewRenderPassDescriptor = MTL::RenderPassDescriptor::alloc()->init();
-	
-	// First create the G-Buffer textures
-	MTL::TextureDescriptor* textureDescriptor = MTL::TextureDescriptor::alloc()->init();
-	textureDescriptor->setWidth(metalLayer.drawableSize.width);
-	textureDescriptor->setHeight(metalLayer.drawableSize.height);
-	textureDescriptor->setMipmapLevelCount(1);
-	textureDescriptor->setSampleCount(1);
-	textureDescriptor->setUsage(MTL::TextureUsageRenderTarget | MTL::TextureUsageShaderRead);
-	textureDescriptor->setStorageMode(MTL::StorageModePrivate);
-	
-	// Create albedo/specular G-buffer
-	textureDescriptor->setPixelFormat(albedoSpecularGBufferFormat);
-	albedoSpecularGBuffer = metalDevice->newTexture(textureDescriptor);
-	albedoSpecularGBuffer->setLabel(NS::String::string("Albedo-Specular G-Buffer", NS::ASCIIStringEncoding));
-	
-	// Create normal/shadow G-buffer
-	textureDescriptor->setPixelFormat(normalShadowGBufferFormat);
-	normalShadowGBuffer = metalDevice->newTexture(textureDescriptor);
-	normalShadowGBuffer->setLabel(NS::String::string("Normal-Shadow G-Buffer", NS::ASCIIStringEncoding));
-	
-	// Create depth G-buffer
-	textureDescriptor->setPixelFormat(depthGBufferFormat);
-	depthGBuffer = metalDevice->newTexture(textureDescriptor);
-	depthGBuffer->setLabel(NS::String::string("Depth G-Buffer", NS::ASCIIStringEncoding));
-	
-	// Create depth/stencil texture
-	textureDescriptor->setPixelFormat(MTL::PixelFormatDepth32Float_Stencil8);
-	MTL::Texture* depthStencilTexture = metalDevice->newTexture(textureDescriptor);
-	depthStencilTexture->setLabel(NS::String::string("Depth-Stencil Texture", NS::ASCIIStringEncoding));
-	
-	textureDescriptor->release();
-	
-	// Set up render pass descriptor attachments
-	viewRenderPassDescriptor->colorAttachments()->object(RenderTargetAlbedo)->setTexture(albedoSpecularGBuffer);
-	viewRenderPassDescriptor->colorAttachments()->object(RenderTargetNormal)->setTexture(normalShadowGBuffer);
-	viewRenderPassDescriptor->colorAttachments()->object(RenderTargetDepth)->setTexture(depthGBuffer);
-	viewRenderPassDescriptor->depthAttachment()->setTexture(depthStencilTexture);
-	viewRenderPassDescriptor->stencilAttachment()->setTexture(depthStencilTexture);
-	
-	// Configure load/store actions
-	viewRenderPassDescriptor->colorAttachments()->object(RenderTargetAlbedo)->setLoadAction(MTL::LoadActionClear);
-	viewRenderPassDescriptor->colorAttachments()->object(RenderTargetAlbedo)->setStoreAction(MTL::StoreActionStore);
-	viewRenderPassDescriptor->colorAttachments()->object(RenderTargetAlbedo)->setClearColor(MTL::ClearColor(0.0, 0.0, 0.0, 1.0));
-	
-	viewRenderPassDescriptor->colorAttachments()->object(RenderTargetNormal)->setLoadAction(MTL::LoadActionClear);
-	viewRenderPassDescriptor->colorAttachments()->object(RenderTargetNormal)->setStoreAction(MTL::StoreActionStore);
-	viewRenderPassDescriptor->colorAttachments()->object(RenderTargetNormal)->setClearColor(MTL::ClearColor(0.0, 0.0, 0.0, 1.0));
-	
-	viewRenderPassDescriptor->colorAttachments()->object(RenderTargetDepth)->setLoadAction(MTL::LoadActionClear);
-	viewRenderPassDescriptor->colorAttachments()->object(RenderTargetDepth)->setStoreAction(MTL::StoreActionStore);
-	viewRenderPassDescriptor->colorAttachments()->object(RenderTargetDepth)->setClearColor(MTL::ClearColor(1.0, 1.0, 1.0, 1.0));
-	
-	viewRenderPassDescriptor->depthAttachment()->setLoadAction(MTL::LoadActionClear);
-	viewRenderPassDescriptor->depthAttachment()->setStoreAction(MTL::StoreActionStore);
-	viewRenderPassDescriptor->depthAttachment()->setClearDepth(1.0);
-	
-	viewRenderPassDescriptor->stencilAttachment()->setLoadAction(MTL::LoadActionClear);
-	viewRenderPassDescriptor->stencilAttachment()->setStoreAction(MTL::StoreActionStore);
-	viewRenderPassDescriptor->stencilAttachment()->setClearStencil(0);
-	
-	depthStencilTexture->release();
 }
 
 void Engine::updateRenderPassDescriptor() {
@@ -599,43 +386,8 @@ void Engine::drawMeshes(MTL::RenderCommandEncoder* renderCommandEncoder) {
 	renderCommandEncoder->drawIndexedPrimitives(typeTriangle, mesh->indexCount, MTL::IndexTypeUInt32, mesh->indexBuffer, 0);
 }
 
-void Engine::drawShadow(MTL::CommandBuffer* commandBuffer)
-{
-    MTL::RenderCommandEncoder* renderCommandEncoder = commandBuffer->renderCommandEncoder(shadowRenderPassDescriptor);
-
-    renderCommandEncoder->setLabel( NS::String::string("Shadow Map Pass", NS::ASCIIStringEncoding));
-
-    renderCommandEncoder->setRenderPipelineState(shadowPipelineState);
-    renderCommandEncoder->setDepthStencilState(shadowDepthStencilState);
-    renderCommandEncoder->setCullMode(MTL::CullModeBack);
-    renderCommandEncoder->setDepthBias(0.015, 7, 0.02);
-	renderCommandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, 2);
-
-	drawMeshes(renderCommandEncoder);
-
-    renderCommandEncoder->endEncoding();
-}
-
-void Engine::drawGBuffer(MTL::RenderCommandEncoder* renderCommandEncoder)
-{
-	renderCommandEncoder->pushDebugGroup(NS::String::string("Draw G-Buffer", NS::ASCIIStringEncoding));
-	renderCommandEncoder->setCullMode(MTL::CullModeBack);
-	renderCommandEncoder->setRenderPipelineState(GBufferPipelineState);
-	renderCommandEncoder->setDepthStencilState(GBufferDepthStencilState);
-	renderCommandEncoder->setStencilReferenceValue(128);
-	renderCommandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, 2);
-	renderCommandEncoder->setFragmentBuffer(frameDataBuffers[currentFrameIndex], 0, 2);
-	renderCommandEncoder->setFragmentTexture(shadowMap, TextureIndexShadow);
-
-	drawMeshes(renderCommandEncoder);
-	renderCommandEncoder->popDebugGroup();
-}
-
 void Engine::draw() {
 	MTL::CommandBuffer* commandBuffer = beginFrame(false);
-	
-	// Shadow pass
-	drawShadow(commandBuffer);
 	
 	// Forward rendering pass
 	updateRenderPassDescriptor();
@@ -646,15 +398,4 @@ void Engine::draw() {
 	
 	// End the frame
 	endFrame(commandBuffer, metalDrawable);
-	
-	// Create a separate command buffer for G-Buffer pass
-	MTL::CommandBuffer* gBufferCommandBuffer = metalCommandQueue->commandBuffer();
-	MTL::RenderCommandEncoder* gBufferEncoder = gBufferCommandBuffer->renderCommandEncoder(viewRenderPassDescriptor);
-	
-	if (gBufferEncoder) {
-		gBufferEncoder->setRenderPipelineState(GBufferPipelineState);
-		drawGBuffer(gBufferEncoder);
-		gBufferEncoder->endEncoding();
-		gBufferCommandBuffer->commit();
-	}
 }

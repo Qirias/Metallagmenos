@@ -33,11 +33,9 @@ struct Mesh {
 float3 applyNormalMap(float3 N, float3 T, float3 B, float2 texcoord,
 					 texture2d_array<float> normalMap,
 					 int normalMapIndex, sampler textureSampler) {
-	// Sample the normal map and convert from [0,1] to [-1,1] range
 	float4 normalSample = normalMap.sample(textureSampler, texcoord, normalMapIndex);
 	float3 tangentNormal = normalSample.xyz * 2.0 - 1.0;
 	
-	// Use precalculated TBN matrix
 	float3x3 TBN = float3x3(T, B, N);
 	return normalize(TBN * tangentNormal);
 }

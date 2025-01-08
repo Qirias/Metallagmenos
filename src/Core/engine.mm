@@ -1,7 +1,7 @@
 #include "engine.hpp"
 
 Engine::Engine()
-: camera(simd::float3{0.0f, 0.0f, 3.0f})
+: camera(simd::float3{7.0f, 5.0f, 0.0f})
 , lastFrame(0.0f)
 , frameNumber(0)
 , currentFrameIndex(0) {
@@ -23,6 +23,7 @@ void Engine::init() {
     createRenderPipelines();
     createDepthTexture();
     createRenderPassDescriptor();
+    createAccelerationStructureWithDescriptors();
 }
 
 void Engine::run() {
@@ -44,7 +45,8 @@ void Engine::run() {
 
 void Engine::cleanup() {
     glfwTerminate();
-    delete mesh;
+    for (auto& mesh : meshes)
+        delete mesh;
 	
 	for(uint8_t i = 0; i < MaxFramesInFlight; i++) {
 		frameDataBuffers[i]->release();
@@ -52,7 +54,6 @@ void Engine::cleanup() {
 	
 	defaultVertexDescriptor->release();
     depthTexture->release();
-	shadowMap->release();
     renderPassDescriptor->release();
     metalRenderPSO->release();
     metalDevice->release();
@@ -156,7 +157,7 @@ void Engine::loadScene() {
 	defaultVertexDescriptor = MTL::VertexDescriptor::alloc()->init();
 	
     std::string smgPath = std::string(SCENES_PATH) + "/sponza/sponza.obj";
-	mesh = new Mesh(smgPath.c_str(), metalDevice, defaultVertexDescriptor);
+	meshes.push_back(new Mesh(smgPath.c_str(), metalDevice, defaultVertexDescriptor));
 	
 //	GLTFLoader gltfLoader(metalDevice);
 //	std::string modelPath = std::string(SCENES_PATH) + "/DamagedHelmet/DamagedHelmet.gltf";
@@ -225,7 +226,6 @@ void Engine::updateWorldState(bool isPaused) {
 
 	float3 skyRotationAxis = {0, 1, 0};
 	float4x4 skyModelMatrix = matrix4x4_rotation(skyRotation, skyRotationAxis);
-	frameData->sky_modelview_matrix = skyModelMatrix;
 
 	// Update directional light color
 	float4 sun_color = {0.5, 0.5, 0.5, 1.0};
@@ -237,34 +237,7 @@ void Engine::updateWorldState(bool isPaused) {
 	float4 sunWorldPosition = skyModelMatrix * sunModelPosition;
 	float4 sunWorldDirection = -sunWorldPosition;
 
-	frameData->sun_eye_direction = /*frameData->view_matrix * */ sunWorldDirection; // I will need to change this in deferred?
-
-	{
-		float4 directionalLightUpVector = {0.0, 1.0, 1.0, 1.0};
-
-		directionalLightUpVector = skyModelMatrix * directionalLightUpVector;
-		directionalLightUpVector.xyz = normalize(directionalLightUpVector.xyz);
-
-		float4x4 shadowViewMatrix = matrix_look_at_left_hand(sunWorldDirection.xyz / 10, // adjust based on scene scale
-																 (float3){0,0,0},
-																 directionalLightUpVector.xyz);
-
-		// If scene changes multiply the model with shadowViewMatrx
-		frameData->scene_model_matrix = matrix4x4_translation(0.0f, 0.0f, 0.0f); // sponza is set in this position
-		frameData->scene_modelview_matrix = frameData->view_matrix * frameData->scene_model_matrix;
-		frameData->scene_normal_matrix = matrix3x3_upper_left(frameData->scene_model_matrix);
-	}
-
-	{
-		// When calculating texture coordinates to sample from shadow map, flip the y/t coordinate and
-		// convert from the [-1, 1] range of clip coordinates to [0, 1] range of
-		// used for texture sampling
-		float4x4 shadowScale = matrix4x4_scale(0.5f, -0.5f, 1.0);
-		float4x4 shadowTranslate = matrix4x4_translation(0.5, 0.5, 0);
-		float4x4 shadowTransform = shadowTranslate * shadowScale;
-
-		frameData->shadow_mvp_xform_matrix = shadowTransform * frameData->shadow_mvp_matrix;
-	}
+	frameData->sun_eye_direction = sunWorldDirection;
 }
 
 void Engine::createCommandQueue() {
@@ -334,6 +307,53 @@ void Engine::createRenderPassDescriptor() {
 	depthAttachment->setClearDepth(1.0);
 }
 
+void Engine::createAccelerationStructureWithDescriptors() {
+    // Create a separate command queue for acceleration structure building
+    MTL::CommandQueue* commandQueue = metalDevice->newCommandQueue();
+    MTL::CommandBuffer* commandBuffer = commandQueue->commandBuffer();
+    
+    for (uint i = 0; i < meshes.size(); i++) {
+        MTL::AccelerationStructureTriangleGeometryDescriptor* geometryDescriptor = MTL::AccelerationStructureTriangleGeometryDescriptor::alloc()->init();
+        
+        geometryDescriptor->setVertexBuffer(meshes[i]->vertexBuffer);
+        geometryDescriptor->setIndexBuffer(meshes[i]->indexBuffer);
+        geometryDescriptor->setTriangleCount(meshes[i]->triangleCount);
+        
+        NS::Array* geometryDescriptors = NS::Array::array(geometryDescriptor);
+        
+        MTL::PrimitiveAccelerationStructureDescriptor* accelerationStructureDescriptor = MTL::PrimitiveAccelerationStructureDescriptor::alloc()->init();
+        
+        accelerationStructureDescriptor->setGeometryDescriptors(geometryDescriptors);
+        
+        MTL::AccelerationStructureSizes sizes = metalDevice->accelerationStructureSizes(accelerationStructureDescriptor);
+        
+        MTL::AccelerationStructure* accelerationStructure = metalDevice->newAccelerationStructure(sizes.accelerationStructureSize);
+        
+        MTL::Buffer* scratchBuffer = metalDevice->newBuffer(sizes.buildScratchBufferSize, MTL::ResourceStorageModePrivate);
+        std::string labelStr = "scratchBuffer: " + std::to_string(i);
+        NS::String* label = NS::String::string(labelStr.c_str(), NS::ASCIIStringEncoding);
+        scratchBuffer->setLabel(label);
+        
+        MTL::AccelerationStructureCommandEncoder* commandEncoder = commandBuffer->accelerationStructureCommandEncoder();
+        
+        commandEncoder->buildAccelerationStructure(accelerationStructure, accelerationStructureDescriptor, scratchBuffer, 0);
+        commandEncoder->endEncoding();
+        
+        primitiveAccelerationStructures.push_back(accelerationStructure);
+        
+        geometryDescriptor->release();
+        geometryDescriptors->release();
+        accelerationStructureDescriptor->release();
+        scratchBuffer->release();
+    }
+    
+    commandBuffer->commit();
+    commandBuffer->waitUntilCompleted();
+    
+    commandBuffer->release();
+    commandQueue->release();
+}
+
 void Engine::updateRenderPassDescriptor() {
 	renderPassDescriptor->colorAttachments()->object(0)->setTexture(metalDrawable->texture());
 	renderPassDescriptor->depthAttachment()->setTexture(depthTexture);
@@ -341,50 +361,31 @@ void Engine::updateRenderPassDescriptor() {
 
 void Engine::drawScene(MTL::RenderCommandEncoder* renderCommandEncoder) {
     renderCommandEncoder->setFrontFacingWinding(MTL::WindingCounterClockwise);
-	renderCommandEncoder->setCullMode(MTL::CullModeBack);
-	
-	//    renderCommandEncoder->setTriangleFillMode(MTL::TriangleFillModeLines);
-	renderCommandEncoder->setDepthStencilState(depthStencilState);
-	renderCommandEncoder->setVertexBuffer(mesh->vertexBuffer, 0, 0);
-		
-	matrix_float4x4 modelMatrix = matrix4x4_translation(0.0f, 0.0f, 0.0f);
-	
-	// Send matrices to shaders
-	renderCommandEncoder->setVertexBytes(&modelMatrix, sizeof(modelMatrix), 1);
-    renderCommandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, 2);
-		
-    // Set up the light source
-    renderCommandEncoder->setFragmentBuffer(frameDataBuffers[currentFrameIndex], 0, 0);
-    renderCommandEncoder->setFragmentTexture(mesh->diffuseTextures, 1);
-	renderCommandEncoder->setFragmentTexture(mesh->normalTextures, 2);
-    renderCommandEncoder->setFragmentBuffer(mesh->diffuseTextureInfos, 0, 3);
-	renderCommandEncoder->setFragmentBuffer(mesh->normalTextureInfos, 0, 4);
-    
-    // Tell the input assembler to draw triangles
-    MTL::PrimitiveType typeTriangle = MTL::PrimitiveTypeTriangle;
-    renderCommandEncoder->drawIndexedPrimitives(typeTriangle, mesh->indexCount, MTL::IndexTypeUInt32, mesh->indexBuffer, 0);
+    renderCommandEncoder->setCullMode(MTL::CullModeBack);
+    renderCommandEncoder->setDepthStencilState(depthStencilState);
+
+    for (auto& mesh : meshes) {
+        renderCommandEncoder->setVertexBuffer(mesh->vertexBuffer, 0, 0);
+        
+        matrix_float4x4 modelMatrix = matrix4x4_translation(0.0f, 0.0f, 0.0f);
+        
+        // Send matrices to shaders
+        renderCommandEncoder->setVertexBytes(&modelMatrix, sizeof(modelMatrix), 1);
+        renderCommandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, 2);
+        
+        // Set up the light source
+        renderCommandEncoder->setFragmentBuffer(frameDataBuffers[currentFrameIndex], 0, 0);
+        renderCommandEncoder->setFragmentTexture(mesh->diffuseTextures, 1);
+        renderCommandEncoder->setFragmentTexture(mesh->normalTextures, 2);
+        renderCommandEncoder->setFragmentBuffer(mesh->diffuseTextureInfos, 0, 3);
+        renderCommandEncoder->setFragmentBuffer(mesh->normalTextureInfos, 0, 4);
+        
+        // Tell the input assembler to draw triangles
+        MTL::PrimitiveType typeTriangle = MTL::PrimitiveTypeTriangle;
+        renderCommandEncoder->drawIndexedPrimitives(typeTriangle, mesh->indexCount, MTL::IndexTypeUInt32, mesh->indexBuffer, 0);
+    }
 }
 
-void Engine::drawMeshes(MTL::RenderCommandEncoder* renderCommandEncoder) {
-	renderCommandEncoder->setFrontFacingWinding(MTL::WindingCounterClockwise);
-	renderCommandEncoder->setCullMode(MTL::CullModeBack);
-	
-	renderCommandEncoder->setTriangleFillMode(MTL::TriangleFillModeLines);
-	renderCommandEncoder->setDepthStencilState(depthStencilState);
-	renderCommandEncoder->setVertexBuffer(mesh->vertexBuffer, 0, 0);
-	
-	matrix_float4x4 modelMatrix = matrix4x4_translation(0.0f, 0.0f, 0.0f);
-	renderCommandEncoder->setVertexBytes(&modelMatrix, sizeof(modelMatrix), 1);
-
-	// Set any textures read/sampled from the render pipeline
-	renderCommandEncoder->setFragmentTexture(mesh->diffuseTextures, TextureIndexBaseColor);
-	renderCommandEncoder->setFragmentTexture(mesh->normalTextures, TextureIndexNormal);
-	renderCommandEncoder->setFragmentBuffer(mesh->diffuseTextureInfos, 0, 3);
-	renderCommandEncoder->setFragmentBuffer(mesh->normalTextureInfos, 0, 4);
-	
-	MTL::PrimitiveType typeTriangle = MTL::PrimitiveTypeTriangle;
-	renderCommandEncoder->drawIndexedPrimitives(typeTriangle, mesh->indexCount, MTL::IndexTypeUInt32, mesh->indexBuffer, 0);
-}
 
 void Engine::draw() {
 	MTL::CommandBuffer* commandBuffer = beginFrame(false);

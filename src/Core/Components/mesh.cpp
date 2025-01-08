@@ -186,6 +186,8 @@ void Mesh::loadObj(std::string filePath) {
 				
 				vertexIndices.push_back(vertexIndex);
 			}
+            
+            triangleCount++;
 			index_offset += fv;
 		}
 	}

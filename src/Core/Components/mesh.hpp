@@ -80,6 +80,8 @@ public:
     MTL::Buffer*    vertexBuffer;
     MTL::Buffer*    indexBuffer;
     unsigned long   indexCount;
+    unsigned long   triangleCount;
+    
     MTL::Texture*   diffuseTextures;
 	MTL::Texture*   normalTextures;
     MTL::Buffer*    diffuseTextureInfos;

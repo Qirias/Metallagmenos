@@ -54,7 +54,7 @@ private:
 
     void createDepthTexture();
     void createRenderPassDescriptor();
-	void createViewRenderPassDescriptor();
+    void createAccelerationStructureWithDescriptors();
 
     // resizing window
     void updateRenderPassDescriptor();
@@ -62,7 +62,6 @@ private:
     void createDefaultLibrary();
     void createCommandQueue();
     void createRenderPipelines();
-    void createLightSourceRenderPipeline();
 
     void encodeRenderCommand(MTL::RenderCommandEncoder* renderCommandEncoder);
     void sendRenderCommand();
@@ -102,7 +101,6 @@ private:
     MTL::RenderPassDescriptor*  renderPassDescriptor;
 
     MTL::Texture*               depthTexture;
-    MTL::Texture*               shadowMap;
 
 	MTL::VertexDescriptor*		defaultVertexDescriptor;
     MTL::Library*               metalDefaultLibrary;
@@ -111,10 +109,12 @@ private:
 	// Render Pipeline States
     MTL::RenderPipelineState*   metalRenderPSO;
 
-    Mesh*                       mesh;
+    std::vector<Mesh*>          meshes;
 
     MTL::SamplerState*          samplerState;
 
     uint64_t                    frameNumber;
     uint8_t                     frameDataBufferIndex;
+    
+    std::vector<MTL::AccelerationStructure*> primitiveAccelerationStructures;
 };

@@ -16,17 +16,7 @@ struct FrameData {
 	simd::float4 sun_color;                      // 16 bytes (offset: 208)
 	simd::float4 sun_eye_direction;              // 16 bytes (offset: 224)
 	
-	// Matrix group
-	simd::float4x4 shadow_mvp_matrix;            // 64 bytes (offset: 240)
-	simd::float4x4 shadow_mvp_xform_matrix;      // 64 bytes (offset: 304)
-	simd::float4x4 sky_modelview_matrix;         // 64 bytes (offset: 368)
-	simd::float4x4 scene_model_matrix;           // 64 bytes (offset: 432)
-	simd::float4x4 scene_modelview_matrix;       // 64 bytes (offset: 496)
-	
-	// Note: float3x3 is padded to float4x3 in GPU memory
-	simd::float3x3 scene_normal_matrix;          // 48 bytes (offset: 560) - Each row padded to float4
-	uint8_t _pad2[32];                           // 32 bytes padding to reach 640 bytes total
-};  // Total size: 640 bytesTotal size: 608 bytes
+};
 
 
 struct ShadowVertex

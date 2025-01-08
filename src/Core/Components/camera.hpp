@@ -34,10 +34,7 @@ public:
         );
     }
     
-    simd::float3 getPosition() const { return position; }
-    float getFov() const { return fov; }
-
-private:
+    
     simd::float3 position;
     simd::float3 front;
     simd::float3 up;

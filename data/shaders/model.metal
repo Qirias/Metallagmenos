@@ -1,122 +1,99 @@
 #define METAL
 #include <metal_stdlib>
+
 using namespace metal;
+using namespace raytracing;
 
 #include "vertexData.hpp"
 #include "shaderTypes.hpp"
 
-struct OutData {
-	float4 position [[position]];
-	float4 normal;
-	float4 tangent;
-	float4 bitangent;
-	float4 fragmentPosition;
-	float2 textureCoordinate;
-	int diffuseTextureIndex;
-	int normalTextureIndex;
+struct VertexOut {
+    float4 position [[position]];
+    float2 texCoords;
 };
 
-bool operator==(const device Vertex& a, const device Vertex& b) {
-	return all(a.position == b.position) &&
-		   all(a.normal == b.normal) &&
-		   all(a.tangent == b.tangent) &&
-		   all(a.bitangent == b.bitangent) &&
-		   all(a.textureCoordinate == b.textureCoordinate) &&
-		   a.diffuseTextureIndex == b.diffuseTextureIndex &&
-		   a.normalTextureIndex == b.normalTextureIndex;
-}
-
-struct Mesh {
-	constant Vertex* vertices;
+struct MeshResources {
+    device float3* vertexNormals;
+    device uint* indices;
 };
 
-float3 applyNormalMap(float3 N, float3 T, float3 B, float2 texcoord,
-					 texture2d_array<float> normalMap,
-					 int normalMapIndex, sampler textureSampler) {
-	float4 normalSample = normalMap.sample(textureSampler, texcoord, normalMapIndex);
-	float3 tangentNormal = normalSample.xyz * 2.0 - 1.0;
-	
-	float3x3 TBN = float3x3(T, B, N);
-	return normalize(TBN * tangentNormal);
+vertex VertexOut vertex_function(uint       vertexID    [[vertex_id]],
+                        constant FrameData& frameData   [[buffer(BufferIndexFrameData)]]) {
+    VertexOut out;
+
+    // Generate full-screen triangle
+    float2 position = float2((vertexID << 1) & 2, vertexID & 2);
+    out.position    = float4(position * float2(2, -2) + float2(-1, 1), 0.0f, 1.0f);
+    out.texCoords   = position;
+
+    return out;
 }
 
-vertex OutData vertexShader(
-			 uint vertexID [[vertex_id]],
-			 constant Vertex* vertexData,
-			 constant float4x4& modelMatrix,
-			 constant FrameData& frameData [[buffer(2)]]) {
-	OutData out;
-	constant Vertex& vert = vertexData[vertexID];
-	
-	out.position = frameData.projection_matrix * frameData.view_matrix * modelMatrix * float4(vert.position.xyz, 1.0f);
-	out.normal = modelMatrix * float4(vert.normal.xyz, 0.0f);
-	out.tangent = modelMatrix * float4(vert.tangent.xyz, 0.0f);
-	out.bitangent = modelMatrix * float4(vert.bitangent.xyz, 0.0f);
-	out.fragmentPosition = modelMatrix * float4(vert.position.xyz, 1.0f);
-	out.textureCoordinate = vert.textureCoordinate;
-	out.diffuseTextureIndex = vert.diffuseTextureIndex;
-	out.normalTextureIndex = vert.normalTextureIndex;
-	return out;
+fragment float4 fragment_function(VertexOut         in  [[stage_in]],
+                                  texture2d<float>  tex [[texture(0)]]) {
+    constexpr sampler sam(min_filter::nearest, mag_filter::nearest, mip_filter::none);
+
+    float3 color = tex.sample(sam, in.texCoords).xyz;
+
+    return float4(color, 1.0f);
 }
 
-fragment float4 fragmentShader(OutData in [[stage_in]],
-							 constant FrameData& frameData [[ buffer(0) ]],
-							 texture2d_array<float> diffuseTextures [[texture(1)]],
-							 texture2d_array<float> normalTextures [[texture(2)]],
-							 constant TextureInfo* diffuseTextureInfos [[buffer(3)]],
-							 constant TextureInfo* normalTextureInfos [[buffer(4)]]) {
-	
-	constexpr sampler textureSampler(
-		mag_filter::linear,
-		min_filter::linear,
-		mip_filter::linear,
-		address::repeat,
-		s_address::repeat,
-		t_address::repeat
-	);
-	
-	// Get base color
-	float4 baseColor;
-	if (in.diffuseTextureIndex >= 0 && (uint)in.diffuseTextureIndex < diffuseTextures.get_array_size()) {
-		int idx = in.diffuseTextureIndex;
-		float2 transformedUV = in.textureCoordinate *
-			(float2(diffuseTextureInfos[idx].width, diffuseTextureInfos[idx].height) /
-			 float2(diffuseTextures.get_width(0), diffuseTextures.get_height(0)));
-		
-		baseColor = diffuseTextures.sample(textureSampler, transformedUV, in.diffuseTextureIndex);
-		if (baseColor.a < 0.01) {
-			discard_fragment();
-		}
-	} else {
-		baseColor = float4(0.9608, 0.9608, 0.8627, 1.0);
-	}
-	
-	// Calculate normal from normal map using precalculated tangent space
-	float3 N = normalize(in.normal.xyz);
-	if (in.normalTextureIndex >= 0 && (uint)in.normalTextureIndex < normalTextures.get_array_size()) {
-		int idx = in.normalTextureIndex;
-		float2 transformedUV = in.textureCoordinate *
-			(float2(normalTextureInfos[idx].width, normalTextureInfos[idx].height) /
-			 float2(normalTextures.get_width(0), normalTextures.get_height(0)));
-		
-		float3 T = normalize(in.tangent.xyz);
-		float3 B = normalize(in.bitangent.xyz);
-		N = applyNormalMap(N, T, B, transformedUV, normalTextures, in.normalTextureIndex, textureSampler);
-	}
-	
-	// Lighting calculations with the normal
-	float3 L = normalize(frameData.sun_eye_direction.xyz);
-	float3 V = normalize(in.fragmentPosition.xyz);
-	float3 R = reflect(-L, N);
-	
-	float3 ambient = 0.2 * frameData.sun_color.rgb;
-	float diff = max(dot(N, L), 0.0);
-	float3 diffuse = diff * frameData.sun_color.rgb;
-	
-	float spec = pow(max(dot(V, R), 0.0), 32.0);
-	float3 specular = 0.5 * spec * frameData.sun_color.rgb;
-	
-	float3 finalColor = (ambient + diffuse + specular) * baseColor.rgb;
-	
-	return float4(finalColor, baseColor.a);
+kernel void raytracingKernel(texture2d<float, access::write>    outputTexture           [[texture(0)]],
+                    constant FrameData&                         frameData               [[buffer(BufferIndexFrameData)]],
+                             primitive_acceleration_structure   accelerationStructure   [[buffer(BufferIndexAccelerationStructure)]],
+                             device MeshResources*              resources               [[buffer(BufferIndexResources)]],
+                             uint2                              tid                     [[thread_position_in_grid]]) {
+    if (tid.x >= outputTexture.get_width() || tid.y >= outputTexture.get_height()) {
+        return;
+    }
+    
+    float2 pixel = float2(tid);
+    float2 uv = (pixel) / float2(frameData.framebuffer_width, frameData.framebuffer_height);
+    uv = uv * 2.0f  - 1.0f;
+    uv.y = -uv.y;
+
+    ray ray;
+    ray.origin = frameData.cameraPosition.xyz;
+    ray.direction = normalize(uv.x * frameData.cameraRight.xyz + uv.y * frameData.cameraUp.xyz + frameData.cameraForward.xyz);
+    ray.min_distance = 0.001f;
+    ray.max_distance = INFINITY;
+    
+    intersector<triangle_data> intersector;
+    intersection_result<triangle_data> result = intersector.intersect(ray, accelerationStructure);
+      
+    float3 color = 0.0f;
+    if (result.type != intersection_type::none) {
+        
+        unsigned int primitiveIndex = result.primitive_id;
+        unsigned int geometryIndex = result.geometry_id;
+
+        uint3 indices = uint3(
+            resources[geometryIndex].indices[primitiveIndex * 3],
+            resources[geometryIndex].indices[primitiveIndex * 3 + 1],
+            resources[geometryIndex].indices[primitiveIndex * 3 + 2]
+        );
+
+        float3 n0 = resources[geometryIndex].vertexNormals[indices.x];
+        float3 n1 = resources[geometryIndex].vertexNormals[indices.y];
+        float3 n2 = resources[geometryIndex].vertexNormals[indices.z];
+
+        float2 barycentrics = result.triangle_barycentric_coord;
+        float3 normal = normalize(
+            n0 * (1.0 - barycentrics.x - barycentrics.y) +
+            n1 * barycentrics.x +
+            n2 * barycentrics.y
+        );
+
+        float3 lightDir = normalize(-frameData.sun_eye_direction.xyz);
+        float diffuse = max(0.0f, dot(normal, lightDir));
+
+        float3 ambient = float3(0.1);
+        float3 sunLight = frameData.sun_color.xyz * diffuse;
+
+        color = (ambient + sunLight) * float3(0.7);
+//        color = (normal*0.5)+0.5;
+        color = float3(barycentrics.x, barycentrics.y, 1.0);
+    }
+
+        outputTexture.write(float4(color, 1.0), tid);
 }

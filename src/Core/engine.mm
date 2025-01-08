@@ -21,9 +21,10 @@ void Engine::init() {
     createBuffers();
     createDefaultLibrary();
     createRenderPipelines();
-    createDepthTexture();
+    createTextures();
     createRenderPassDescriptor();
     createAccelerationStructureWithDescriptors();
+    setupMeshResources();
 }
 
 void Engine::run() {
@@ -51,11 +52,19 @@ void Engine::cleanup() {
 	for(uint8_t i = 0; i < MaxFramesInFlight; i++) {
 		frameDataBuffers[i]->release();
     }
+    
+    resourceBuffer->release();
+    for (auto& resources : meshResources) {
+        resources.vertexNormalBuffer->release();
+        resources.indexBuffer->release();
+    }
+    meshResources.clear();
 	
 	defaultVertexDescriptor->release();
-    depthTexture->release();
+    outputTexture->release();
     renderPassDescriptor->release();
-    metalRenderPSO->release();
+    renderPipelineState->release();
+    raytracingPipelineState->release();
     metalDevice->release();
 }
 
@@ -81,11 +90,11 @@ void Engine::cursorPosCallback(GLFWwindow* window, double xpos, double ypos) {
 void Engine::resizeFrameBuffer(int width, int height) {
     metalLayer.drawableSize = CGSizeMake(width, height);
     // Deallocate the textures if they have been created
-    if (depthTexture) {
-        depthTexture->release();
-        depthTexture = nullptr;
+    if (outputTexture) {
+        outputTexture->release();
+        outputTexture = nullptr;
     }
-    createDepthTexture();
+    createTextures();
     metalDrawable = (__bridge CA::MetalDrawable*)[metalLayer nextDrawable];
     updateRenderPassDescriptor();
 }
@@ -206,36 +215,41 @@ void Engine::updateWorldState(bool isPaused) {
     if (!isPaused) {
         frameNumber++;
     }
-
+    
     FrameData *frameData = (FrameData *)(frameDataBuffers[currentFrameIndex]->contents());
-
+    
     float aspectRatio = metalDrawable->layer()->drawableSize().width / metalDrawable->layer()->drawableSize().height;
-
-    frameData->projection_matrix = camera.getProjectionMatrix(aspectRatio);
-    frameData->projection_matrix_inverse = matrix_invert(frameData->projection_matrix);
-    frameData->view_matrix = camera.getViewMatrix();
+    
+    frameData->projection_matrix            = camera.getProjectionMatrix(aspectRatio);
+    frameData->projection_matrix_inverse    = matrix_invert(frameData->projection_matrix);
+    frameData->view_matrix                  = camera.getViewMatrix();
+    
+    frameData->cameraUp         = float4{camera.up.x,       camera.up.y,        camera.up.z, 1.0f};
+    frameData->cameraRight      = float4{camera.right.x,    camera.right.y,     camera.right.z, 1.0f};
+    frameData->cameraForward    = float4{camera.front.x,    camera.front.y,     camera.front.z, 1.0f};
+    frameData->cameraPosition   = float4{camera.position.x, camera.position.y,  camera.position.z, 1.0f};
 
     // Set screen dimensions
-    frameData->framebuffer_width = (uint)metalLayer.drawableSize.width;
-    frameData->framebuffer_height = (uint)metalLayer.drawableSize.height;
+    frameData->framebuffer_width    = (uint)metalLayer.drawableSize.width;
+    frameData->framebuffer_height   = (uint)metalLayer.drawableSize.height;
 
     frameData->sun_color = simd_make_float4(1.0, 1.0, 1.0, 1.0);
 	
 	
 	float skyRotation = frameNumber * 0.005f - (M_PI_4*3);
 
-	float3 skyRotationAxis = {0, 1, 0};
+	float3 skyRotationAxis  = {0, 1, 0};
 	float4x4 skyModelMatrix = matrix4x4_rotation(skyRotation, skyRotationAxis);
 
 	// Update directional light color
-	float4 sun_color = {0.5, 0.5, 0.5, 1.0};
-	frameData->sun_color = sun_color;
-	frameData->sun_specular_intensity = 1;
+	float4 sun_color                    = {0.5, 0.5, 0.5, 1.0};
+	frameData->sun_color                = sun_color;
+	frameData->sun_specular_intensity   = 1;
 
 	// Update sun direction in view space
-	float4 sunModelPosition = {-0.25, -0.5, 1.0, 0.0};
-	float4 sunWorldPosition = skyModelMatrix * sunModelPosition;
-	float4 sunWorldDirection = -sunWorldPosition;
+	float4 sunModelPosition     = {-0.25, -0.5, 1.0, 0.0};
+	float4 sunWorldPosition     = skyModelMatrix * sunModelPosition;
+	float4 sunWorldDirection    = -sunWorldPosition;
 
 	frameData->sun_eye_direction = sunWorldDirection;
 }
@@ -248,9 +262,9 @@ void Engine::createRenderPipelines() {
     NS::Error* error;
 
     {
-        MTL::Function* vertexShader = metalDefaultLibrary->newFunction(NS::String::string("vertexShader", NS::ASCIIStringEncoding));
+        MTL::Function* vertexShader = metalDefaultLibrary->newFunction(NS::String::string("vertex_function", NS::ASCIIStringEncoding));
         assert(vertexShader);
-        MTL::Function* fragmentShader = metalDefaultLibrary->newFunction(NS::String::string("fragmentShader", NS::ASCIIStringEncoding));
+        MTL::Function* fragmentShader = metalDefaultLibrary->newFunction(NS::String::string("fragment_function", NS::ASCIIStringEncoding));
         assert(fragmentShader);
 
         MTL::RenderPipelineDescriptor* renderPipelineDescriptor = MTL::RenderPipelineDescriptor::alloc()->init();
@@ -261,50 +275,49 @@ void Engine::createRenderPipelines() {
         MTL::PixelFormat pixelFormat = (MTL::PixelFormat)metalLayer.pixelFormat;
         renderPipelineDescriptor->colorAttachments()->object(0)->setPixelFormat(pixelFormat);
         renderPipelineDescriptor->setSampleCount(1);
-        renderPipelineDescriptor->setDepthAttachmentPixelFormat(MTL::PixelFormatDepth16Unorm);
 
-        metalRenderPSO = metalDevice->newRenderPipelineState(renderPipelineDescriptor, &error);
+        renderPipelineState = metalDevice->newRenderPipelineState(renderPipelineDescriptor, &error);
 
         assert(error == nil && "Failed to create view render pipeline state");
-
-        MTL::DepthStencilDescriptor* depthStencilDescriptor = MTL::DepthStencilDescriptor::alloc()->init();
-        depthStencilDescriptor->setDepthCompareFunction(MTL::CompareFunctionLessEqual);
-        depthStencilDescriptor->setDepthWriteEnabled(true);
-        depthStencilState = metalDevice->newDepthStencilState(depthStencilDescriptor);
 
         renderPipelineDescriptor->release();
         vertexShader->release();
         fragmentShader->release();
     }
+    
+    {
+        MTL::Function* computeFunction = metalDefaultLibrary->newFunction(NS::String::string("raytracingKernel", NS::ASCIIStringEncoding));
+        assert(computeFunction && "Failed to load raytracingKernel compute function!");
+
+        raytracingPipelineState = metalDevice->newComputePipelineState(computeFunction, &error);
+        assert(error == nil && "Failed to create drawing compute pipeline state!");
+
+        computeFunction->release();
+    }
 }
 
-void Engine::createDepthTexture() {
-	MTL::TextureDescriptor* depthTextureDescriptor = MTL::TextureDescriptor::alloc()->init();
-	depthTextureDescriptor->setPixelFormat(MTL::PixelFormatDepth16Unorm);
-	depthTextureDescriptor->setWidth(metalLayer.drawableSize.width);
-	depthTextureDescriptor->setHeight(metalLayer.drawableSize.height);
-	depthTextureDescriptor->setUsage(MTL::TextureUsageRenderTarget);
-	depthTextureDescriptor->setSampleCount(1);
+void Engine::createTextures() {
+    MTL::TextureDescriptor* outputTextureDescriptor = MTL::TextureDescriptor::alloc()->init();
+    outputTextureDescriptor->setPixelFormat(MTL::PixelFormatBGRA8Unorm);
+    outputTextureDescriptor->setWidth(metalLayer.drawableSize.width);
+    outputTextureDescriptor->setHeight(metalLayer.drawableSize.height);
+    outputTextureDescriptor->setUsage(MTL::TextureUsageShaderRead | MTL::TextureUsageShaderWrite);
+    outputTextureDescriptor->setSampleCount(1);
 
-	depthTexture = metalDevice->newTexture(depthTextureDescriptor);
-	depthTextureDescriptor->release();
+    outputTexture = metalDevice->newTexture(outputTextureDescriptor);
+
+    outputTextureDescriptor->release();
 }
 
 void Engine::createRenderPassDescriptor() {
 	renderPassDescriptor = MTL::RenderPassDescriptor::alloc()->init();
 
 	MTL::RenderPassColorAttachmentDescriptor* colorAttachment = renderPassDescriptor->colorAttachments()->object(0);
-	MTL::RenderPassDepthAttachmentDescriptor* depthAttachment = renderPassDescriptor->depthAttachment();
 
 	colorAttachment->setTexture(metalDrawable->texture());
 	colorAttachment->setLoadAction(MTL::LoadActionClear);
 	colorAttachment->setClearColor(MTL::ClearColor(41.0f/255.0f, 42.0f/255.0f, 48.0f/255.0f, 1.0));
 	colorAttachment->setStoreAction(MTL::StoreActionStore);
-
-	depthAttachment->setTexture(depthTexture);
-	depthAttachment->setLoadAction(MTL::LoadActionClear);
-	depthAttachment->setStoreAction(MTL::StoreActionDontCare);
-	depthAttachment->setClearDepth(1.0);
 }
 
 void Engine::createAccelerationStructureWithDescriptors() {
@@ -313,20 +326,25 @@ void Engine::createAccelerationStructureWithDescriptors() {
     MTL::CommandBuffer* commandBuffer = commandQueue->commandBuffer();
     
     for (uint i = 0; i < meshes.size(); i++) {
+        // Create triangle descriptors
         MTL::AccelerationStructureTriangleGeometryDescriptor* geometryDescriptor = MTL::AccelerationStructureTriangleGeometryDescriptor::alloc()->init();
-        
+          
         geometryDescriptor->setVertexBuffer(meshes[i]->vertexBuffer);
+        geometryDescriptor->setVertexStride(sizeof(Vertex));
+        geometryDescriptor->setVertexFormat(MTL::AttributeFormatFloat3);
+
         geometryDescriptor->setIndexBuffer(meshes[i]->indexBuffer);
+        geometryDescriptor->setIndexType(MTL::IndexTypeUInt32);
         geometryDescriptor->setTriangleCount(meshes[i]->triangleCount);
         
         NS::Array* geometryDescriptors = NS::Array::array(geometryDescriptor);
         
+        // Set the triangle descriptors
         MTL::PrimitiveAccelerationStructureDescriptor* accelerationStructureDescriptor = MTL::PrimitiveAccelerationStructureDescriptor::alloc()->init();
-        
         accelerationStructureDescriptor->setGeometryDescriptors(geometryDescriptors);
         
+        // Allocate size for the acceleration structure
         MTL::AccelerationStructureSizes sizes = metalDevice->accelerationStructureSizes(accelerationStructureDescriptor);
-        
         MTL::AccelerationStructure* accelerationStructure = metalDevice->newAccelerationStructure(sizes.accelerationStructureSize);
         
         MTL::Buffer* scratchBuffer = metalDevice->newBuffer(sizes.buildScratchBufferSize, MTL::ResourceStorageModePrivate);
@@ -356,47 +374,79 @@ void Engine::createAccelerationStructureWithDescriptors() {
 
 void Engine::updateRenderPassDescriptor() {
 	renderPassDescriptor->colorAttachments()->object(0)->setTexture(metalDrawable->texture());
-	renderPassDescriptor->depthAttachment()->setTexture(depthTexture);
 }
 
-void Engine::drawScene(MTL::RenderCommandEncoder* renderCommandEncoder) {
-    renderCommandEncoder->setFrontFacingWinding(MTL::WindingCounterClockwise);
-    renderCommandEncoder->setCullMode(MTL::CullModeBack);
-    renderCommandEncoder->setDepthStencilState(depthStencilState);
+void Engine::setupMeshResources() {
+    resourcesStride = sizeof(MeshResources);
 
-    for (auto& mesh : meshes) {
-        renderCommandEncoder->setVertexBuffer(mesh->vertexBuffer, 0, 0);
+    resourceBuffer = metalDevice->newBuffer(resourcesStride * meshes.size(), MTL::ResourceStorageModeShared);
+    resourceBuffer->setLabel(NS::String::string("ResourceBuffer", NS::ASCIIStringEncoding));
+    char* resourceBufferContents = (char*)resourceBuffer->contents();
+
+    for (size_t i = 0; i < meshes.size(); i++) {
+        MeshResources resources;
+
+        resources.vertexNormalBuffer = metalDevice->newBuffer(meshes[i]->vertices.size() * sizeof(float3), MTL::ResourceStorageModeShared);
+        std::string labelStr = "vertexNormalBuffer: " + std::to_string(i);
+        NS::String* label = NS::String::string(labelStr.c_str(), NS::ASCIIStringEncoding);
+        resources.vertexNormalBuffer->setLabel(label);
         
-        matrix_float4x4 modelMatrix = matrix4x4_translation(0.0f, 0.0f, 0.0f);
+        float3* normalData = (float3*)resources.vertexNormalBuffer->contents();
+        for (size_t j = 0; j < meshes[i]->vertices.size(); j++) {
+            normalData[j] = normalize(meshes[i]->vertices[j].normal.xyz);
+        }
+
+        resources.indexBuffer = metalDevice->newBuffer(meshes[i]->vertexIndices.size() * sizeof(uint32_t), MTL::ResourceStorageModeShared);
+        labelStr = "indexBuffer: " + std::to_string(i);
+        label = NS::String::string(labelStr.c_str(), NS::ASCIIStringEncoding);
+        resources.indexBuffer->setLabel(label);
         
-        // Send matrices to shaders
-        renderCommandEncoder->setVertexBytes(&modelMatrix, sizeof(modelMatrix), 1);
-        renderCommandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, 2);
-        
-        // Set up the light source
-        renderCommandEncoder->setFragmentBuffer(frameDataBuffers[currentFrameIndex], 0, 0);
-        renderCommandEncoder->setFragmentTexture(mesh->diffuseTextures, 1);
-        renderCommandEncoder->setFragmentTexture(mesh->normalTextures, 2);
-        renderCommandEncoder->setFragmentBuffer(mesh->diffuseTextureInfos, 0, 3);
-        renderCommandEncoder->setFragmentBuffer(mesh->normalTextureInfos, 0, 4);
-        
-        // Tell the input assembler to draw triangles
-        MTL::PrimitiveType typeTriangle = MTL::PrimitiveTypeTriangle;
-        renderCommandEncoder->drawIndexedPrimitives(typeTriangle, mesh->indexCount, MTL::IndexTypeUInt32, mesh->indexBuffer, 0);
+        uint32_t* indexData = (uint32_t*)resources.indexBuffer->contents();
+        memcpy(indexData, meshes[i]->vertexIndices.data(), meshes[i]->vertexIndices.size() * sizeof(uint32_t));
+
+        memcpy(resourceBufferContents + i * resourcesStride, &resources, sizeof(MeshResources));
+
+        meshResources.push_back(resources);
     }
 }
 
+void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
+    MTL::ComputeCommandEncoder* computeEncoder = commandBuffer->computeCommandEncoder();
+    
+    computeEncoder->setComputePipelineState(raytracingPipelineState);
+    computeEncoder->setTexture(outputTexture, 0);
+    computeEncoder->setBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
+    computeEncoder->setBuffer(resourceBuffer, 0, BufferIndexResources);
+    
+    // Set acceleration structures
+    for (uint i = 0; i < primitiveAccelerationStructures.size(); i++) {
+        computeEncoder->setAccelerationStructure(primitiveAccelerationStructures[i], BufferIndexAccelerationStructure);
+    }
+
+    MTL::Size threadGroupSize = MTL::Size(16, 16, 1);
+    MTL::Size gridSize = MTL::Size((outputTexture->width() + threadGroupSize.width - 1) / threadGroupSize.width,
+                                   (outputTexture->height() + threadGroupSize.height - 1) / threadGroupSize.height, 1);
+
+    computeEncoder->dispatchThreadgroups(gridSize, threadGroupSize);
+    computeEncoder->popDebugGroup();
+    computeEncoder->endEncoding();
+}
 
 void Engine::draw() {
-	MTL::CommandBuffer* commandBuffer = beginFrame(false);
-	
-	// Forward rendering pass
-	updateRenderPassDescriptor();
-	MTL::RenderCommandEncoder* renderCommandEncoder = commandBuffer->renderCommandEncoder(renderPassDescriptor);
-	renderCommandEncoder->setRenderPipelineState(metalRenderPSO);
-	drawScene(renderCommandEncoder);
-	renderCommandEncoder->endEncoding();
-	
-	// End the frame
-	endFrame(commandBuffer, metalDrawable);
+    MTL::CommandBuffer* commandBuffer = beginFrame(false);
+    
+    dispatchRaytracing(commandBuffer);
+    
+    updateRenderPassDescriptor();
+    
+    MTL::RenderCommandEncoder* renderEncoder = commandBuffer->renderCommandEncoder(renderPassDescriptor);
+
+    renderEncoder->setRenderPipelineState(renderPipelineState);
+    renderEncoder->setFragmentTexture(outputTexture, 0);
+    renderEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, 0);
+    renderEncoder->drawPrimitives(MTL::PrimitiveTypeTriangle, 0, 3, 1);
+    
+    renderEncoder->endEncoding();
+
+    endFrame(commandBuffer, metalDrawable);
 }

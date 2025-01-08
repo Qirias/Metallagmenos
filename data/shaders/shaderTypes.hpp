@@ -1,27 +1,27 @@
 #include <simd/simd.h>
 
 struct FrameData {
-	// Per Frame Constants
-	simd::float4x4 projection_matrix;            // 64 bytes (offset: 0)
-	simd::float4x4 projection_matrix_inverse;    // 64 bytes (offset: 64)
-	simd::float4x4 view_matrix;                  // 64 bytes (offset: 128)
-	
-	// Group smaller scalars together to minimize padding
-	uint framebuffer_width;                      // 4 bytes  (offset: 192)
-	uint framebuffer_height;                     // 4 bytes  (offset: 196)
-	float sun_specular_intensity;                // 4 bytes  (offset: 200)
-	uint _pad1;                                  // 4 bytes  (offset: 204) - explicit padding for alignment
-	
-	// Vector group
-	simd::float4 sun_color;                      // 16 bytes (offset: 208)
-	simd::float4 sun_eye_direction;              // 16 bytes (offset: 224)
-	
-};
+    // Per Frame Constants
+    simd::float4x4 projection_matrix;            // 64 bytes (offset: 0)
+    simd::float4x4 projection_matrix_inverse;    // 64 bytes (offset: 64)
+    simd::float4x4 view_matrix;                  // 64 bytes (offset: 128)
 
+    // Camera properties (aligned to 16 bytes)
+    simd::float4 cameraUp;                       // 16 bytes (offset: 192)
+    simd::float4 cameraRight;                    // 16 bytes (offset: 208)
+    simd::float4 cameraForward;                  // 16 bytes (offset: 224)
+    simd::float4 cameraPosition;                 // 16 bytes (offset: 240)
 
-struct ShadowVertex
-{
-    simd::float4 position;
+    uint framebuffer_width;                      // 4 bytes  (offset: 256)
+    uint framebuffer_height;                     // 4 bytes  (offset: 260)
+    float sun_specular_intensity;                // 4 bytes  (offset: 264)
+    uint _pad1;                                  // 4 bytes  (offset: 268) - explicit padding for alignment
+
+    // Sun properties (aligned to 16 bytes)
+    simd::float4 sun_color;                      // 16 bytes (offset: 272)
+    simd::float4 sun_eye_direction;              // 16 bytes (offset: 288)
+    
+    // Total size: 304 bytes
 };
 
 typedef enum RenderTargetIndex
@@ -54,3 +54,9 @@ typedef enum TextureIndex
 	NumMeshTextures = TextureIndexNormal + 1
 
 } TextureIndex;
+
+typedef enum BufferIndex {
+    BufferIndexFrameData = 0,
+    BufferIndexResources = 1,
+    BufferIndexAccelerationStructure = 2
+} BufferIndex;

@@ -29,9 +29,14 @@
 #include <simd/simd.h>
 #include <filesystem>
 
-constexpr uint8_t MaxFramesInFlight = 3;
+constexpr uint8_t MaxFramesInFlight = 1;
 
 class Engine {
+    struct MeshResources {
+        MTL::Buffer* vertexNormalBuffer;
+        MTL::Buffer* indexBuffer;
+    };
+
 public:
     void init();
     void run();
@@ -51,8 +56,9 @@ private:
     void updateWorldState(bool isPaused);
 	
 	void drawMeshes(MTL::RenderCommandEncoder* renderCommandEncoder);
+    void dispatchRaytracing(MTL::CommandBuffer* commandBuffer);
 
-    void createDepthTexture();
+    void createTextures();
     void createRenderPassDescriptor();
     void createAccelerationStructureWithDescriptors();
 
@@ -62,11 +68,11 @@ private:
     void createDefaultLibrary();
     void createCommandQueue();
     void createRenderPipelines();
-
+    void createRaytracingPipeline();
+    
     void encodeRenderCommand(MTL::RenderCommandEncoder* renderCommandEncoder);
     void sendRenderCommand();
     void draw();
-    void drawScene(MTL::RenderCommandEncoder* renderCommandEncoder);
 
     static void frameBufferSizeCallback(GLFWwindow *window, int width, int height);
     void resizeFrameBuffer(int width, int height);
@@ -101,13 +107,15 @@ private:
     MTL::RenderPassDescriptor*  renderPassDescriptor;
 
     MTL::Texture*               depthTexture;
+    MTL::Texture*               outputTexture;
 
 	MTL::VertexDescriptor*		defaultVertexDescriptor;
     MTL::Library*               metalDefaultLibrary;
     MTL::CommandQueue*          metalCommandQueue;
 
 	// Render Pipeline States
-    MTL::RenderPipelineState*   metalRenderPSO;
+    MTL::RenderPipelineState*   renderPipelineState;
+    MTL::ComputePipelineState*  raytracingPipelineState;
 
     std::vector<Mesh*>          meshes;
 
@@ -117,4 +125,10 @@ private:
     uint8_t                     frameDataBufferIndex;
     
     std::vector<MTL::AccelerationStructure*> primitiveAccelerationStructures;
+    
+    std::vector<MeshResources>  meshResources;
+    MTL::Buffer*                resourceBuffer;
+    size_t                      resourcesStride;
+    
+    void setupMeshResources();
 };

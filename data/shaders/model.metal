@@ -12,10 +12,16 @@ struct VertexOut {
     float2 texCoords;
 };
 
-struct MeshResources {
-    device float3* vertexNormals;
-    device uint* indices;
+struct TriangleResources {
+    struct TriangleData {
+        uint32_t indices[3];
+        uint32_t padding;
+        float4 normals[3];
+        float4 colors[3];
+    };
+    device TriangleData* triangles;
 };
+
 
 vertex VertexOut vertex_function(uint       vertexID    [[vertex_id]],
                         constant FrameData& frameData   [[buffer(BufferIndexFrameData)]]) {
@@ -30,7 +36,7 @@ vertex VertexOut vertex_function(uint       vertexID    [[vertex_id]],
 }
 
 fragment float4 fragment_function(VertexOut         in  [[stage_in]],
-                                  texture2d<float>  tex [[texture(0)]]) {
+                                  texture2d<float>  tex [[texture(BufferIndexOutputTexture)]]) {
     constexpr sampler sam(min_filter::nearest, mag_filter::nearest, mip_filter::none);
 
     float3 color = tex.sample(sam, in.texCoords).xyz;
@@ -38,15 +44,16 @@ fragment float4 fragment_function(VertexOut         in  [[stage_in]],
     return float4(color, 1.0f);
 }
 
-kernel void raytracingKernel(texture2d<float, access::write>    outputTexture           [[texture(0)]],
+kernel void raytracingKernel(texture2d<float, access::write>    outputTexture           [[texture(BufferIndexOutputTexture)]],
                     constant FrameData&                         frameData               [[buffer(BufferIndexFrameData)]],
                              primitive_acceleration_structure   accelerationStructure   [[buffer(BufferIndexAccelerationStructure)]],
-                             device MeshResources*              resources               [[buffer(BufferIndexResources)]],
+                const device TriangleResources::TriangleData*   resources               [[buffer(BufferIndexResources)]],
                              uint2                              tid                     [[thread_position_in_grid]]) {
     if (tid.x >= outputTexture.get_width() || tid.y >= outputTexture.get_height()) {
         return;
     }
     
+    // Compute UV and ray as before
     float2 pixel = float2(tid);
     float2 uv = (pixel) / float2(frameData.framebuffer_width, frameData.framebuffer_height);
     uv = uv * 2.0f  - 1.0f;
@@ -58,42 +65,26 @@ kernel void raytracingKernel(texture2d<float, access::write>    outputTexture   
     ray.min_distance = 0.001f;
     ray.max_distance = INFINITY;
     
+    // Perform intersection
     intersector<triangle_data> intersector;
     intersection_result<triangle_data> result = intersector.intersect(ray, accelerationStructure);
-      
+    
     float3 color = 0.0f;
     if (result.type != intersection_type::none) {
         
         unsigned int primitiveIndex = result.primitive_id;
-        unsigned int geometryIndex = result.geometry_id;
 
-        uint3 indices = uint3(
-            resources[geometryIndex].indices[primitiveIndex * 3],
-            resources[geometryIndex].indices[primitiveIndex * 3 + 1],
-            resources[geometryIndex].indices[primitiveIndex * 3 + 2]
-        );
-
-        float3 n0 = resources[geometryIndex].vertexNormals[indices.x];
-        float3 n1 = resources[geometryIndex].vertexNormals[indices.y];
-        float3 n2 = resources[geometryIndex].vertexNormals[indices.z];
-
+        // Barycentric interpolation for normal
         float2 barycentrics = result.triangle_barycentric_coord;
-        float3 normal = normalize(
-            n0 * (1.0 - barycentrics.x - barycentrics.y) +
-            n1 * barycentrics.x +
-            n2 * barycentrics.y
-        );
+        
+        const device TriangleResources::TriangleData& triangle = resources[primitiveIndex];
 
-        float3 lightDir = normalize(-frameData.sun_eye_direction.xyz);
-        float diffuse = max(0.0f, dot(normal, lightDir));
+        float3 normal = normalize(triangle.normals[0].xyz * (1.0 - barycentrics.x - barycentrics.y) +
+                                  triangle.normals[1].xyz * barycentrics.x +
+                                  triangle.normals[2].xyz * barycentrics.y);
 
-        float3 ambient = float3(0.1);
-        float3 sunLight = frameData.sun_color.xyz * diffuse;
-
-        color = (ambient + sunLight) * float3(0.7);
-//        color = (normal*0.5)+0.5;
-        color = float3(barycentrics.x, barycentrics.y, 1.0);
+        color = normal*0.5+0.5;
     }
 
-        outputTexture.write(float4(color, 1.0), tid);
+    outputTexture.write(float4(color, 1.0), tid);
 }

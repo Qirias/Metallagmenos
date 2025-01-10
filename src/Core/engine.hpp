@@ -32,11 +32,14 @@
 constexpr uint8_t MaxFramesInFlight = 1;
 
 class Engine {
-    struct MeshResources {
-        MTL::Buffer* vertexNormalBuffer;
-        MTL::Buffer* indexBuffer;
+    
+    struct TriangleData {
+        uint32_t indices[3];
+        uint32_t padding;
+        simd::float4 normals[3];
+        simd::float4 colors[3];
     };
-
+    
 public:
     void init();
     void run();
@@ -126,9 +129,8 @@ private:
     
     std::vector<MTL::AccelerationStructure*> primitiveAccelerationStructures;
     
-    std::vector<MeshResources>  meshResources;
-    MTL::Buffer*                resourceBuffer;
-    size_t                      resourcesStride;
+    MTL::Buffer*                            resourceBuffer;
+    size_t                                  totalTriangles;
     
-    void setupMeshResources();
+    void setupTriangleResources();
 };

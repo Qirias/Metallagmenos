@@ -59,8 +59,8 @@ namespace std {
 
 struct Mesh {
 //    Mesh(std::string filePath, MTL::Device* metalDevice);
-	Mesh(std::string filePath, MTL::Device* metalDevice, MTL::VertexDescriptor* vertexDescriptor);
-    Mesh(MTL::Device* device, const Vertex* vertexData, size_t vertexCount, const uint32_t* indexData, size_t indexCount);
+	Mesh(std::string filePath, MTL::Device* metalDevice, MTL::VertexDescriptor* vertexDescriptor, bool useTextures = false);
+    Mesh(MTL::Device* device, const Vertex* vertexData, size_t vertexCount, const uint32_t* indexData, size_t indexCount, bool useTextures = false);
 
     ~Mesh();
 
@@ -81,6 +81,7 @@ public:
     MTL::Buffer*    indexBuffer;
     unsigned long   indexCount;
     unsigned long   triangleCount;
+    bool            hasTextures;
     
     MTL::Texture*   diffuseTextures;
 	MTL::Texture*   normalTextures;

@@ -15,13 +15,11 @@ struct FrameData {
     uint framebuffer_width;                      // 4 bytes  (offset: 256)
     uint framebuffer_height;                     // 4 bytes  (offset: 260)
     float sun_specular_intensity;                // 4 bytes  (offset: 264)
-    uint _pad1;                                  // 4 bytes  (offset: 268) - explicit padding for alignment
+    size_t resourcesStride;                        // 4 bytes  (offset: 268)
 
     // Sun properties (aligned to 16 bytes)
     simd::float4 sun_color;                      // 16 bytes (offset: 272)
     simd::float4 sun_eye_direction;              // 16 bytes (offset: 288)
-    
-    // Total size: 304 bytes
 };
 
 typedef enum RenderTargetIndex
@@ -58,5 +56,6 @@ typedef enum TextureIndex
 typedef enum BufferIndex {
     BufferIndexFrameData = 0,
     BufferIndexResources = 1,
-    BufferIndexAccelerationStructure = 2
+    BufferIndexAccelerationStructure = 2,
+    BufferIndexOutputTexture = 3
 } BufferIndex;

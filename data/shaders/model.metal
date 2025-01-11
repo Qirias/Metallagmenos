@@ -49,19 +49,27 @@ kernel void raytracingKernel(texture2d<float, access::write>    outputTexture   
                              primitive_acceleration_structure   accelerationStructure   [[buffer(BufferIndexAccelerationStructure)]],
                 const device TriangleResources::TriangleData*   resources               [[buffer(BufferIndexResources)]],
                              uint2                              tid                     [[thread_position_in_grid]]) {
+    
     if (tid.x >= outputTexture.get_width() || tid.y >= outputTexture.get_height()) {
         return;
     }
     
-    // Compute UV and ray as before
     float2 pixel = float2(tid);
-    float2 uv = (pixel) / float2(frameData.framebuffer_width, frameData.framebuffer_height);
-    uv = uv * 2.0f  - 1.0f;
-    uv.y = -uv.y;
+    float2 uv = (pixel + 0.5f) / float2(frameData.framebuffer_width, frameData.framebuffer_height);
+    float2 ndc = uv * 2.0f - 1.0f;
+    ndc.y = -ndc.y;
+
+    float4 viewSpace = frameData.projection_matrix_inverse * float4(ndc, 1.0f, 1.0f);
+    viewSpace = viewSpace / viewSpace.w;
 
     ray ray;
     ray.origin = frameData.cameraPosition.xyz;
-    ray.direction = normalize(uv.x * frameData.cameraRight.xyz + uv.y * frameData.cameraUp.xyz + frameData.cameraForward.xyz);
+    ray.direction = normalize(viewSpace.xyz);
+
+    ray.direction = normalize(ray.direction.x * frameData.cameraRight.xyz +
+                              ray.direction.y * frameData.cameraUp.xyz +
+                             -ray.direction.z * frameData.cameraForward.xyz);
+    
     ray.min_distance = 0.001f;
     ray.max_distance = INFINITY;
     

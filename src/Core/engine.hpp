@@ -29,7 +29,7 @@
 #include <simd/simd.h>
 #include <filesystem>
 
-constexpr uint8_t MaxFramesInFlight = 1;
+constexpr uint8_t MaxFramesInFlight = 3;
 
 class Engine {
     

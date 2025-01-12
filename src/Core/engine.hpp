@@ -32,6 +32,10 @@
 constexpr uint8_t MaxFramesInFlight = 3;
 
 class Engine {
+    struct TriangleData {
+        simd::float4 normals[3];
+        simd::float4 colors[3];
+    };
 public:
     void init();
     void run();
@@ -138,7 +142,7 @@ private:
 	MTL::RenderPipelineState*   directionalLightPipelineState;
 	
 
-    Mesh*                       mesh;
+    std::vector<Mesh*>          meshes;
 
     MTL::SamplerState*          samplerState;
 
@@ -147,4 +151,15 @@ private:
 
     simd::float4x4              shadowProjectionMatrix;
 	simd::float4x4 				shadowCascadeProjectionMatrices[SHADOW_CASCADE_COUNT];
+    
+    // Ray tracing
+    MTL::ComputePipelineState*                  raytracingPipelineState;
+    std::vector<MTL::AccelerationStructure*>    primitiveAccelerationStructures;
+    MTL::Buffer*                                resourceBuffer;
+    size_t                                      totalTriangles;
+    MTL::Texture*                               rayTracingTexture;
+    
+    void setupTriangleResources();
+    void createAccelerationStructureWithDescriptors();
+    void dispatchRaytracing(MTL::CommandBuffer* commandBuffer);
 };

@@ -13,9 +13,8 @@ struct VertexOut {
 #endif
 };
 
-// Vertex shader that generates a full-screen triangle with frameData
 vertex VertexOut deferred_directional_lighting_vertex(uint 				vertexID	[[vertex_id]],
-										   constant FrameData& 			frameData 	[[buffer(2)]]) {
+										   constant FrameData& 			frameData 	[[buffer(BufferIndexFrameData)]]) {
 	VertexOut out;
 	
 	// Generate full-screen triangle
@@ -32,7 +31,7 @@ vertex VertexOut deferred_directional_lighting_vertex(uint 				vertexID	[[vertex
 }
 
 fragment AccumLightBuffer deferred_directional_lighting_fragment(VertexOut 				in 			[[stage_in]],
-														constant FrameData& 			frameData 	[[buffer(2)]],
+														constant FrameData& 			frameData 	[[buffer(BufferIndexFrameData)]],
 																 GBufferData 			GBuffer) {
 	// Get the data from GBuffer
 	half4 albedo_specular = GBuffer.albedo_specular;

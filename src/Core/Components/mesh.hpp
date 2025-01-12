@@ -59,20 +59,20 @@ namespace std {
 
 struct Mesh {
 //    Mesh(std::string filePath, MTL::Device* metalDevice);
-	Mesh(std::string filePath, MTL::Device* metalDevice, MTL::VertexDescriptor* vertexDescriptor);
-    Mesh(MTL::Device* device, const Vertex* vertexData, size_t vertexCount, const uint32_t* indexData, size_t indexCount);
+    Mesh(std::string filePath, MTL::Device* metalDevice, MTL::VertexDescriptor* vertexDescriptor, bool useTextures = false);
+    Mesh(MTL::Device* device, const Vertex* vertexData, size_t vertexCount, const uint32_t* indexData, size_t indexCount, bool useTextures = false);
 
     ~Mesh();
 
-private:
+public:
     void loadObj(std::string filePath);
-	void calculateTangentSpace(std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices);
+    void calculateTangentSpace(std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices);
     void createBuffers(MTL::VertexDescriptor* vertexDescriptor);
     
     std::vector<Vertex>                     vertices;
     std::vector<uint32_t>                   vertexIndices;
     TextureArray*                           diffuseTexturesArray;
-	TextureArray*                           normalTexturesArray;
+    TextureArray*                           normalTexturesArray;
     std::unordered_map<Vertex, uint32_t>    vertexMap;
     
 public:
@@ -80,8 +80,11 @@ public:
     MTL::Buffer*    vertexBuffer;
     MTL::Buffer*    indexBuffer;
     unsigned long   indexCount;
+    unsigned long   triangleCount;
+    bool            hasTextures;
+    
     MTL::Texture*   diffuseTextures;
-	MTL::Texture*   normalTextures;
+    MTL::Texture*   normalTextures;
     MTL::Buffer*    diffuseTextureInfos;
-	MTL::Buffer*    normalTextureInfos;
+    MTL::Buffer*    normalTextureInfos;
 };

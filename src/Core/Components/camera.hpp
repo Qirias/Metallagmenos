@@ -10,7 +10,7 @@ public:
         , worldUp(simd::float3{0.0f, 1.0f, 0.0f})
 		, nearPlane(nearPlane)
 		, farPlane(farPlane)
-        , yaw(-90.0f)
+        , yaw(-180.0f)
         , pitch(0.0f)
         , movementSpeed(5.0f)
         , mouseSensitivity(0.1f)
@@ -33,7 +33,7 @@ public:
     float getFov() const { return fov; }
 	void setFrustumCornersWorldSpace(simd::float3* frustumCorners, float nearZ, float farZ);
 
-private:
+public:
     simd::float3 position;
     simd::float3 front;
     simd::float3 up;

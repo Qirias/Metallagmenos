@@ -22,17 +22,17 @@ struct ColorInOut
 
 struct DescriptorDefinedVertex
 {
-	float4 position  [[attribute(VertexAttributePosition)]];
-	float2 tex_coord [[attribute(VertexAttributeTexcoord)]];
-	half4 normal     [[attribute(VertexAttributeNormal)]];
-	half4 tangent    [[attribute(VertexAttributeTangent)]];
-	half4 bitangent  [[attribute(VertexAttributeBitangent)]];
+	float4  position    [[attribute(VertexAttributePosition)]];
+	float2  tex_coord   [[attribute(VertexAttributeTexcoord)]];
+	half4   normal      [[attribute(VertexAttributeNormal)]];
+	half4   tangent     [[attribute(VertexAttributeTangent)]];
+	half4   bitangent   [[attribute(VertexAttributeBitangent)]];
 };
 
 vertex ColorInOut gbuffer_vertex(DescriptorDefinedVertex  	in        	[[stage_in]],
 								 uint 						vertexID  	[[vertex_id]],
-								 constant Vertex* 			vertexData,
-								 constant FrameData&		frameData 	[[buffer(2)]]) {
+                     constant    Vertex* 			        vertexData  [[buffer(BufferIndexVertexData)]],
+                     constant    FrameData&		            frameData 	[[buffer(BufferIndexFrameData)]]) {
 	
 	ColorInOut out;
 
@@ -66,13 +66,13 @@ vertex ColorInOut gbuffer_vertex(DescriptorDefinedVertex  	in        	[[stage_in
 }
 
 
-fragment GBufferData gbuffer_fragment(ColorInOut in                  [[stage_in]],
-									  constant FrameData &frameData   [[buffer(2)]],
-									  texture2d_array<half> baseColorMap [[texture(TextureIndexBaseColor)]],
-									  texture2d_array<half> normalMap    [[texture(TextureIndexNormal)]],
-									  constant TextureInfo *diffuseTextureInfos [[buffer(3)]],
-									  constant TextureInfo *normalTextureInfos [[buffer(4)]],
-									  depth2d<float> shadowMap           [[texture(TextureIndexShadow)]]) {
+fragment GBufferData gbuffer_fragment(ColorInOut            in                  [[stage_in]],
+                          constant    FrameData&            frameData           [[buffer(BufferIndexFrameData)]],
+									  texture2d_array<half> baseColorMap        [[texture(TextureIndexBaseColor)]],
+									  texture2d_array<half> normalMap           [[texture(TextureIndexNormal)]],
+                          constant    TextureInfo*          diffuseTextureInfos [[buffer(BufferIndexDiffuseInfo)]],
+                          constant    TextureInfo*          normalTextureInfos  [[buffer(BufferIndexNormalInfo)]],
+									  depth2d<float>        shadowMap           [[texture(TextureIndexShadow)]]) {
 
 	constexpr sampler linearSampler(mip_filter::linear,
 									mag_filter::linear,

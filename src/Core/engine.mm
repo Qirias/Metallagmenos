@@ -1,10 +1,11 @@
 #include "engine.hpp"
 
 Engine::Engine()
-: camera(simd::float3{0.0f, 0.0f, 3.0f}, 0.1, 1000)
+: camera(simd::float3{7.0f, 5.0f, 0.0f}, 0.1f, 1000.0f)
 , lastFrame(0.0f)
 , frameNumber(0)
-, currentFrameIndex(0) {
+, currentFrameIndex(0)
+, totalTriangles(0) {
 	inFlightSemaphore = dispatch_semaphore_create(MaxFramesInFlight);
 
     for (int i = 0; i < MaxFramesInFlight; i++) {
@@ -18,10 +19,11 @@ void Engine::init() {
 
     createCommandQueue();
 	loadScene();
-    createBuffers();
     createDefaultLibrary();
     createRenderPipelines();
 	createViewRenderPassDescriptor();
+    createAccelerationStructureWithDescriptors();
+    setupTriangleResources();
 }
 
 void Engine::run() {
@@ -43,12 +45,15 @@ void Engine::run() {
 
 void Engine::cleanup() {
     glfwTerminate();
-    delete mesh;
+    for (auto& mesh : meshes)
+            delete mesh;
 	
 	for(uint8_t i = 0; i < MaxFramesInFlight; i++) {
 		frameDataBuffers[i]->release();
     }
 	
+    rayTracingTexture->release();
+    resourceBuffer->release();
 	defaultVertexDescriptor->release();
 	shadowMap->release();
 	shadowRenderPassDescriptor->release();
@@ -97,7 +102,11 @@ void Engine::resizeFrameBuffer(int width, int height) {
 		depthStencilTexture->release();
 		depthStencilTexture = nullptr;
 	}
-	
+    if (rayTracingTexture) {
+        rayTracingTexture->release();
+        rayTracingTexture = nullptr;
+    }
+    
 	// Recreate G-buffer textures and descriptors
 	createViewRenderPassDescriptor();
     metalDrawable = (__bridge CA::MetalDrawable*)[metalLayer nextDrawable];
@@ -175,8 +184,8 @@ void Engine::endFrame(MTL::CommandBuffer* commandBuffer, MTL::Drawable* currentD
 void Engine::loadScene() {
 	defaultVertexDescriptor = MTL::VertexDescriptor::alloc()->init();
 	
-    std::string modelPath = std::string(SCENES_PATH) + "/sponza/sponza.obj";
-	mesh = new Mesh(modelPath.c_str(), metalDevice, defaultVertexDescriptor);
+    std::string objPath = std::string(SCENES_PATH) + "/sponza/sponza.obj";
+    meshes.push_back(new Mesh(objPath.c_str(), metalDevice, defaultVertexDescriptor, true));
 	
 //	GLTFLoader gltfLoader(metalDevice);
 //	std::string modelPath = std::string(SCENES_PATH) + "/DamagedHelmet/DamagedHelmet.gltf";
@@ -188,10 +197,6 @@ void Engine::loadScene() {
 //				  gltfModel.vertices.size(),
 //				  gltfModel.indices.data(),
 //				  gltfModel.indices.size());
-}
-
-void Engine::createBuffers() {
-    
 }
 
 void Engine::createDefaultLibrary() {
@@ -230,10 +235,15 @@ void Engine::updateWorldState(bool isPaused) {
 
 	float aspectRatio = metalDrawable->layer()->drawableSize().width / metalDrawable->layer()->drawableSize().height;
 	
-	camera.setProjectionMatrix(45, aspectRatio, 0.1f, 400.0f);
+	camera.setProjectionMatrix(45, aspectRatio, 0.1f, 1000.0f);
 	frameData->projection_matrix = camera.getProjectionMatrix();
 	frameData->projection_matrix_inverse = matrix_invert(frameData->projection_matrix);
 	frameData->view_matrix = camera.getViewMatrix();
+    
+    frameData->cameraUp         = float4{camera.up.x,       camera.up.y,        camera.up.z, 1.0f};
+    frameData->cameraRight      = float4{camera.right.x,    camera.right.y,     camera.right.z, 1.0f};
+    frameData->cameraForward    = float4{camera.front.x,    camera.front.y,     camera.front.z, 1.0f};
+    frameData->cameraPosition   = float4{camera.position.x, camera.position.y,  camera.position.z, 1.0f};
 
 	// Set screen dimensions
 	frameData->framebuffer_width = (uint)metalLayer.drawableSize.width;
@@ -381,8 +391,6 @@ void Engine::createRenderPipelines() {
 			stencilStateDesc->release();
 		}
 		
-
-		
 		// Setup render state to apply directional light and shadow in final pass
 		{
 			#pragma mark Directional lighting render pipeline setup
@@ -512,6 +520,146 @@ void Engine::createRenderPipelines() {
             }
         }
     }
+    
+    # pragma mark Ray tracing pipeline state
+    {
+        
+        MTL::Function* computeFunction = metalDefaultLibrary->newFunction(NS::String::string("raytracingKernel", NS::ASCIIStringEncoding));
+        assert(computeFunction && "Failed to load raytracingKernel compute function!");
+
+        raytracingPipelineState = metalDevice->newComputePipelineState(computeFunction, &error);
+        assert(error == nil && "Failed to create drawing compute pipeline state!");
+
+        computeFunction->release();
+    }
+}
+
+void Engine::createAccelerationStructureWithDescriptors() {
+    // Create a separate command queue for acceleration structure building
+    MTL::CommandQueue* commandQueue = metalDevice->newCommandQueue();
+    MTL::CommandBuffer* commandBuffer = commandQueue->commandBuffer();
+
+    std::vector<Vertex> mergedVertices;
+    std::vector<uint32_t> mergedIndices;
+
+    size_t vertexOffset = 0;
+        
+    for (const auto& mesh : meshes) {
+        mergedVertices.insert(mergedVertices.end(), mesh->vertices.begin(), mesh->vertices.end());
+
+        for (size_t index : mesh->vertexIndices) {
+            mergedIndices.push_back(static_cast<uint32_t>(index + vertexOffset));
+        }
+
+        vertexOffset += mesh->vertices.size();
+        totalTriangles += mesh->triangleCount;
+    }
+
+    size_t vertexBufferSize             = mergedVertices.size() * sizeof(Vertex);
+    MTL::Buffer* mergedVertexBuffer     = metalDevice->newBuffer(vertexBufferSize, MTL::ResourceStorageModeShared);
+    mergedVertexBuffer->setLabel(NS::String::string("mergedVertexBuffer", NS::ASCIIStringEncoding));
+    memcpy(mergedVertexBuffer->contents(), mergedVertices.data(), vertexBufferSize);
+
+    size_t indexBufferSize          = mergedIndices.size() * sizeof(uint32_t);
+    MTL::Buffer* mergedIndexBuffer  = metalDevice->newBuffer(indexBufferSize, MTL::ResourceStorageModeShared);
+    mergedIndexBuffer->setLabel(NS::String::string("mergedIndexBuffer", NS::ASCIIStringEncoding));
+
+    memcpy(mergedIndexBuffer->contents(), mergedIndices.data(), indexBufferSize);
+
+    MTL::AccelerationStructureTriangleGeometryDescriptor* geometryDescriptor = MTL::AccelerationStructureTriangleGeometryDescriptor::alloc()->init();
+
+    geometryDescriptor->setVertexBuffer(mergedVertexBuffer);
+    geometryDescriptor->setVertexStride(sizeof(Vertex));
+    geometryDescriptor->setVertexFormat(MTL::AttributeFormatFloat3);
+
+    geometryDescriptor->setIndexBuffer(mergedIndexBuffer);
+    geometryDescriptor->setIndexType(MTL::IndexTypeUInt32);
+    geometryDescriptor->setTriangleCount(static_cast<uint32_t>(totalTriangles));
+
+    NS::Array* geometryDescriptors = NS::Array::array(geometryDescriptor);
+
+    // Set the triangle geometry descriptors in the acceleration structure descriptor
+    MTL::PrimitiveAccelerationStructureDescriptor* accelerationStructureDescriptor = MTL::PrimitiveAccelerationStructureDescriptor::alloc()->init();
+    accelerationStructureDescriptor->setGeometryDescriptors(geometryDescriptors);
+
+    // Get acceleration structure sizes
+    MTL::AccelerationStructureSizes sizes = metalDevice->accelerationStructureSizes(accelerationStructureDescriptor);
+
+    // Create the acceleration structure
+    MTL::AccelerationStructure* accelerationStructure = metalDevice->newAccelerationStructure(sizes.accelerationStructureSize);
+
+    // Create a scratch buffer for building the acceleration structure
+    MTL::Buffer* scratchBuffer = metalDevice->newBuffer(sizes.buildScratchBufferSize, MTL::ResourceStorageModePrivate);
+    scratchBuffer->setLabel(NS::String::string("scratchBuffer", NS::ASCIIStringEncoding));
+
+
+    // Build the acceleration structure
+    MTL::AccelerationStructureCommandEncoder* commandEncoder = commandBuffer->accelerationStructureCommandEncoder();
+    commandEncoder->buildAccelerationStructure(accelerationStructure, accelerationStructureDescriptor, scratchBuffer, 0);
+    commandEncoder->endEncoding();
+
+    // Commit and wait for the command buffer to complete
+    commandBuffer->commit();
+    commandBuffer->waitUntilCompleted();
+
+    // Store the acceleration structure for later use
+    primitiveAccelerationStructures.push_back(accelerationStructure);
+
+    geometryDescriptor->release();
+    geometryDescriptors->release();
+    accelerationStructureDescriptor->release();
+    scratchBuffer->release();
+    commandBuffer->release();
+    commandQueue->release();
+}
+
+void Engine::setupTriangleResources() {
+    size_t resourceStride = sizeof(TriangleData);
+    size_t bufferLength = resourceStride * totalTriangles;
+
+    resourceBuffer = metalDevice->newBuffer(bufferLength, MTL::ResourceStorageModeShared);
+    resourceBuffer->setLabel(NS::String::string("Resource Buffer", NS::ASCIIStringEncoding));
+
+    TriangleData* resourceBufferContents = (TriangleData*)((uint8_t*)(resourceBuffer->contents()));
+    size_t triangleIndex = 0;
+
+    for (const auto& mesh : meshes) {
+        for (size_t i = 0; i < mesh->vertexIndices.size(); i += 3) {
+            TriangleData& triangle = resourceBufferContents[triangleIndex++];
+
+            for (size_t j = 0; j < 3; ++j) {
+                size_t vertexIndex = mesh->vertexIndices[i + j];
+                triangle.normals[j] = mesh->vertices[vertexIndex].normal;
+                triangle.colors[j] = simd::float4{0.1, 0.2, 0.3, 0.4};
+            }
+        }
+    }
+}
+
+void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
+    MTL::ComputeCommandEncoder* computeEncoder = commandBuffer->computeCommandEncoder();
+    
+    computeEncoder->setComputePipelineState(raytracingPipelineState);
+    computeEncoder->setTexture(rayTracingTexture, TextureIndexRaytracing);
+    computeEncoder->setBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
+    computeEncoder->setBuffer(resourceBuffer, 0, BufferIndexResources);
+    
+    computeEncoder->useResource(resourceBuffer, MTL::ResourceUsageRead);
+    
+    // Set acceleration structures
+    for (uint i = 0; i < primitiveAccelerationStructures.size(); i++) {
+        computeEncoder->setAccelerationStructure(primitiveAccelerationStructures[i], BufferIndexAccelerationStructure);
+        computeEncoder->useResource(primitiveAccelerationStructures[i], MTL::ResourceUsageRead);
+
+    }
+
+    MTL::Size threadGroupSize = MTL::Size(16, 16, 1);
+    MTL::Size gridSize = MTL::Size((rayTracingTexture->width() + threadGroupSize.width - 1) / threadGroupSize.width,
+                                   (rayTracingTexture->height() + threadGroupSize.height - 1) / threadGroupSize.height, 1);
+
+    computeEncoder->dispatchThreadgroups(gridSize, threadGroupSize);
+    computeEncoder->popDebugGroup();
+    computeEncoder->endEncoding();
 }
 
 void Engine::createViewRenderPassDescriptor() {
@@ -523,25 +671,17 @@ void Engine::createViewRenderPassDescriptor() {
 	gbufferTextureDesc->setMipmapLevelCount(1);
 	gbufferTextureDesc->setTextureType(MTL::TextureType2D);
 
-
-//		MTL::StorageModePrivate
-//		gbufferTextureDesc->setUsage( MTL::TextureUsageRenderTarget | MTL::TextureUsageShaderRead );
-
 	// StorageModeMemoryLess
-	gbufferTextureDesc->setUsage(MTL::TextureUsageRenderTarget);
-
+	gbufferTextureDesc->setUsage(MTL::TextureUsageRenderTarget | MTL::TextureUsageShaderRead);
 	gbufferTextureDesc->setStorageMode(MTL::StorageModeMemoryless);
-
 	gbufferTextureDesc->setPixelFormat(albedoSpecularGBufferFormat);
 	albedoSpecularGBuffer = metalDevice->newTexture(gbufferTextureDesc);
-
 	gbufferTextureDesc->setPixelFormat(normalShadowGBufferFormat);
 	normalShadowGBuffer = metalDevice->newTexture(gbufferTextureDesc);
-
 	gbufferTextureDesc->setPixelFormat(depthGBufferFormat);
 	depthGBuffer = metalDevice->newTexture(gbufferTextureDesc);
-	
-	//	// Create depth/stencil texture
+
+    // Create depth/stencil texture
 	gbufferTextureDesc->setPixelFormat(MTL::PixelFormatDepth32Float_Stencil8);
 	depthStencilTexture = metalDevice->newTexture(gbufferTextureDesc);
 	
@@ -581,8 +721,18 @@ void Engine::createViewRenderPassDescriptor() {
 	viewRenderPassDescriptor->stencilAttachment()->setLoadAction(MTL::LoadActionDontCare);
 	viewRenderPassDescriptor->stencilAttachment()->setStoreAction(MTL::StoreActionDontCare);
 	viewRenderPassDescriptor->stencilAttachment()->setClearStencil(0);
-	
-	depthStencilTexture->release();
+    
+    // Ray tracing texture
+    MTL::TextureDescriptor* raytracingTextureDescriptor = MTL::TextureDescriptor::alloc()->init();
+    raytracingTextureDescriptor->setPixelFormat(MTL::PixelFormatBGRA8Unorm);
+    raytracingTextureDescriptor->setWidth(metalLayer.drawableSize.width);
+    raytracingTextureDescriptor->setHeight(metalLayer.drawableSize.height);
+    raytracingTextureDescriptor->setUsage(MTL::TextureUsageShaderRead | MTL::TextureUsageShaderWrite);
+    raytracingTextureDescriptor->setSampleCount(1);
+
+    rayTracingTexture = metalDevice->newTexture(raytracingTextureDescriptor);
+
+    raytracingTextureDescriptor->release();
 }
 
 void Engine::updateRenderPassDescriptor() {
@@ -672,21 +822,23 @@ simd::float4x4 Engine::calculateCascadeProjectionMatrix(const simd::float3* frus
 void Engine::drawMeshes(MTL::RenderCommandEncoder* renderCommandEncoder) {
 	renderCommandEncoder->setFrontFacingWinding(MTL::WindingCounterClockwise);
 	renderCommandEncoder->setCullMode(MTL::CullModeBack);
-	
-//	renderCommandEncoder->setTriangleFillMode(MTL::TriangleFillModeLines);
-	renderCommandEncoder->setVertexBuffer(mesh->vertexBuffer, 0, 0);
-	
-	matrix_float4x4 modelMatrix = matrix4x4_translation(0.0f, 0.0f, 0.0f);
-	renderCommandEncoder->setVertexBytes(&modelMatrix, sizeof(modelMatrix), 1);
-
-	// Set any textures read/sampled from the render pipeline
-	renderCommandEncoder->setFragmentTexture(mesh->diffuseTextures, TextureIndexBaseColor);
-	renderCommandEncoder->setFragmentTexture(mesh->normalTextures, TextureIndexNormal);
-	renderCommandEncoder->setFragmentBuffer(mesh->diffuseTextureInfos, 0, 3);
-	renderCommandEncoder->setFragmentBuffer(mesh->normalTextureInfos, 0, 4);
-	
-	MTL::PrimitiveType typeTriangle = MTL::PrimitiveTypeTriangle;
-	renderCommandEncoder->drawIndexedPrimitives(typeTriangle, mesh->indexCount, MTL::IndexTypeUInt32, mesh->indexBuffer, 0);
+    
+    for (int i = 0; i < meshes.size(); i++) {
+        //	renderCommandEncoder->setTriangleFillMode(MTL::TriangleFillModeLines);
+        renderCommandEncoder->setVertexBuffer(meshes[i]->vertexBuffer, 0, BufferIndexVertexData);
+        
+        matrix_float4x4 modelMatrix = matrix4x4_translation(0.0f, 0.0f, 0.0f);
+        renderCommandEncoder->setVertexBytes(&modelMatrix, sizeof(modelMatrix), BufferIndexVertexBytes);
+        
+        // Set any textures read/sampled from the render pipeline
+        renderCommandEncoder->setFragmentTexture(meshes[i]->diffuseTextures, TextureIndexBaseColor);
+        renderCommandEncoder->setFragmentTexture(meshes[i]->normalTextures, TextureIndexNormal);
+        renderCommandEncoder->setFragmentBuffer(meshes[i]->diffuseTextureInfos, 0, BufferIndexDiffuseInfo);
+        renderCommandEncoder->setFragmentBuffer(meshes[i]->normalTextureInfos, 0, BufferIndexNormalInfo);
+        
+        MTL::PrimitiveType typeTriangle = MTL::PrimitiveTypeTriangle;
+        renderCommandEncoder->drawIndexedPrimitives(typeTriangle, meshes[i]->indexCount, MTL::IndexTypeUInt32, meshes[i]->indexBuffer, 0);
+    }
 }
 
 void Engine::drawShadow(MTL::CommandBuffer* commandBuffer)
@@ -699,7 +851,7 @@ void Engine::drawShadow(MTL::CommandBuffer* commandBuffer)
     renderCommandEncoder->setDepthStencilState(shadowDepthStencilState);
     renderCommandEncoder->setCullMode(MTL::CullModeBack);
     renderCommandEncoder->setDepthBias(0.015, 7, 0.02);
-	renderCommandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, 2);
+    renderCommandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
 
 	drawMeshes(renderCommandEncoder);
 
@@ -734,8 +886,8 @@ void Engine::drawGBuffer(MTL::RenderCommandEncoder* renderCommandEncoder)
 	renderCommandEncoder->setRenderPipelineState(GBufferPipelineState);
 	renderCommandEncoder->setDepthStencilState(GBufferDepthStencilState);
 	renderCommandEncoder->setStencilReferenceValue(128);
-	renderCommandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, 2);
-	renderCommandEncoder->setFragmentBuffer(frameDataBuffers[currentFrameIndex], 0, 2);
+    renderCommandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
+	renderCommandEncoder->setFragmentBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
 	renderCommandEncoder->setFragmentTexture(shadowMap, TextureIndexShadow);
 
 	drawMeshes(renderCommandEncoder);
@@ -751,8 +903,8 @@ void Engine::drawDirectionalLight(MTL::RenderCommandEncoder* renderCommandEncode
 
 	renderCommandEncoder->setRenderPipelineState(directionalLightPipelineState);
 	renderCommandEncoder->setDepthStencilState(directionalLightDepthStencilState);
-	renderCommandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, 2);
-	renderCommandEncoder->setFragmentBuffer(frameDataBuffers[currentFrameIndex], 0, 2);
+	renderCommandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
+	renderCommandEncoder->setFragmentBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
 
 	// Draw full screen triangle
 	renderCommandEncoder->drawPrimitives(MTL::PrimitiveTypeTriangle, (NS::UInteger)0, (NS::UInteger)3);
@@ -768,6 +920,8 @@ void Engine::draw() {
 	// Second command buffer for GBuffer and lighting passes
 	MTL::CommandBuffer* commandBuffer = beginDrawableCommands();
 	commandBuffer->setLabel(NS::String::string("Deferred Rendering Commands", NS::ASCIIStringEncoding));
+    
+    dispatchRaytracing(commandBuffer);
 	
 	viewRenderPassDescriptor->colorAttachments()->object(RenderTargetLighting)->setTexture(metalDrawable->texture());
 	viewRenderPassDescriptor->colorAttachments()->object(RenderTargetLighting)->setLoadAction(MTL::LoadActionClear);

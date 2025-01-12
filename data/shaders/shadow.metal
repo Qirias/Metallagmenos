@@ -6,8 +6,8 @@ struct ShadowOutput
     float4 position [[position]];
 };
 
-vertex ShadowOutput shadow_vertex(const device Vertex*		positions 	[[buffer(0)]],
-                                  constant     FrameData&	frameData 	[[buffer(2)]],
+vertex ShadowOutput shadow_vertex(const device Vertex*		positions 	[[buffer(BufferIndexVertexData)]],
+                                  constant     FrameData&	frameData 	[[buffer(BufferIndexFrameData)]],
                                   uint                      vertexID 	[[vertex_id]])
 {
     ShadowOutput out;

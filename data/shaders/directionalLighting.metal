@@ -33,7 +33,6 @@ vertex VertexOut deferred_directional_lighting_vertex(uint 				vertexID	[[vertex
 fragment AccumLightBuffer deferred_directional_lighting_fragment(VertexOut 				in 			[[stage_in]],
 														constant FrameData& 			frameData 	[[buffer(BufferIndexFrameData)]],
 																 GBufferData 			GBuffer) {
-	// Get the data from GBuffer
 	half4 albedo_specular = GBuffer.albedo_specular;
 	half4 normal_shadow = GBuffer.normal_shadow;
 	float depth = GBuffer.depth;
@@ -46,7 +45,6 @@ fragment AccumLightBuffer deferred_directional_lighting_fragment(VertexOut 				i
 	float4 viewSpacePosition = frameData.projection_matrix_inverse * clipSpacePosition;
 	viewSpacePosition /= viewSpacePosition.w;
 	
-	// Calculate lighting vectors
 	float3 lightDir = normalize(-frameData.sun_eye_direction.xyz);
 	float3 viewDir = normalize(-viewSpacePosition.xyz);
 	float3 halfDir = normalize(lightDir + viewDir);
@@ -56,7 +54,6 @@ fragment AccumLightBuffer deferred_directional_lighting_fragment(VertexOut 				i
 	half3 lightDir_half = half3(lightDir);
 	half3 halfDir_half = half3(halfDir);
 	
-	// Add ambient lighting parameters
 	const half3 ambientColor = half3(1.0h);
 	const half ambientIntensity = 0.4h;
 
@@ -68,22 +65,19 @@ fragment AccumLightBuffer deferred_directional_lighting_fragment(VertexOut 				i
 	half3 diffuse = half3(frameData.sun_color.rgb) * albedo * NdotL;
 	
 	// Specular lighting
-	half shininess_factor = 1.0h; // Add to frameData later
+	half shininess_factor = 1.0h;
 	half specular_shininess = specularIntensity * shininess_factor;
 	half NdotH = max(dot(normal_shadow_xyz, halfDir_half), 0.0h);
 	half3 specular = half3(frameData.sun_color.rgb) *
 					powr(NdotH, half(frameData.sun_specular_intensity)) *
 					specular_shininess;
 	
-	// Get shadow factor from GBuffer
 	half shadowFactor = normal_shadow.w;
 	// Lighten the shadow to account for some ambience
 	shadowFactor = saturate(shadowFactor + 0.1h);
 	
-	// Combine lighting components
 	half3 finalColor = ambient + (diffuse + specular) * shadowFactor;
 	
-	// Output to AccumLightBuffer
 	AccumLightBuffer output;
 	output.lighting = half4(finalColor, 1.0h);
 	

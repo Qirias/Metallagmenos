@@ -5,7 +5,8 @@ Engine::Engine()
 , lastFrame(0.0f)
 , frameNumber(0)
 , currentFrameIndex(0)
-, totalTriangles(0) {
+, totalTriangles(0)
+, debugLinesCount(0) {
 	inFlightSemaphore = dispatch_semaphore_create(MaxFramesInFlight);
 
     for (int i = 0; i < MaxFramesInFlight; i++) {
@@ -24,6 +25,8 @@ void Engine::init() {
 	createViewRenderPassDescriptor();
     createAccelerationStructureWithDescriptors();
     setupTriangleResources();
+    // Debug
+    populateLineData();
 }
 
 void Engine::run() {
@@ -52,6 +55,9 @@ void Engine::cleanup() {
 		frameDataBuffers[i]->release();
     }
 	
+    lineCountBuffer->release();
+    lineBuffer->release();
+    forwardDepthStencilTexture->release();
     rayTracingTexture->release();
     resourceBuffer->release();
 	defaultVertexDescriptor->release();
@@ -105,6 +111,10 @@ void Engine::resizeFrameBuffer(int width, int height) {
     if (rayTracingTexture) {
         rayTracingTexture->release();
         rayTracingTexture = nullptr;
+    }
+    if (forwardDepthStencilTexture) {
+        forwardDepthStencilTexture->release();
+        forwardDepthStencilTexture = nullptr;
     }
     
 	// Recreate G-buffer textures and descriptors
@@ -521,7 +531,7 @@ void Engine::createRenderPipelines() {
         }
     }
     
-    # pragma mark Ray tracing pipeline state
+    #pragma mark Ray tracing pipeline state
     {
         
         MTL::Function* computeFunction = metalDefaultLibrary->newFunction(NS::String::string("raytracingKernel", NS::ASCIIStringEncoding));
@@ -531,6 +541,29 @@ void Engine::createRenderPipelines() {
         assert(error == nil && "Failed to create drawing compute pipeline state!");
 
         computeFunction->release();
+    }
+    
+    #pragma mark Forward Debug pipeline state
+    {
+        MTL::Function* vertexShader = metalDefaultLibrary->newFunction(NS::String::string("forwardVertex", NS::ASCIIStringEncoding));
+        assert(vertexShader && "Failed to load forwardVertex function!");
+        
+        MTL::Function* fragmentShader = metalDefaultLibrary->newFunction(NS::String::string("forwardFragment", NS::ASCIIStringEncoding));
+        assert(fragmentShader && "Failed to load forwardFragment function!");
+        
+        MTL::RenderPipelineDescriptor* renderPipelineDescriptor = MTL::RenderPipelineDescriptor::alloc()->init();
+        renderPipelineDescriptor->setLabel(NS::String::string("Forward Debug Pipeline", NS::ASCIIStringEncoding));
+        renderPipelineDescriptor->setVertexFunction(vertexShader);
+        renderPipelineDescriptor->setFragmentFunction(fragmentShader);
+        MTL::PixelFormat pixelFormat = metalDrawable->texture()->pixelFormat();
+        renderPipelineDescriptor->colorAttachments()->object(0)->setPixelFormat(pixelFormat);
+        renderPipelineDescriptor->setDepthAttachmentPixelFormat(MTL::PixelFormatDepth32Float_Stencil8);
+        renderPipelineDescriptor->setStencilAttachmentPixelFormat(MTL::PixelFormatDepth32Float_Stencil8);
+        
+        forwardDebugState = metalDevice->newRenderPipelineState(renderPipelineDescriptor, &error);
+        assert(error == nil && "Failed to create forward debug pipeline state!");
+        
+        renderPipelineDescriptor->release();
     }
 }
 
@@ -631,8 +664,60 @@ void Engine::setupTriangleResources() {
                 size_t vertexIndex = mesh->vertexIndices[i + j];
                 triangle.normals[j] = mesh->vertices[vertexIndex].normal;
                 triangle.colors[j] = simd::float4{0.1, 0.2, 0.3, 0.4};
+                debugLinesCount++;
             }
         }
+    }
+}
+
+void Engine::populateLineData() {
+    size_t lineBufferSize = debugLinesCount * 2 * sizeof(DebugLineVertex);
+    lineBuffer = metalDevice->newBuffer(lineBufferSize, MTL::ResourceStorageModeShared);
+    lineBuffer->setLabel(NS::String::string("Line Buffer", NS::ASCIIStringEncoding));
+
+    // Line count buffer (single uint32_t to track active lines)
+    lineCountBuffer = metalDevice->newBuffer(sizeof(uint32_t), MTL::ResourceStorageModeShared);
+    lineCountBuffer->setLabel(NS::String::string("Line Count Buffer", NS::ASCIIStringEncoding));
+    
+    DebugLineVertex* lineVertices = reinterpret_cast<DebugLineVertex*>(lineBuffer->contents());
+    uint32_t* lineCount = reinterpret_cast<uint32_t*>(lineCountBuffer->contents());
+
+    size_t lineIndex = 0;
+
+    for (const auto& mesh : meshes) {
+        for (size_t i = 0; i < mesh->vertexIndices.size(); i += 3) {
+            for (size_t j = 0; j < 3; ++j) {
+                size_t vertexIndex = mesh->vertexIndices[i + j];
+                simd::float4 vertexPosition = mesh->vertices[vertexIndex].position;
+                simd::float4 normal = mesh->vertices[vertexIndex].normal;
+                simd::float4 endPosition = vertexPosition + normal * 0.1f; // length
+
+                if (lineIndex < debugLinesCount) {
+                    lineVertices[lineIndex * 2 + 0].position = {vertexPosition};
+                    lineVertices[lineIndex * 2 + 1].position = {endPosition};
+                    lineVertices[lineIndex * 2 + 0].color = mesh->vertices[vertexIndex].normal * 0.5 + 0.5;
+                    lineVertices[lineIndex * 2 + 1].color = mesh->vertices[vertexIndex].normal * 0.5 + 0.5;
+                    
+                    ++lineIndex;
+                }
+            }
+        }
+    }
+
+    *lineCount = static_cast<uint32_t>(lineIndex);
+}
+
+void Engine::drawDebug(MTL::RenderCommandEncoder* commandEncoder) {
+    // Set pipeline state
+    commandEncoder->setRenderPipelineState(forwardDebugState);
+
+    commandEncoder->setVertexBuffer(lineBuffer, 0, 0);
+    commandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
+
+    uint32_t* lineCount = reinterpret_cast<uint32_t*>(lineCountBuffer->contents());
+
+    if (*lineCount > 0) {
+        commandEncoder->drawPrimitives(MTL::PrimitiveTypeLine, 0, *lineCount * 2, 1);
     }
 }
 
@@ -733,6 +818,28 @@ void Engine::createViewRenderPassDescriptor() {
     rayTracingTexture = metalDevice->newTexture(raytracingTextureDescriptor);
 
     raytracingTextureDescriptor->release();
+    
+    // Forward Debug
+    MTL::TextureDescriptor* depthStencilDesc = MTL::TextureDescriptor::alloc()->init();
+    depthStencilDesc->setTextureType(MTL::TextureType2D);
+    depthStencilDesc->setPixelFormat(MTL::PixelFormatDepth32Float_Stencil8);
+    depthStencilDesc->setWidth(metalLayer.drawableSize.width);
+    depthStencilDesc->setHeight(metalLayer.drawableSize.height);
+    depthStencilDesc->setStorageMode(MTL::StorageModePrivate);
+    depthStencilDesc->setUsage(MTL::TextureUsageRenderTarget | MTL::TextureUsageShaderRead);
+
+    forwardDepthStencilTexture = metalDevice->newTexture(depthStencilDesc);
+    depthStencilDesc->release();
+    
+    forwardDescriptor = MTL::RenderPassDescriptor::alloc()->init();
+    forwardDescriptor->colorAttachments()->object(0)->setTexture(metalDrawable->texture());
+    forwardDescriptor->colorAttachments()->object(0)->setLoadAction(MTL::LoadActionClear);
+    forwardDescriptor->colorAttachments()->object(0)->setClearColor(MTL::ClearColor(41.0f/255.0f, 42.0f/255.0f, 48.0f/255.0f, 1.0));
+    
+    forwardDescriptor->depthAttachment()->setTexture(forwardDepthStencilTexture);
+    forwardDescriptor->stencilAttachment()->setTexture(forwardDepthStencilTexture);
+    
+    
 }
 
 void Engine::updateRenderPassDescriptor() {
@@ -923,11 +1030,17 @@ void Engine::draw() {
     
     dispatchRaytracing(commandBuffer);
 	
-	viewRenderPassDescriptor->colorAttachments()->object(RenderTargetLighting)->setTexture(metalDrawable->texture());
-	viewRenderPassDescriptor->colorAttachments()->object(RenderTargetLighting)->setLoadAction(MTL::LoadActionClear);
-	viewRenderPassDescriptor->colorAttachments()->object(RenderTargetLighting)->setClearColor(MTL::ClearColor(41.0f/255.0f, 42.0f/255.0f, 48.0f/255.0f, 1.0));
-	viewRenderPassDescriptor->depthAttachment()->setTexture(depthStencilTexture);
-	viewRenderPassDescriptor->stencilAttachment()->setTexture(depthStencilTexture);
+    // G-Buffer render pass descriptor setup
+    viewRenderPassDescriptor->colorAttachments()->object(RenderTargetLighting)->setTexture(metalDrawable->texture());
+    viewRenderPassDescriptor->colorAttachments()->object(RenderTargetLighting)->setLoadAction(MTL::LoadActionClear);
+    viewRenderPassDescriptor->colorAttachments()->object(RenderTargetLighting)->setClearColor(MTL::ClearColor(41.0f / 255.0f, 42.0f / 255.0f, 48.0f / 255.0f, 1.0));
+
+    viewRenderPassDescriptor->depthAttachment()->setTexture(depthStencilTexture);
+    viewRenderPassDescriptor->depthAttachment()->setLoadAction(MTL::LoadActionClear);
+    viewRenderPassDescriptor->depthAttachment()->setClearDepth(1.0); // Clear depth to farthest
+    viewRenderPassDescriptor->stencilAttachment()->setTexture(depthStencilTexture);
+    viewRenderPassDescriptor->stencilAttachment()->setLoadAction(MTL::LoadActionClear);
+    viewRenderPassDescriptor->stencilAttachment()->setClearStencil(0); // Clear stencil
 	
 	// G-Buffer pass
 	MTL::RenderCommandEncoder* gBufferEncoder = commandBuffer->renderCommandEncoder(viewRenderPassDescriptor);
@@ -935,10 +1048,29 @@ void Engine::draw() {
 		drawGBuffer(gBufferEncoder);
 		
 		drawDirectionalLight(gBufferEncoder);
-		
+
 		gBufferEncoder->endEncoding();
 	}
-	
-	// End the frame
+
+    // Forward/debug render pass descriptor setup
+    forwardDescriptor->colorAttachments()->object(0)->setTexture(metalDrawable->texture());
+    forwardDescriptor->colorAttachments()->object(0)->setLoadAction(MTL::LoadActionLoad); // Preserve G-Buffer results
+    forwardDescriptor->colorAttachments()->object(0)->setClearColor(MTL::ClearColor(41.0f / 255.0f, 42.0f / 255.0f, 48.0f / 255.0f, 1.0));
+
+    forwardDescriptor->depthAttachment()->setTexture(forwardDepthStencilTexture);
+    forwardDescriptor->depthAttachment()->setLoadAction(MTL::LoadActionClear);
+    forwardDescriptor->depthAttachment()->setClearDepth(1.0); // Clear depth for forward pass
+    forwardDescriptor->stencilAttachment()->setTexture(forwardDepthStencilTexture);
+    forwardDescriptor->stencilAttachment()->setLoadAction(MTL::LoadActionClear);
+    forwardDescriptor->stencilAttachment()->setClearStencil(0); // Clear stencil for forward pass
+    
+    MTL::RenderCommandEncoder* debugEncoder = commandBuffer->renderCommandEncoder(forwardDescriptor);
+    if (debugEncoder) {
+        debugEncoder->setLabel(NS::String::string("Debug Line Pass", NS::ASCIIStringEncoding));
+
+        drawDebug(debugEncoder);
+        debugEncoder->endEncoding();
+    }
+
 	endFrame(commandBuffer, metalDrawable);
 }

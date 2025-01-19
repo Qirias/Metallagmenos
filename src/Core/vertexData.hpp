@@ -27,3 +27,8 @@ struct TransformationData {
     float4x4 translationMatrix;
     float4x4 perspectiveMatrix;
 };
+
+struct DebugLineVertex {
+    float4 position;
+    float4 color;
+};

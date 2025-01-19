@@ -141,7 +141,6 @@ private:
 	MTL::RenderPipelineState*   GBufferPipelineState;
 	MTL::RenderPipelineState*   directionalLightPipelineState;
 	
-
     std::vector<Mesh*>          meshes;
 
     MTL::SamplerState*          samplerState;
@@ -162,4 +161,18 @@ private:
     void setupTriangleResources();
     void createAccelerationStructureWithDescriptors();
     void dispatchRaytracing(MTL::CommandBuffer* commandBuffer);
+    
+    // Forward Debug
+    MTL::RenderPipelineState*   forwardDebugState;
+    MTL::RenderPassDescriptor*  forwardDescriptor;
+    
+    MTL::Buffer*    lineCountBuffer;
+    MTL::Buffer*    lineBuffer;
+    
+    MTL::Texture*   forwardDepthStencilTexture;
+    
+    uint32_t        debugLinesCount;
+    
+    void populateLineData();
+    void drawDebug(MTL::RenderCommandEncoder* commandEncoder);
 };

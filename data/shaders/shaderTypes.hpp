@@ -38,10 +38,11 @@ struct FrameData {
 };
 
 typedef enum RenderTargetIndex {
-	RenderTargetLighting  = 0,
-	RenderTargetAlbedo    = 1,
-	RenderTargetNormal    = 2,
-	RenderTargetDepth     = 3
+	RenderTargetLighting,
+	RenderTargetAlbedo,
+	RenderTargetNormal,
+	RenderTargetDepth,
+	RenderTargetMax
 } RenderTargetIndex;
 
 typedef enum VertexAttributes {

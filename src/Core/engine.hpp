@@ -23,6 +23,7 @@
 #include "components/gltfLoader.hpp"
 #include "../../data/shaders/shaderTypes.hpp"
 #include "../../data/shaders/config.hpp"
+#include "managers/renderPipeline.hpp"
 
 #include <stb/stb_image.h>
 
@@ -96,6 +97,7 @@ private:
     NSWindow*           metalWindow;
     CAMetalLayer*       metalLayer;
     CA::MetalDrawable*  metalDrawable;
+    RenderPipeline      renderPipelines;
     
     bool                windowResizeFlag = false;
     int                 newWidth;

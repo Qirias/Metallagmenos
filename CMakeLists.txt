@@ -80,13 +80,24 @@ set_target_properties(shaders PROPERTIES FOLDER "Hidden")
 # Add the executable target
 add_executable(${PROJECT_NAME} ${SOURCES} ${SHADER_SOURCES})
 
-# Prevent xcode running multiple executables
-set_target_properties(${PROJECT_NAME} PROPERTIES
-    MACOSX_BUNDLE TRUE
-    XCODE_GENERATE_SCHEME TRUE
-    XCODE_SCHEME_WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-    XCODE_SCHEME_LAUNCH_MODE "0"
-)
+# Check if it's a standalone build or an Xcode build
+if(DEFINED STANDALONE_BUILD)
+    message(STATUS "Building as standalone")
+    set_target_properties(${PROJECT_NAME} PROPERTIES
+        MACOSX_BUNDLE FALSE   
+        XCODE_GENERATE_SCHEME FALSE
+    )
+elseif(DEFINED XCODE_BUILD)
+    message(STATUS "Building with Xcode")
+    set_target_properties(${PROJECT_NAME} PROPERTIES
+        MACOSX_BUNDLE TRUE 
+        XCODE_GENERATE_SCHEME TRUE
+        XCODE_SCHEME_WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        XCODE_SCHEME_LAUNCH_MODE "0"  # Prevent multiple executables
+    )
+else()
+    message(STATUS "Unknown build mode")
+endif()
 
 # Set the Xcode specific attributes
 set_target_properties(${PROJECT_NAME} PROPERTIES

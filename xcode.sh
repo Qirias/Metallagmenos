@@ -10,7 +10,7 @@ mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR" || exit
 
 # Run CMake to configure the project with Xcode generator
-cmake -G Xcode ..
+cmake -G Xcode -DXCODE_BUILD=TRUE ..
 
 # Inform the user that the Xcode project has been created
 echo "Xcode project has been created in the '$BUILD_DIR' directory."

@@ -21,6 +21,7 @@ void Engine::init() {
     createCommandQueue();
 	loadScene();
     createDefaultLibrary();
+    renderPipelines.initialize(metalDevice, metalDefaultLibrary);
     createRenderPipelines();
 	createViewRenderPassDescriptor();
     createAccelerationStructureWithDescriptors();
@@ -344,121 +345,90 @@ void Engine::createRenderPipelines() {
     #pragma mark Deferred render pipeline setup
     {
 		{
-			MTL::Function* GBufferVertexFunction = metalDefaultLibrary->newFunction(NS::String::string("gbuffer_vertex", NS::ASCIIStringEncoding));
-			MTL::Function* GBufferFragmentFunction = metalDefaultLibrary->newFunction(NS::String::string("gbuffer_fragment", NS::ASCIIStringEncoding));
-
-			assert(GBufferVertexFunction && "Failed to load gbuffer_vertex shader");
-			assert(GBufferFragmentFunction && "Failed to load gbuffer_fragment shader");
-
-			MTL::RenderPipelineDescriptor* renderPipelineDescriptor = MTL::RenderPipelineDescriptor::alloc()->init();
-
-			renderPipelineDescriptor->setLabel(NS::String::string("G-buffer Creation", NS::ASCIIStringEncoding));
-			renderPipelineDescriptor->setVertexDescriptor(defaultVertexDescriptor);
-
-			// MTL::PixelFormatInvalid if not single pass deferred rendering
-			renderPipelineDescriptor->colorAttachments()->object(RenderTargetLighting)->setPixelFormat(MTL::PixelFormat::PixelFormatBGRA8Unorm);
-
-			renderPipelineDescriptor->colorAttachments()->object(RenderTargetAlbedo)->setPixelFormat(albedoSpecularGBufferFormat);
-			renderPipelineDescriptor->colorAttachments()->object(RenderTargetNormal)->setPixelFormat(normalShadowGBufferFormat);
-			renderPipelineDescriptor->colorAttachments()->object(RenderTargetDepth)->setPixelFormat(depthGBufferFormat);
-			renderPipelineDescriptor->setDepthAttachmentPixelFormat(MTL::PixelFormat::PixelFormatDepth32Float_Stencil8);
-			renderPipelineDescriptor->setStencilAttachmentPixelFormat(MTL::PixelFormat::PixelFormatDepth32Float_Stencil8);
-
-			renderPipelineDescriptor->setVertexFunction(GBufferVertexFunction);
-			renderPipelineDescriptor->setFragmentFunction(GBufferFragmentFunction);
-
-			GBufferPipelineState = metalDevice->newRenderPipelineState(renderPipelineDescriptor, &error);
-
-			assert(error == nil && "Failed to create GBuffer render pipeline state");
-			
-			renderPipelineDescriptor->release();
-			GBufferVertexFunction->release();
-			GBufferFragmentFunction->release();
+			RenderPipelineConfig gbufferConfig{
+                .label = "G-buffer Creation",
+                .vertexFunctionName = "gbuffer_vertex",
+                .fragmentFunctionName = "gbuffer_fragment",
+                .vertexDescriptor = defaultVertexDescriptor
+            };
+            gbufferConfig.colorAttachments = {
+                {RenderTargetLighting, MTL::PixelFormatBGRA8Unorm},
+                {RenderTargetAlbedo, albedoSpecularGBufferFormat},
+                {RenderTargetNormal, normalShadowGBufferFormat},
+                {RenderTargetDepth, depthGBufferFormat}
+            };
+            GBufferPipelineState = renderPipelines.createRenderPipeline(gbufferConfig);
 		}
 		
 		#pragma mark GBuffer depth state setup
 		{
 		#if LIGHT_STENCIL_CULLING
-			MTL::StencilDescriptor* stencilStateDesc = MTL::StencilDescriptor::alloc()->init();
-			stencilStateDesc->setStencilCompareFunction(MTL::CompareFunctionAlways);
-			stencilStateDesc->setStencilFailureOperation(MTL::StencilOperationKeep);
-			stencilStateDesc->setDepthFailureOperation(MTL::StencilOperationKeep);
-			stencilStateDesc->setDepthStencilPassOperation(MTL::StencilOperationReplace);
-			stencilStateDesc->setReadMask(0x0);
-			stencilStateDesc->setWriteMask(0xFF);
+			StencilConfig gbufferStencil{
+                .stencilCompareFunction = MTL::CompareFunctionAlways,
+                .stencilFailureOperation = MTL::StencilOperationKeep,
+                .depthFailureOperation = MTL::StencilOperationKeep,
+                .depthStencilPassOperation = MTL::StencilOperationReplace,
+                .readMask = 0x0,
+                .writeMask = 0xFF
+            };
 		#else
-			MTL::StencilDescriptor* stencilStateDesc = MTL::StencilDescriptor::alloc()->init();
+			StencilConfig gbufferStencil{};
 		#endif
-			MTL::DepthStencilDescriptor* depthStencilDesc = MTL::DepthStencilDescriptor::alloc()->init();
-			depthStencilDesc->setLabel(NS::String::string("G-buffer Creation", NS::ASCIIStringEncoding));
-			depthStencilDesc->setDepthCompareFunction(MTL::CompareFunctionLess);
-			depthStencilDesc->setDepthWriteEnabled(true);
-			depthStencilDesc->setFrontFaceStencil(stencilStateDesc);
-			depthStencilDesc->setBackFaceStencil(stencilStateDesc);
-
-			GBufferDepthStencilState = metalDevice->newDepthStencilState(depthStencilDesc);
-			depthStencilDesc->release();
-			stencilStateDesc->release();
+			DepthStencilConfig gbufferDepthConfig{
+                .label = "G-buffer Creation",
+                .depthCompareFunction = MTL::CompareFunctionLess,
+                .depthWriteEnabled = true,
+                .frontStencil = gbufferStencil,
+                .backStencil = gbufferStencil
+            };
+            GBufferDepthStencilState = renderPipelines.createDepthStencilState(gbufferDepthConfig);
 		}
 		
 		// Setup render state to apply directional light and shadow in final pass
 		{
-			#pragma mark Directional lighting render pipeline setup
-			{
-				MTL::Function* directionalVertexFunction = metalDefaultLibrary->newFunction(NS::String::string("deferred_directional_lighting_vertex", NS::ASCIIStringEncoding));
-				assert(directionalVertexFunction && "Failed to load deferred_directional_lighting_vertex");
-				MTL::Function* directionalFragmentFunction = metalDefaultLibrary->newFunction(NS::String::string("deferred_directional_lighting_fragment", NS::ASCIIStringEncoding));
-				assert(directionalFragmentFunction && "Failed to load deferred_directional_lighting_fragment");
-				
-				MTL::RenderPipelineDescriptor* renderPipelineDescriptor = MTL::RenderPipelineDescriptor::alloc()->init();
-				
-				renderPipelineDescriptor->setLabel(NS::String::string("Deferred Directional Lighting", NS::ASCIIStringEncoding));
-				renderPipelineDescriptor->setVertexDescriptor(nullptr);
-				renderPipelineDescriptor->setVertexFunction(directionalVertexFunction);
-				renderPipelineDescriptor->setFragmentFunction(directionalFragmentFunction);
-				renderPipelineDescriptor->colorAttachments()->object(RenderTargetLighting)->setPixelFormat(MTL::PixelFormatBGRA8Unorm);
-			
-				// Single Pass Deferred Rendering
-				renderPipelineDescriptor->colorAttachments()->object(RenderTargetAlbedo)->setPixelFormat(albedoSpecularGBufferFormat);
-				renderPipelineDescriptor->colorAttachments()->object(RenderTargetNormal)->setPixelFormat(normalShadowGBufferFormat);
-				renderPipelineDescriptor->colorAttachments()->object(RenderTargetDepth)->setPixelFormat(depthGBufferFormat);
-				
-				renderPipelineDescriptor->setDepthAttachmentPixelFormat(MTL::PixelFormatDepth32Float_Stencil8);
-				renderPipelineDescriptor->setStencilAttachmentPixelFormat(MTL::PixelFormatDepth32Float_Stencil8);
-				
-				directionalLightPipelineState = metalDevice->newRenderPipelineState(renderPipelineDescriptor, &error);
-				
-				assert(error == nil && "Failed to create directional light render pipeline state");
-				
-				renderPipelineDescriptor->release();
-				directionalVertexFunction->release();
-				directionalFragmentFunction->release();
-			}
-			
+            #pragma mark Directional lighting render pipeline setup
+            {
+                RenderPipelineConfig directionalConfig{
+                    .label = "Deferred Directional Lighting",
+                    .vertexFunctionName = "deferred_directional_lighting_vertex",
+                    .fragmentFunctionName = "deferred_directional_lighting_fragment",
+                    .colorPixelFormat = MTL::PixelFormatBGRA8Unorm,
+                    .depthPixelFormat = MTL::PixelFormatDepth32Float_Stencil8,
+                    .stencilPixelFormat = MTL::PixelFormatDepth32Float_Stencil8,
+                    .vertexDescriptor = nullptr
+                };
+
+                // Add additional color attachments for GBuffer
+                directionalConfig.colorAttachments = {
+                    {RenderTargetLighting, MTL::PixelFormatBGRA8Unorm},
+                    {RenderTargetAlbedo, albedoSpecularGBufferFormat},
+                    {RenderTargetNormal, normalShadowGBufferFormat},
+                    {RenderTargetDepth, depthGBufferFormat}
+                };
+                directionalLightPipelineState = renderPipelines.createRenderPipeline(directionalConfig);
+            }
+
 			#pragma mark Directional lighting mask depth stencil state setup
 			{
-				MTL::StencilDescriptor* stencilStateDesc = MTL::StencilDescriptor::alloc()->init();
-			#if LIGHT_STENCIL_CULLING
-				// Stencil state setup so direction lighting fragment shader only executed on pixels
-				// drawn in GBuffer stage (i.e. mask out the background/sky)
-				stencilStateDesc->setStencilCompareFunction(MTL::CompareFunctionEqual);
-				stencilStateDesc->setStencilFailureOperation(MTL::StencilOperationKeep);
-				stencilStateDesc->setDepthFailureOperation(MTL::StencilOperationKeep);
-				stencilStateDesc->setDepthStencilPassOperation(MTL::StencilOperationKeep);
-				stencilStateDesc->setReadMask(0xFF);
-				stencilStateDesc->setWriteMask(0x0);
-			#endif
-				MTL::DepthStencilDescriptor* depthStencilDesc = MTL::DepthStencilDescriptor::alloc()->init();
-				depthStencilDesc->setLabel(NS::String::string("Deferred Directional Lighting", NS::ASCIIStringEncoding));
-				depthStencilDesc->setDepthWriteEnabled(false);
-				depthStencilDesc->setDepthCompareFunction(MTL::CompareFunctionAlways);
-				depthStencilDesc->setFrontFaceStencil(stencilStateDesc);
-				depthStencilDesc->setBackFaceStencil(stencilStateDesc);
+				StencilConfig directionalStencil{
+                #if LIGHT_STENCIL_CULLING
+                    .stencilCompareFunction = MTL::CompareFunctionEqual,
+                    .stencilFailureOperation = MTL::StencilOperationKeep,
+                    .depthFailureOperation = MTL::StencilOperationKeep,
+                    .depthStencilPassOperation = MTL::StencilOperationKeep,
+                    .readMask = 0xFF,
+                    .writeMask = 0x0
+                #endif
+                };
 
-				directionalLightDepthStencilState = metalDevice->newDepthStencilState(depthStencilDesc);
-				
-				depthStencilDesc->release();
-				stencilStateDesc->release();
+                DepthStencilConfig directionalDepthConfig{
+                    .label = "Deferred Directional Lighting",
+                    .depthCompareFunction = MTL::CompareFunctionAlways,
+                    .depthWriteEnabled = false,
+                    .frontStencil = directionalStencil,
+                    .backStencil = directionalStencil
+                };
+                directionalLightDepthStencilState = renderPipelines.createDepthStencilState(directionalDepthConfig);
 			}
 		}
 
@@ -468,33 +438,30 @@ void Engine::createRenderPipelines() {
 
             #pragma mark shadow pass render pipeline setup
             {
-                MTL::Function* shadowVertexFunction = metalDefaultLibrary->newFunction(NS::String::string("shadow_vertex", NS::ASCIIStringEncoding));
 
-                assert(shadowVertexFunction && "Failed to load shadow_vertex shader");
-
-                MTL::RenderPipelineDescriptor* renderPipelineDescriptor = MTL::RenderPipelineDescriptor::alloc()->init();
-                renderPipelineDescriptor->setLabel(NS::String::string("Shadow Gen", NS::ASCIIStringEncoding));
-                renderPipelineDescriptor->setVertexDescriptor(nullptr);
-                renderPipelineDescriptor->setVertexFunction(shadowVertexFunction);
-                renderPipelineDescriptor->setFragmentFunction(nullptr);
-                renderPipelineDescriptor->setDepthAttachmentPixelFormat(shadowMapPixelFormat);
-
-                shadowPipelineState = metalDevice->newRenderPipelineState(renderPipelineDescriptor, &error);
-                
-                assert(error == nil && "Failed to create shadow map render pipeline state");
-
-                renderPipelineDescriptor->release();
-                shadowVertexFunction->release();
+            RenderPipelineConfig shadowConfig{
+                    .label = "Shadow Gen",
+                    .vertexFunctionName = "shadow_vertex",
+                    .fragmentFunctionName = "",
+                    // No fragment function for shadow pass
+                    .vertexDescriptor = nullptr,
+                    .depthPixelFormat = MTL::PixelFormatDepth16Unorm,
+                    // Clear other pixel formats since we only need depth
+                    .colorPixelFormat = MTL::PixelFormatInvalid,
+                    .stencilPixelFormat = MTL::PixelFormatInvalid
+                };
+                shadowPipelineState = renderPipelines.createRenderPipeline(shadowConfig);
             }
 
             #pragma mark Shadow pass depth state setup
             {
-                MTL::DepthStencilDescriptor* depthStencilDescriptor = MTL::DepthStencilDescriptor::alloc()->init();
-                depthStencilDescriptor->setLabel( NS::String::string("Shadow Gen", NS::ASCIIStringEncoding));
-                depthStencilDescriptor->setDepthCompareFunction(MTL::CompareFunctionLessEqual);
-                depthStencilDescriptor->setDepthWriteEnabled(true);
-                shadowDepthStencilState = metalDevice->newDepthStencilState(depthStencilDescriptor);
-                depthStencilDescriptor->release();
+                DepthStencilConfig shadowDepthConfig{
+                    .label = "Shadow Gen",
+                    .depthCompareFunction = MTL::CompareFunctionLessEqual,
+                    .depthWriteEnabled = true
+                    // No stencil config needed for shadows
+                };
+                shadowDepthStencilState = renderPipelines.createDepthStencilState(shadowDepthConfig);
             }
 
             #pragma mark Shadow map setup
@@ -533,37 +500,22 @@ void Engine::createRenderPipelines() {
     
     #pragma mark Ray tracing pipeline state
     {
-        
-        MTL::Function* computeFunction = metalDefaultLibrary->newFunction(NS::String::string("raytracingKernel", NS::ASCIIStringEncoding));
-        assert(computeFunction && "Failed to load raytracingKernel compute function!");
-
-        raytracingPipelineState = metalDevice->newComputePipelineState(computeFunction, &error);
-        assert(error == nil && "Failed to create drawing compute pipeline state!");
-
-        computeFunction->release();
+        ComputePipelineConfig raytracingConfig{
+            .label = "Raytracing Pipeline",
+            .computeFunctionName = "raytracingKernel"
+        };
+        raytracingPipelineState = renderPipelines.createComputePipeline(raytracingConfig);
     }
     
     #pragma mark Forward Debug pipeline state
     {
-        MTL::Function* vertexShader = metalDefaultLibrary->newFunction(NS::String::string("forwardVertex", NS::ASCIIStringEncoding));
-        assert(vertexShader && "Failed to load forwardVertex function!");
-        
-        MTL::Function* fragmentShader = metalDefaultLibrary->newFunction(NS::String::string("forwardFragment", NS::ASCIIStringEncoding));
-        assert(fragmentShader && "Failed to load forwardFragment function!");
-        
-        MTL::RenderPipelineDescriptor* renderPipelineDescriptor = MTL::RenderPipelineDescriptor::alloc()->init();
-        renderPipelineDescriptor->setLabel(NS::String::string("Forward Debug Pipeline", NS::ASCIIStringEncoding));
-        renderPipelineDescriptor->setVertexFunction(vertexShader);
-        renderPipelineDescriptor->setFragmentFunction(fragmentShader);
-        MTL::PixelFormat pixelFormat = metalDrawable->texture()->pixelFormat();
-        renderPipelineDescriptor->colorAttachments()->object(0)->setPixelFormat(pixelFormat);
-        renderPipelineDescriptor->setDepthAttachmentPixelFormat(MTL::PixelFormatDepth32Float_Stencil8);
-        renderPipelineDescriptor->setStencilAttachmentPixelFormat(MTL::PixelFormatDepth32Float_Stencil8);
-        
-        forwardDebugState = metalDevice->newRenderPipelineState(renderPipelineDescriptor, &error);
-        assert(error == nil && "Failed to create forward debug pipeline state!");
-        
-        renderPipelineDescriptor->release();
+        RenderPipelineConfig debugConfig{
+            .label = "Forward Debug Pipeline",
+            .vertexFunctionName = "forwardVertex",
+            .fragmentFunctionName = "forwardFragment",
+            .colorPixelFormat = metalDrawable->texture()->pixelFormat()
+        };
+        forwardDebugState = renderPipelines.createRenderPipeline(debugConfig);
     }
 }
 

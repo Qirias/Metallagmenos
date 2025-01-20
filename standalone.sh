@@ -9,8 +9,7 @@ mkdir -p "$BUILD_DIR"
 # Navigate to the build directory
 cd "$BUILD_DIR" || exit
 
-# Run CMake to configure the project
-cmake ..
+cmake -DSTANDALONE_BUILD=TRUE ..
 
 # Build the project using the maximum number of available processors
 cmake --build . -- -j$(sysctl -n hw.ncpu)

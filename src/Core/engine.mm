@@ -65,6 +65,7 @@ void Engine::cleanup() {
 	shadowMap->release();
 	shadowRenderPassDescriptor->release();
 	viewRenderPassDescriptor->release();
+    forwardDescriptor->release();
     metalDevice->release();
 }
 
@@ -116,6 +117,8 @@ void Engine::resizeFrameBuffer(int width, int height) {
     }
     
 	// Recreate G-buffer textures and descriptors
+    viewRenderPassDescriptor->release();
+    forwardDescriptor->release();
 	createViewRenderPassDescriptor();
     metalDrawable = (__bridge CA::MetalDrawable*)[metalLayer nextDrawable];
     updateRenderPassDescriptor();
@@ -657,7 +660,6 @@ void Engine::populateLineData() {
 }
 
 void Engine::drawDebug(MTL::RenderCommandEncoder* commandEncoder) {
-    // Set pipeline state
     commandEncoder->setRenderPipelineState(renderPipelines.getRenderPipeline(RenderPipelineType::ForwardDebug));
 
     commandEncoder->setVertexBuffer(lineBuffer, 0, 0);
@@ -781,14 +783,6 @@ void Engine::createViewRenderPassDescriptor() {
     depthStencilDesc->release();
     
     forwardDescriptor = MTL::RenderPassDescriptor::alloc()->init();
-    forwardDescriptor->colorAttachments()->object(0)->setTexture(metalDrawable->texture());
-    forwardDescriptor->colorAttachments()->object(0)->setLoadAction(MTL::LoadActionClear);
-    forwardDescriptor->colorAttachments()->object(0)->setClearColor(MTL::ClearColor(41.0f/255.0f, 42.0f/255.0f, 48.0f/255.0f, 1.0));
-    
-    forwardDescriptor->depthAttachment()->setTexture(forwardDepthStencilTexture);
-    forwardDescriptor->stencilAttachment()->setTexture(forwardDepthStencilTexture);
-    
-    
 }
 
 void Engine::updateRenderPassDescriptor() {

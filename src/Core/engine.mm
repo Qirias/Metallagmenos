@@ -65,9 +65,6 @@ void Engine::cleanup() {
 	shadowMap->release();
 	shadowRenderPassDescriptor->release();
 	viewRenderPassDescriptor->release();
-    shadowPipelineState->release();
-	GBufferPipelineState->release();
-	directionalLightPipelineState->release();
     metalDevice->release();
 }
 
@@ -357,7 +354,7 @@ void Engine::createRenderPipelines() {
                 {RenderTargetNormal, normalShadowGBufferFormat},
                 {RenderTargetDepth, depthGBufferFormat}
             };
-            GBufferPipelineState = renderPipelines.createRenderPipeline(gbufferConfig);
+            renderPipelines.createRenderPipeline(RenderPipelineType::GBuffer, gbufferConfig);
 		}
 		
 		#pragma mark GBuffer depth state setup
@@ -381,7 +378,7 @@ void Engine::createRenderPipelines() {
                 .frontStencil = gbufferStencil,
                 .backStencil = gbufferStencil
             };
-            GBufferDepthStencilState = renderPipelines.createDepthStencilState(gbufferDepthConfig);
+            renderPipelines.createDepthStencilState(DepthStencilType::GBuffer, gbufferDepthConfig);
 		}
 		
 		// Setup render state to apply directional light and shadow in final pass
@@ -405,7 +402,7 @@ void Engine::createRenderPipelines() {
                     {RenderTargetNormal, normalShadowGBufferFormat},
                     {RenderTargetDepth, depthGBufferFormat}
                 };
-                directionalLightPipelineState = renderPipelines.createRenderPipeline(directionalConfig);
+                renderPipelines.createRenderPipeline(RenderPipelineType::DirectionalLight, directionalConfig);
             }
 
 			#pragma mark Directional lighting mask depth stencil state setup
@@ -428,7 +425,7 @@ void Engine::createRenderPipelines() {
                     .frontStencil = directionalStencil,
                     .backStencil = directionalStencil
                 };
-                directionalLightDepthStencilState = renderPipelines.createDepthStencilState(directionalDepthConfig);
+                renderPipelines.createDepthStencilState(DepthStencilType::DirectionalLight, directionalDepthConfig);
 			}
 		}
 
@@ -450,7 +447,7 @@ void Engine::createRenderPipelines() {
                     .colorPixelFormat = MTL::PixelFormatInvalid,
                     .stencilPixelFormat = MTL::PixelFormatInvalid
                 };
-                shadowPipelineState = renderPipelines.createRenderPipeline(shadowConfig);
+                renderPipelines.createRenderPipeline(RenderPipelineType::Shadow, shadowConfig);
             }
 
             #pragma mark Shadow pass depth state setup
@@ -461,7 +458,7 @@ void Engine::createRenderPipelines() {
                     .depthWriteEnabled = true
                     // No stencil config needed for shadows
                 };
-                shadowDepthStencilState = renderPipelines.createDepthStencilState(shadowDepthConfig);
+                renderPipelines.createDepthStencilState(DepthStencilType::Shadow, shadowDepthConfig);
             }
 
             #pragma mark Shadow map setup
@@ -504,7 +501,7 @@ void Engine::createRenderPipelines() {
             .label = "Raytracing Pipeline",
             .computeFunctionName = "raytracingKernel"
         };
-        raytracingPipelineState = renderPipelines.createComputePipeline(raytracingConfig);
+        renderPipelines.createComputePipeline(ComputePipelineType::Raytracing, raytracingConfig);
     }
     
     #pragma mark Forward Debug pipeline state
@@ -515,7 +512,7 @@ void Engine::createRenderPipelines() {
             .fragmentFunctionName = "forwardFragment",
             .colorPixelFormat = metalDrawable->texture()->pixelFormat()
         };
-        forwardDebugState = renderPipelines.createRenderPipeline(debugConfig);
+        renderPipelines.createRenderPipeline(RenderPipelineType::ForwardDebug, debugConfig);
     }
 }
 
@@ -661,7 +658,7 @@ void Engine::populateLineData() {
 
 void Engine::drawDebug(MTL::RenderCommandEncoder* commandEncoder) {
     // Set pipeline state
-    commandEncoder->setRenderPipelineState(forwardDebugState);
+    commandEncoder->setRenderPipelineState(renderPipelines.getRenderPipeline(RenderPipelineType::ForwardDebug));
 
     commandEncoder->setVertexBuffer(lineBuffer, 0, 0);
     commandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
@@ -676,7 +673,7 @@ void Engine::drawDebug(MTL::RenderCommandEncoder* commandEncoder) {
 void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
     MTL::ComputeCommandEncoder* computeEncoder = commandBuffer->computeCommandEncoder();
     
-    computeEncoder->setComputePipelineState(raytracingPipelineState);
+    computeEncoder->setComputePipelineState(renderPipelines.getComputePipeline(ComputePipelineType::Raytracing));
     computeEncoder->setTexture(rayTracingTexture, TextureIndexRaytracing);
     computeEncoder->setBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
     computeEncoder->setBuffer(resourceBuffer, 0, BufferIndexResources);
@@ -906,8 +903,8 @@ void Engine::drawShadow(MTL::CommandBuffer* commandBuffer)
 
     renderCommandEncoder->setLabel( NS::String::string("Shadow Map Pass", NS::ASCIIStringEncoding));
 
-    renderCommandEncoder->setRenderPipelineState(shadowPipelineState);
-    renderCommandEncoder->setDepthStencilState(shadowDepthStencilState);
+    renderCommandEncoder->setRenderPipelineState(renderPipelines.getRenderPipeline(RenderPipelineType::Shadow));
+    renderCommandEncoder->setDepthStencilState(renderPipelines.getDepthStencilState(DepthStencilType::Shadow));
     renderCommandEncoder->setCullMode(MTL::CullModeBack);
     renderCommandEncoder->setDepthBias(0.015, 7, 0.02);
     renderCommandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
@@ -942,8 +939,8 @@ void Engine::drawGBuffer(MTL::RenderCommandEncoder* renderCommandEncoder)
 {
 	renderCommandEncoder->pushDebugGroup(NS::String::string("Draw G-Buffer", NS::ASCIIStringEncoding));
 	renderCommandEncoder->setCullMode(MTL::CullModeBack);
-	renderCommandEncoder->setRenderPipelineState(GBufferPipelineState);
-	renderCommandEncoder->setDepthStencilState(GBufferDepthStencilState);
+	renderCommandEncoder->setRenderPipelineState(renderPipelines.getRenderPipeline(RenderPipelineType::GBuffer));
+	renderCommandEncoder->setDepthStencilState(renderPipelines.getDepthStencilState(DepthStencilType::GBuffer));
 	renderCommandEncoder->setStencilReferenceValue(128);
     renderCommandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
 	renderCommandEncoder->setFragmentBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
@@ -960,8 +957,8 @@ void Engine::drawDirectionalLight(MTL::RenderCommandEncoder* renderCommandEncode
 	renderCommandEncoder->setCullMode(MTL::CullModeBack);
 	renderCommandEncoder->setStencilReferenceValue(128);
 
-	renderCommandEncoder->setRenderPipelineState(directionalLightPipelineState);
-	renderCommandEncoder->setDepthStencilState(directionalLightDepthStencilState);
+	renderCommandEncoder->setRenderPipelineState(renderPipelines.getRenderPipeline(RenderPipelineType::DirectionalLight));
+	renderCommandEncoder->setDepthStencilState(renderPipelines.getDepthStencilState(DepthStencilType::DirectionalLight));
 	renderCommandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
 	renderCommandEncoder->setFragmentBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
 

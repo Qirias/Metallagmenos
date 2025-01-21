@@ -1,6 +1,82 @@
 #include "renderPipeline.hpp"
 
-MTL::RenderPipelineState* RenderPipeline::createRenderPipeline(const RenderPipelineConfig& config) {
+RenderPipeline::~RenderPipeline() {
+    cleanup();
+}
+
+void RenderPipeline::cleanup() {
+    // Release all pipeline states
+    for (auto& [type, state] : renderPipelineStates) {
+        if (state) state->release();
+    }
+    renderPipelineStates.clear();
+    
+    for (auto& [type, state] : computePipelineStates) {
+        if (state) state->release();
+    }
+    computePipelineStates.clear();
+    
+    for (auto& [type, state] : depthStencilStates) {
+        if (state) state->release();
+    }
+    depthStencilStates.clear();
+}
+
+MTL::RenderPipelineState* RenderPipeline::getRenderPipeline(RenderPipelineType type) {
+    auto it = renderPipelineStates.find(type);
+    assert(it != renderPipelineStates.end() && "Render pipeline state not found!");
+    return it->second;
+}
+
+MTL::ComputePipelineState* RenderPipeline::getComputePipeline(ComputePipelineType type) {
+    auto it = computePipelineStates.find(type);
+    assert(it != computePipelineStates.end() && "Compute pipeline state not found!");
+    return it->second;
+}
+
+MTL::DepthStencilState* RenderPipeline::getDepthStencilState(DepthStencilType type) {
+    auto it = depthStencilStates.find(type);
+    assert(it != depthStencilStates.end() && "Depth stencil state not found!");
+    return it->second;
+}
+
+void RenderPipeline::createRenderPipeline(RenderPipelineType type, const RenderPipelineConfig& config) {
+    auto state = createRenderPipelineState(config);
+    
+    // Release existing state if present
+    auto it = renderPipelineStates.find(type);
+    if (it != renderPipelineStates.end() && it->second) {
+        it->second->release();
+    }
+    
+    renderPipelineStates[type] = state;
+}
+
+void RenderPipeline::createComputePipeline(ComputePipelineType type, const ComputePipelineConfig& config) {
+    auto state = createComputePipelineState(config);
+    
+    // Release existing state if present
+    auto it = computePipelineStates.find(type);
+    if (it != computePipelineStates.end() && it->second) {
+        it->second->release();
+    }
+    
+    computePipelineStates[type] = state;
+}
+
+void RenderPipeline::createDepthStencilState(DepthStencilType type, const DepthStencilConfig& config) {
+    auto state = createDepthStencilState(config);
+    
+    // Release existing state if present
+    auto it = depthStencilStates.find(type);
+    if (it != depthStencilStates.end() && it->second) {
+        it->second->release();
+    }
+    
+    depthStencilStates[type] = state;
+}
+
+MTL::RenderPipelineState* RenderPipeline::createRenderPipelineState(const RenderPipelineConfig& config) {
     assert(device && library && "RenderPipeline not initialized!");
     NS::Error* error = nullptr;
 
@@ -11,7 +87,7 @@ MTL::RenderPipelineState* RenderPipeline::createRenderPipeline(const RenderPipel
     MTL::Function* fragmentFunction = library->newFunction(NS::String::string(config.fragmentFunctionName.c_str(), NS::ASCIIStringEncoding));
 
     assert(vertexFunction && "Failed to load vertex shader!");
-    
+
     if (config.fragmentFunctionName != "")
         assert(fragmentFunction && "Failed to load fragment shader!"); 
     
@@ -41,7 +117,7 @@ MTL::RenderPipelineState* RenderPipeline::createRenderPipeline(const RenderPipel
     return pipelineState;
 }
 
-MTL::ComputePipelineState* RenderPipeline::createComputePipeline(const ComputePipelineConfig& config) {
+MTL::ComputePipelineState* RenderPipeline::createComputePipelineState(const ComputePipelineConfig& config) {
     assert(device && library && "RenderPipeline not initialized!");
     NS::Error* error = nullptr;
 

@@ -109,12 +109,6 @@ private:
     static void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
     static void cursorPosCallback(GLFWwindow* window, double xpos, double ypos);
 
-    // Depth stencil states
-    MTL::DepthStencilState*     depthStencilState;
-    MTL::DepthStencilState*     shadowDepthStencilState;
-	MTL::DepthStencilState* 	GBufferDepthStencilState;
-	MTL::DepthStencilState*		directionalLightDepthStencilState;
-
     // Renderpass descriptors
     MTL::RenderPassDescriptor*  shadowRenderPassDescriptor;
 	MTL::RenderPassDescriptor* 	viewRenderPassDescriptor;
@@ -137,11 +131,6 @@ private:
 	MTL::VertexDescriptor*		defaultVertexDescriptor;
     MTL::Library*               metalDefaultLibrary;
     MTL::CommandQueue*          metalCommandQueue;
-
-	// Render Pipeline States
-    MTL::RenderPipelineState*   shadowPipelineState;
-	MTL::RenderPipelineState*   GBufferPipelineState;
-	MTL::RenderPipelineState*   directionalLightPipelineState;
 	
     std::vector<Mesh*>          meshes;
 
@@ -154,7 +143,6 @@ private:
 	simd::float4x4 				shadowCascadeProjectionMatrices[SHADOW_CASCADE_COUNT];
     
     // Ray tracing
-    MTL::ComputePipelineState*                  raytracingPipelineState;
     std::vector<MTL::AccelerationStructure*>    primitiveAccelerationStructures;
     MTL::Buffer*                                resourceBuffer;
     size_t                                      totalTriangles;
@@ -165,7 +153,6 @@ private:
     void dispatchRaytracing(MTL::CommandBuffer* commandBuffer);
     
     // Forward Debug
-    MTL::RenderPipelineState*   forwardDebugState;
     MTL::RenderPassDescriptor*  forwardDescriptor;
     
     MTL::Buffer*    lineCountBuffer;

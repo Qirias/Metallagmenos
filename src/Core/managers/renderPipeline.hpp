@@ -5,6 +5,23 @@
 #include <unordered_map>
 #include <cassert>
 
+enum class RenderPipelineType {
+    Shadow,
+    GBuffer,
+    DirectionalLight,
+    ForwardDebug
+};
+
+enum class ComputePipelineType {
+    Raytracing
+};
+
+enum class DepthStencilType {
+    Shadow,
+    GBuffer,
+    DirectionalLight
+};
+
 struct RenderPipelineConfig {
     std::string label;
     std::string vertexFunctionName;
@@ -42,20 +59,35 @@ struct DepthStencilConfig {
 class RenderPipeline {
 public:
     RenderPipeline() = default;
-    ~RenderPipeline() = default;
+    ~RenderPipeline();
     
     void initialize(MTL::Device* device, MTL::Library* library) {
         this->device = device;
         this->library = library;
     }
-    MTL::RenderPipelineState* createRenderPipeline(const RenderPipelineConfig& config);
-    MTL::ComputePipelineState* createComputePipeline(const ComputePipelineConfig& config);
-    MTL::DepthStencilState* createDepthStencilState(const DepthStencilConfig& config);
+
+    MTL::RenderPipelineState* getRenderPipeline(RenderPipelineType type);
+    MTL::ComputePipelineState* getComputePipeline(ComputePipelineType type);
+    MTL::DepthStencilState* getDepthStencilState(DepthStencilType type);
+
+    void createRenderPipeline(RenderPipelineType type, const RenderPipelineConfig& config);
+    void createComputePipeline(ComputePipelineType type, const ComputePipelineConfig& config);
+    void createDepthStencilState(DepthStencilType type, const DepthStencilConfig& config);
     
 private:
     MTL::Device*    device;
     MTL::Library*   library;
+
+    std::unordered_map<RenderPipelineType, MTL::RenderPipelineState*>   renderPipelineStates;
+    std::unordered_map<ComputePipelineType, MTL::ComputePipelineState*> computePipelineStates;
+    std::unordered_map<DepthStencilType, MTL::DepthStencilState*>       depthStencilStates;
+
+    MTL::RenderPipelineState* createRenderPipelineState(const RenderPipelineConfig& config);
+    MTL::ComputePipelineState* createComputePipelineState(const ComputePipelineConfig& config);
+    MTL::DepthStencilState* createDepthStencilState(const DepthStencilConfig& config);
     
     void assertValid(MTL::RenderPipelineState* pipelineState, NS::Error* error, const std::string& label);
     void assertValid(MTL::ComputePipelineState* pipelineState, NS::Error* error, const std::string& label);
+
+    void cleanup();
 };

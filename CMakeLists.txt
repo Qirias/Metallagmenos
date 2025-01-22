@@ -1,11 +1,30 @@
 cmake_minimum_required(VERSION 3.15)
-project(Metallagmenos)
+project(Metallagmenos LANGUAGES CXX OBJCXX)
 
 # Set C++ standard
 set(CMAKE_CXX_STANDARD 20)
 
 # Group sources into virtual folders for Xcode
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+
+set(IMGUI_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/imgui")
+set(IMGUI_SOURCES
+    ${IMGUI_DIR}/imgui.cpp
+    ${IMGUI_DIR}/imgui_demo.cpp
+    ${IMGUI_DIR}/imgui_draw.cpp
+    ${IMGUI_DIR}/imgui_tables.cpp
+    ${IMGUI_DIR}/imgui_widgets.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_metal.mm
+)
+
+# Set properties for Objective-C++ files
+set_source_files_properties(
+    ${IMGUI_DIR}/backends/imgui_impl_metal.mm
+    PROPERTIES
+    COMPILE_FLAGS "-x objective-c++"
+    LANGUAGE OBJCXX
+)
 
 # Glob all source files in src and libs
 file(GLOB_RECURSE SOURCES 
@@ -14,6 +33,7 @@ file(GLOB_RECURSE SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.mm" 
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/external/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/external/*.mm"
     "${CMAKE_CURRENT_SOURCE_DIR}/external/*.cc"
     "${CMAKE_CURRENT_SOURCE_DIR}/external/*.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/data/shaders/*.hpp"
@@ -32,6 +52,7 @@ add_definitions(-DSCENES_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/scenes")
 
 # tiny_glTF doesn't need to compile stb_image again
 add_definitions(-DTINYGLTF_NO_STB_IMAGE -DTINYGLTF_NO_STB_IMAGE_WRITE)
+add_definitions(-DIMGUI_IMPL_METAL_CPP)
 
 # Create source groups for Xcode
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES} ${SHADER_SOURCES})
@@ -120,7 +141,10 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/metal-cmake/metal-cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core
     ${CMAKE_CURRENT_SOURCE_DIR}/src/math
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/editor
     ${CMAKE_CURRENT_SOURCE_DIR}/external
+    ${IMGUI_DIR}
+    ${IMGUI_DIR}/backends
 )
 
 # Link the GLFW library

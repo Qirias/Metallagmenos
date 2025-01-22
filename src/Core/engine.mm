@@ -12,11 +12,14 @@ Engine::Engine()
     for (int i = 0; i < MaxFramesInFlight; i++) {
         frameSemaphores[i] = dispatch_semaphore_create(1);
     }
+
 }
 
 void Engine::init() {
     initDevice();
     initWindow();
+
+    // imguiManager = std::make_unique<ImGuiManager>(glfwWindow, metalDevice);
 
     createCommandQueue();
 	loadScene();
@@ -1002,16 +1005,23 @@ void Engine::draw() {
 
     forwardDescriptor->depthAttachment()->setTexture(forwardDepthStencilTexture);
     forwardDescriptor->depthAttachment()->setLoadAction(MTL::LoadActionClear);
-    forwardDescriptor->depthAttachment()->setClearDepth(1.0); // Clear depth for forward pass
+    forwardDescriptor->depthAttachment()->setClearDepth(1.0); 
     forwardDescriptor->stencilAttachment()->setTexture(forwardDepthStencilTexture);
     forwardDescriptor->stencilAttachment()->setLoadAction(MTL::LoadActionClear);
-    forwardDescriptor->stencilAttachment()->setClearStencil(0); // Clear stencil for forward pass
+    forwardDescriptor->stencilAttachment()->setClearStencil(0); 
     
+    // imguiManager->BeginFrame(forwardDescriptor);
+
+    // ImGui::ShowDemoWindow();
+
     MTL::RenderCommandEncoder* debugEncoder = commandBuffer->renderCommandEncoder(forwardDescriptor);
     if (debugEncoder) {
-        debugEncoder->setLabel(NS::String::string("Debug Line Pass", NS::ASCIIStringEncoding));
-
+        debugEncoder->setLabel(NS::String::string("Debug and ImGui Pass", NS::ASCIIStringEncoding));
+        
         drawDebug(debugEncoder);
+        
+        // imguiManager->EndFrame(commandBuffer);
+        
         debugEncoder->endEncoding();
     }
 

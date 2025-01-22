@@ -24,6 +24,7 @@
 #include "../../data/shaders/shaderTypes.hpp"
 #include "../../data/shaders/config.hpp"
 #include "managers/renderPipeline.hpp"
+#include "../editor/imguiManager.hpp"
 
 #include <stb/stb_image.h>
 
@@ -97,7 +98,10 @@ private:
     NSWindow*           metalWindow;
     CAMetalLayer*       metalLayer;
     CA::MetalDrawable*  metalDrawable;
-    RenderPipeline      renderPipelines;
+
+    // Managers
+    /*std::unique_ptr<RenderPipeline>*/RenderPipeline     renderPipelines;
+    std::unique_ptr<ImGuiManager>       imguiManager;
     
     bool                windowResizeFlag = false;
     int                 newWidth;

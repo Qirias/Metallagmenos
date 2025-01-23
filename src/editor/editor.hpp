@@ -4,10 +4,10 @@
 #include <GLFW/glfw3.h>
 #include "../../external/imgui/imgui.h"
 
-class ImGuiManager {
+class Editor {
 public:
-    ImGuiManager(GLFWwindow* window, MTL::Device* device);
-    ~ImGuiManager();
+    Editor(GLFWwindow* window, MTL::Device* device);
+    ~Editor();
 
     void BeginFrame(MTL::RenderPassDescriptor* passDescriptor);
     void EndFrame(MTL::CommandBuffer* commandBuffer);

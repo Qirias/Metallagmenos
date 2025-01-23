@@ -24,7 +24,7 @@
 #include "../../data/shaders/shaderTypes.hpp"
 #include "../../data/shaders/config.hpp"
 #include "managers/renderPipeline.hpp"
-#include "../editor/imguiManager.hpp"
+#include "../editor/editor.hpp"
 
 #include <stb/stb_image.h>
 
@@ -101,7 +101,7 @@ private:
 
     // Managers
     /*std::unique_ptr<RenderPipeline>*/RenderPipeline     renderPipelines;
-    std::unique_ptr<ImGuiManager>       imguiManager;
+    std::unique_ptr<Editor>       editor;
     
     bool                windowResizeFlag = false;
     int                 newWidth;

@@ -1,8 +1,8 @@
-#include "imguiManager.hpp"
+#include "editor.hpp"
 #include "../../external/imgui/backends/imgui_impl_metal.h"
 #include "../../external/imgui/backends/imgui_impl_glfw.h"
 
-ImGuiManager::ImGuiManager(GLFWwindow* window, MTL::Device* device)
+Editor::Editor(GLFWwindow* window, MTL::Device* device)
     : window(window) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -17,17 +17,17 @@ ImGuiManager::ImGuiManager(GLFWwindow* window, MTL::Device* device)
     ImGui_ImplMetal_Init(device);
 }
 
-ImGuiManager::~ImGuiManager() {
+Editor::~Editor() {
     Cleanup();
 }
 
-void ImGuiManager::BeginFrame(MTL::RenderPassDescriptor* passDescriptor) {
+void Editor::BeginFrame(MTL::RenderPassDescriptor* passDescriptor) {
     ImGui_ImplMetal_NewFrame(passDescriptor);
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 }
 
-void ImGuiManager::EndFrame(MTL::CommandBuffer* commandBuffer) {
+void Editor::EndFrame(MTL::CommandBuffer* commandBuffer) {
     ImGui::Render();
     ImGui_ImplMetal_RenderDrawData(ImGui::GetDrawData(), commandBuffer, nullptr);
 
@@ -38,7 +38,7 @@ void ImGuiManager::EndFrame(MTL::CommandBuffer* commandBuffer) {
     }
 }
 
-void ImGuiManager::Cleanup() {
+void Editor::Cleanup() {
     ImGui_ImplMetal_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();

@@ -1,5 +1,12 @@
 cmake_minimum_required(VERSION 3.15)
-project(Metallagmenos LANGUAGES CXX OBJCXX)
+
+if(DEFINED STANDALONE_BUILD)
+    project(Metallagmenos LANGUAGES CXX OBJCXX)
+elseif(DEFINED XCODE_BUILD)
+    project(Metallagmenos)
+else()
+    message(STATUS "Unknown build mode")
+endif()
 
 # Set C++ standard
 set(CMAKE_CXX_STANDARD 20)

@@ -19,7 +19,7 @@ void Engine::init() {
     initDevice();
     initWindow();
 
-    // imguiManager = std::make_unique<ImGuiManager>(glfwWindow, metalDevice);
+    editor = std::make_unique<Editor>(glfwWindow, metalDevice);
 
     createCommandQueue();
 	loadScene();
@@ -1010,9 +1010,9 @@ void Engine::draw() {
     forwardDescriptor->stencilAttachment()->setLoadAction(MTL::LoadActionClear);
     forwardDescriptor->stencilAttachment()->setClearStencil(0); 
     
-    // imguiManager->BeginFrame(forwardDescriptor);
+    editor->BeginFrame(forwardDescriptor);
 
-    // ImGui::ShowDemoWindow();
+    ImGui::ShowDemoWindow();
 
     MTL::RenderCommandEncoder* debugEncoder = commandBuffer->renderCommandEncoder(forwardDescriptor);
     if (debugEncoder) {
@@ -1020,7 +1020,7 @@ void Engine::draw() {
         
         drawDebug(debugEncoder);
         
-        // imguiManager->EndFrame(commandBuffer);
+        editor->EndFrame(commandBuffer);
         
         debugEncoder->endEncoding();
     }

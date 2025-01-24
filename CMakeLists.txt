@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.15)
 
-if(DEFINED STANDALONE_BUILD)
+if(STANDALONE_BUILD)
     project(Metallagmenos LANGUAGES CXX OBJCXX)
-elseif(DEFINED XCODE_BUILD)
+elseif(XCODE_BUILD)
     project(Metallagmenos)
 else()
     message(STATUS "Unknown build mode")

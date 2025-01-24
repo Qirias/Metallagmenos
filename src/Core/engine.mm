@@ -662,7 +662,7 @@ void Engine::populateLineData() {
     *lineCount = static_cast<uint32_t>(lineIndex);
 }
 
-void Engine::drawDebug(MTL::RenderCommandEncoder* commandEncoder) {
+void Engine::drawDebug(MTL::RenderCommandEncoder* commandEncoder, MTL::CommandBuffer* commandBuffer) {
     commandEncoder->setRenderPipelineState(renderPipelines.getRenderPipeline(RenderPipelineType::ForwardDebug));
 
     commandEncoder->setVertexBuffer(lineBuffer, 0, 0);
@@ -673,6 +673,7 @@ void Engine::drawDebug(MTL::RenderCommandEncoder* commandEncoder) {
     if (*lineCount > 0) {
         commandEncoder->drawPrimitives(MTL::PrimitiveTypeLine, 0, *lineCount * 2, 1);
     }
+    editor->EndFrame(commandBuffer, commandEncoder);
 }
 
 void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
@@ -1005,22 +1006,18 @@ void Engine::draw() {
 
     forwardDescriptor->depthAttachment()->setTexture(forwardDepthStencilTexture);
     forwardDescriptor->depthAttachment()->setLoadAction(MTL::LoadActionClear);
-    forwardDescriptor->depthAttachment()->setClearDepth(1.0); 
+    forwardDescriptor->depthAttachment()->setClearDepth(1.0);
     forwardDescriptor->stencilAttachment()->setTexture(forwardDepthStencilTexture);
     forwardDescriptor->stencilAttachment()->setLoadAction(MTL::LoadActionClear);
-    forwardDescriptor->stencilAttachment()->setClearStencil(0); 
+    forwardDescriptor->stencilAttachment()->setClearStencil(0);
     
     editor->BeginFrame(forwardDescriptor);
-
-    ImGui::ShowDemoWindow();
 
     MTL::RenderCommandEncoder* debugEncoder = commandBuffer->renderCommandEncoder(forwardDescriptor);
     if (debugEncoder) {
         debugEncoder->setLabel(NS::String::string("Debug and ImGui Pass", NS::ASCIIStringEncoding));
         
-        drawDebug(debugEncoder);
-        
-        editor->EndFrame(commandBuffer);
+        drawDebug(debugEncoder, commandBuffer);
         
         debugEncoder->endEncoding();
     }

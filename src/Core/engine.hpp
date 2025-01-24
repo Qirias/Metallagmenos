@@ -167,5 +167,10 @@ private:
     uint32_t        debugLinesCount;
     
     void populateLineData();
-    void drawDebug(MTL::RenderCommandEncoder* commandEncoder);
+    void drawDebug(MTL::RenderCommandEncoder* commandEncoder, MTL::CommandBuffer* commandBuffer);
+    
+    
+    // Editor
+    std::vector<std::pair<std::string, double>> currentFrameTimestamps;
+    double queryTimestamp(MTL::CommandBuffer* commandBuffer);
 };

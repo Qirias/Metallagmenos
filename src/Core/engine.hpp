@@ -25,7 +25,6 @@
 #include "../../data/shaders/config.hpp"
 #include "managers/renderPipeline.hpp"
 #include "../editor/editor.hpp"
-#include "../editor/profiler/profiler.hpp"
 
 #include <stb/stb_image.h>
 

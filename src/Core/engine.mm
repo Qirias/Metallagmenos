@@ -19,9 +19,7 @@ void Engine::init() {
     initDevice();
     initWindow();
 
-    editor = std::
-    make_unique<Editor>(glfwWindow, metalDevice);
-    Profiler::initialize(metalDevice);
+    editor = std::make_unique<Editor>(glfwWindow, metalDevice);
 
     createCommandQueue();
 	loadScene();
@@ -562,9 +560,9 @@ void Engine::drawDebug(MTL::RenderCommandEncoder* commandEncoder, MTL::CommandBu
     uint32_t* lineCount = reinterpret_cast<uint32_t*>(lineCountBuffer->contents());
 
     if (*lineCount > 0) {
-        // commandEncoder->drawPrimitives(MTL::PrimitiveTypeLine, 0, *lineCount * 2, 1);
+         commandEncoder->drawPrimitives(MTL::PrimitiveTypeLine, 0, *lineCount * 2, 1);
     }
-    editor->EndFrame(commandBuffer, commandEncoder);
+    editor->endFrame(commandBuffer, commandEncoder);
 }
 
 void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
@@ -745,14 +743,11 @@ void Engine::drawDirectionalLight(MTL::RenderCommandEncoder* renderCommandEncode
 
 void Engine::draw() {
     // First command buffer for raytracing pass
-    Profiler::startStageTimer(metalDevice, "Raytracing");
     MTL::CommandBuffer* raytracingCommandBuffer = beginFrame(false);
     raytracingCommandBuffer->setLabel(NS::String::string("Raytracing Commands", NS::ASCIIStringEncoding));
     dispatchRaytracing(raytracingCommandBuffer);
-    Profiler::stopStageTimer(metalDevice, "Raytracing");
     raytracingCommandBuffer->commit();
 
-    Profiler::startStageTimer(metalDevice, "Render Setup");
     MTL::CommandBuffer* commandBuffer = beginDrawableCommands();
     commandBuffer->setLabel(NS::String::string("Deferred Rendering Commands", NS::ASCIIStringEncoding));
     
@@ -769,7 +764,6 @@ void Engine::draw() {
     viewRenderPassDescriptor->stencilAttachment()->setClearStencil(0); // Clear stencil
 
     // G-Buffer pass
-    Profiler::startStageTimer(metalDevice, "GBuffer Pass");
     MTL::RenderCommandEncoder* gBufferEncoder = commandBuffer->renderCommandEncoder(viewRenderPassDescriptor);
     if (gBufferEncoder) {
         drawGBuffer(gBufferEncoder);
@@ -777,7 +771,6 @@ void Engine::draw() {
 
         gBufferEncoder->endEncoding();
     }
-    Profiler::stopStageTimer(metalDevice, "GBuffer Pass");
 
     // Forward/debug render pass descriptor setup
     forwardDescriptor->colorAttachments()->object(0)->setTexture(metalDrawable->texture());
@@ -791,8 +784,7 @@ void Engine::draw() {
     forwardDescriptor->stencilAttachment()->setLoadAction(MTL::LoadActionClear);
     forwardDescriptor->stencilAttachment()->setClearStencil(0);
     
-    Profiler::startStageTimer(metalDevice, "Debug Render");
-    editor->BeginFrame(forwardDescriptor);
+    editor->beginFrame(forwardDescriptor);
 
     MTL::RenderCommandEncoder* debugEncoder = commandBuffer->renderCommandEncoder(forwardDescriptor);
     if (debugEncoder) {
@@ -802,11 +794,6 @@ void Engine::draw() {
         
         debugEncoder->endEncoding();
     }
-    Profiler::stopStageTimer(metalDevice, "Debug Render");
 
-    Profiler::startStageTimer(metalDevice, "Frame Finalization");
     endFrame(commandBuffer, metalDrawable);
-    Profiler::stopStageTimer(metalDevice, "Frame Finalization");
-
-    // Profiler::debugPrintState();
 }

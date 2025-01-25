@@ -15,5 +15,3 @@
 #define LIGHT_STENCIL_CULLING      1
 
 
-// The number of shadow cascades for the sun light.
-#define SHADOW_CASCADE_COUNT       3

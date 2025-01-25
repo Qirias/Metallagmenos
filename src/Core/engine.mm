@@ -559,7 +559,7 @@ void Engine::drawDebug(MTL::RenderCommandEncoder* commandEncoder, MTL::CommandBu
 
     uint32_t* lineCount = reinterpret_cast<uint32_t*>(lineCountBuffer->contents());
 
-    if (*lineCount > 0) {
+    if (*lineCount > 0 && editor->debug.enableDebugFeature) {
          commandEncoder->drawPrimitives(MTL::PrimitiveTypeLine, 0, *lineCount * 2, 1);
     }
     editor->endFrame(commandBuffer, commandEncoder);

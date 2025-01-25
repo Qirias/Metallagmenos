@@ -26,20 +26,10 @@ void Editor::beginFrame(MTL::RenderPassDescriptor* passDescriptor) {
     ImGui::NewFrame();
 
 //    createDockSpace();
+    debugWindow();
 }
 
 void Editor::endFrame(MTL::CommandBuffer* commandBuffer, MTL::RenderCommandEncoder* encoder) {
-//    ImGui::Begin("Debug Window", nullptr, ImGuiWindowFlags_None);
-//    
-//    static bool enableDebugFeature = false;
-//    ImGui::Checkbox("Enable Debug Mode", &enableDebugFeature);
-//    
-//    if (enableDebugFeature) {
-//        ImGui::Text("Debug mode is active");
-//    }
-//    
-//    ImGui::End();
-    
     ImGui::Render();
     ImGui_ImplMetal_RenderDrawData(ImGui::GetDrawData(), commandBuffer, encoder);
 
@@ -55,6 +45,18 @@ void Editor::cleanup() {
     ImGui_ImplMetal_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
+}
+
+void Editor::debugWindow() {
+    ImGui::Begin("Debug Window", nullptr, ImGuiWindowFlags_None);
+
+    ImGui::Checkbox("Enable Debug Mode", &debug.enableDebugFeature);
+
+    if (debug.enableDebugFeature) {
+        ImGui::Text("Debug mode is active");
+    }
+
+    ImGui::End();
 }
 
 void Editor::createDockSpace() {

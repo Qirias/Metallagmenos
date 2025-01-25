@@ -8,6 +8,11 @@
 
 class Editor {
 public:
+
+    struct DebugWindowOptions {
+        bool enableDebugFeature = false;
+    } debug;
+
     Editor(GLFWwindow* window, MTL::Device* device);
     ~Editor();
 
@@ -20,4 +25,5 @@ private:
     MTL::Device* device;
 
     void createDockSpace();
+    void debugWindow();
 };

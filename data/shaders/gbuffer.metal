@@ -10,8 +10,6 @@ struct ColorInOut
 {
 	float4 position [[position]];
 	float2 tex_coord;
-	float2 shadow_uv;
-	float  shadow_depth;
 	float3 eye_position;
 	half3  tangent;
 	half3  bitangent;
@@ -49,11 +47,6 @@ vertex ColorInOut gbuffer_vertex(DescriptorDefinedVertex  	in        	[[stage_in
 	// Rotate tangents, bitangents, and normals by the normal matrix
 	half3x3 normalMatrix = half3x3(frameData.scene_normal_matrix);
 
-	// Calculate shadow UV and depth
-	float3 shadow_coord = (frameData.shadow_mvp_xform_matrix * model_position).xyz;
-	out.shadow_uv = shadow_coord.xy;
-	out.shadow_depth = (shadow_coord.z);
-
 	// Transform normal, tangent, and bitangent to eye space
 	out.tangent = normalize(normalMatrix * in.tangent.xyz);
 	out.bitangent = -normalize(normalMatrix * in.bitangent.xyz); // Note the inversion if required
@@ -71,8 +64,7 @@ fragment GBufferData gbuffer_fragment(ColorInOut            in                  
 									  texture2d_array<half> baseColorMap        [[texture(TextureIndexBaseColor)]],
 									  texture2d_array<half> normalMap           [[texture(TextureIndexNormal)]],
                           constant    TextureInfo*          diffuseTextureInfos [[buffer(BufferIndexDiffuseInfo)]],
-                          constant    TextureInfo*          normalTextureInfos  [[buffer(BufferIndexNormalInfo)]],
-									  depth2d<float>        shadowMap           [[texture(TextureIndexShadow)]]) {
+                          constant    TextureInfo*          normalTextureInfos  [[buffer(BufferIndexNormalInfo)]]) {
 
 	constexpr sampler linearSampler(mip_filter::linear,
 									mag_filter::linear,
@@ -109,19 +101,10 @@ fragment GBufferData gbuffer_fragment(ColorInOut            in                  
 		eye_normal = normalize(tangent_normal.x * T + tangent_normal.y * B + tangent_normal.z * in.normal.xyz);
 	}
 
-	// Shadow sampling
-	constexpr sampler shadowSampler(coord::normalized,
-									filter::linear,
-									mip_filter::none,
-									address::clamp_to_edge,
-									compare_func::less);
-	
-	half shadow_sample = shadowMap.sample_compare(shadowSampler, in.shadow_uv, in.shadow_depth);
-
 	// Prepare GBuffer output
 	GBufferData gBuffer;
 	gBuffer.albedo_specular = base_color_sample;                   // Albedo (RGB) + Specular (A) if needed
-	gBuffer.normal_shadow = half4(eye_normal, shadow_sample);      // Normal (XYZ) + Shadow (W)
+	gBuffer.normal_map = half4(eye_normal, 1.0f);
 
 	#if USE_EYE_DEPTH
 	gBuffer.depth = in.eye_position.z;

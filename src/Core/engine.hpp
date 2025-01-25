@@ -25,6 +25,7 @@
 #include "../../data/shaders/config.hpp"
 #include "managers/renderPipeline.hpp"
 #include "../editor/editor.hpp"
+#include "../editor/profiler/profiler.hpp"
 
 #include <stb/stb_image.h>
 
@@ -59,7 +60,6 @@ private:
 	
 	void draw();
 	void drawMeshes(MTL::RenderCommandEncoder* renderCommandEncoder);
-	void drawShadow(MTL::CommandBuffer* renderCommandEncoder);
 	void drawGBuffer(MTL::RenderCommandEncoder* renderCommandEncoder);
 	void drawDirectionalLight(MTL::RenderCommandEncoder* renderCommandEncoder);
 
@@ -73,11 +73,6 @@ private:
     void createCommandQueue();
     void createRenderPipelines();
     void createLightSourceRenderPipeline();
-	
-	void calculateCascadeSplits(float nearClip, float farClip, float* splits);
-	void setupShadowCascades();
-	simd::float4x4 calculateCascadeProjectionMatrix(const simd::float3* frustumCorners, float nearDist, float farDist);
-
 
     void encodeRenderCommand(MTL::RenderCommandEncoder* renderCommandEncoder);
     void sendRenderCommand();
@@ -114,23 +109,19 @@ private:
     static void cursorPosCallback(GLFWwindow* window, double xpos, double ypos);
 
     // Renderpass descriptors
-    MTL::RenderPassDescriptor*  shadowRenderPassDescriptor;
 	MTL::RenderPassDescriptor* 	viewRenderPassDescriptor;
-	MTL::RenderPassDescriptor* 	shadowCascadeRenderPassDescriptors[SHADOW_CASCADE_COUNT];
 	
 	// GBuffer properties
 	MTL::PixelFormat 			albedoSpecularGBufferFormat;
-	MTL::PixelFormat 			normalShadowGBufferFormat;
+	MTL::PixelFormat 			normalMapGBufferFormat;
 	MTL::PixelFormat 			depthGBufferFormat;
 	MTL::Texture* 				albedoSpecularGBuffer;
-	MTL::Texture* 				normalShadowGBuffer;
+	MTL::Texture* 				normalMapGBuffer;
 	MTL::Texture* 				depthGBuffer;
 
 	MTL::StorageMode 			GBufferStorageMode;
 
-    MTL::Texture*               shadowMap;
 	MTL::Texture* 				depthStencilTexture;
-	MTL::Texture* 				shadowCascadeMaps[SHADOW_CASCADE_COUNT];
 
 	MTL::VertexDescriptor*		defaultVertexDescriptor;
     MTL::Library*               metalDefaultLibrary;
@@ -142,9 +133,6 @@ private:
 
     uint64_t                    frameNumber;
     uint8_t                     frameDataBufferIndex;
-
-    simd::float4x4              shadowProjectionMatrix;
-	simd::float4x4 				shadowCascadeProjectionMatrices[SHADOW_CASCADE_COUNT];
     
     // Ray tracing
     std::vector<MTL::AccelerationStructure*>    primitiveAccelerationStructures;
@@ -172,5 +160,4 @@ private:
     
     // Editor
     std::vector<std::pair<std::string, double>> currentFrameTimestamps;
-    double queryTimestamp(MTL::CommandBuffer* commandBuffer);
 };

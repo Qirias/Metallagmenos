@@ -6,7 +6,6 @@
 #include <cassert>
 
 enum class RenderPipelineType {
-    Shadow,
     GBuffer,
     DirectionalLight,
     ForwardDebug
@@ -17,7 +16,6 @@ enum class ComputePipelineType {
 };
 
 enum class DepthStencilType {
-    Shadow,
     GBuffer,
     DirectionalLight
 };

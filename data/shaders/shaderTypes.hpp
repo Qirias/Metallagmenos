@@ -23,18 +23,14 @@ struct FrameData {
 	simd::float4 sun_eye_direction;
 	
 	// Matrix group
-	simd::float4x4 shadow_mvp_matrix;
-	simd::float4x4 shadow_mvp_xform_matrix;
-	simd::float4x4 sky_modelview_matrix;
+	simd::float4x4 _pad2;
+	simd::float4x4 _pad3;
+	simd::float4x4 _pad4;
 	simd::float4x4 scene_model_matrix;
 	simd::float4x4 scene_modelview_matrix;
 	
 	// Note: float3x3 is padded to float4x3 in GPU memory
 	simd::float3x3 scene_normal_matrix;          // 48 bytes
-	uint8_t _pad2[32];                           // 32 bytes padding to reach 640 bytes total
-	
-	simd::float4x4 	shadow_cascade_mvp_matrices[SHADOW_CASCADE_COUNT];
-	simd::float4x4 	shadow_cascade_mvp_xform_matrices[SHADOW_CASCADE_COUNT];
 };
 
 typedef enum RenderTargetIndex {
@@ -59,9 +55,8 @@ typedef enum TextureIndex {
 	TextureIndexBaseColor = 0,
 	TextureIndexSpecular  = 1,
 	TextureIndexNormal    = 2,
-	TextureIndexShadow    = 3,
-	TextureIndexAlpha     = 4,
-    TextureIndexRaytracing = 5,
+	TextureIndexAlpha     = 3,
+    TextureIndexRaytracing = 4,
 
 	NumMeshTextures = TextureIndexNormal + 1
 

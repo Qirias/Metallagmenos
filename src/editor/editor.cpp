@@ -3,7 +3,7 @@
 #include "../../external/imgui/backends/imgui_impl_glfw.h"
 
 Editor::Editor(GLFWwindow* window, MTL::Device* device)
-    : window(window), device(device) {
+: window(window), device(device) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
 
@@ -25,20 +25,21 @@ void Editor::BeginFrame(MTL::RenderPassDescriptor* passDescriptor) {
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
+    currentFrameStages.clear();
 //    createDockSpace();
 }
 
 void Editor::EndFrame(MTL::CommandBuffer* commandBuffer, MTL::RenderCommandEncoder* encoder) {
-    ImGui::Begin("Debug Window", nullptr, ImGuiWindowFlags_None);
-    
-    static bool enableDebugFeature = false;
-    ImGui::Checkbox("Enable Debug Mode", &enableDebugFeature);
-    
-    if (enableDebugFeature) {
-        ImGui::Text("Debug mode is active");
-    }
-    
-    ImGui::End();
+//    ImGui::Begin("Debug Window", nullptr, ImGuiWindowFlags_None);
+//    
+//    static bool enableDebugFeature = false;
+//    ImGui::Checkbox("Enable Debug Mode", &enableDebugFeature);
+//    
+//    if (enableDebugFeature) {
+//        ImGui::Text("Debug mode is active");
+//    }
+//    
+//    ImGui::End();
     
     drawProfilerWindow();
     
@@ -53,7 +54,6 @@ void Editor::EndFrame(MTL::CommandBuffer* commandBuffer, MTL::RenderCommandEncod
         ImGui::RenderPlatformWindowsDefault();
     }
 }
-
 void Editor::Cleanup() {
     ImGui_ImplMetal_Shutdown();
     ImGui_ImplGlfw_Shutdown();
@@ -61,6 +61,8 @@ void Editor::Cleanup() {
 }
 
 void Editor::drawProfilerWindow() {
+    Profiler::trackFrameHistory(profilerDataHistory);
+
     ImGui::Begin("Profiler");
     
     // Initialize average durations
@@ -105,7 +107,7 @@ void Editor::drawProfilerWindow() {
 
         float startTime = 0.0f;
 
-        size_t i = 0;
+        int i = 0;
         for (const auto& [stageName, duration] : averageDurations) {
 
             ImVec4 stageColor = getColorForIndex(i++, averageDurations.size());
@@ -139,6 +141,7 @@ void Editor::drawProfilerWindow() {
 
             // Update start time for the next stage
             startTime += static_cast<float>(duration);
+            auto currentFrameData = Profiler::getAndResetFrameData();
         }
 
     // Display total frame time

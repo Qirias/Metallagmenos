@@ -75,7 +75,7 @@ void Mesh::loadObj(std::string filePath) {
                     int textureIndex = static_cast<int>(diffuseFilePaths.size());
                     diffuseTextureIndexMap[material.diffuse_texname] = textureIndex;
                     diffuseFilePaths.push_back(texturePath);
-                    std::cout << "Diffuse Texture " << textureIndex << ": " << texturePath << std::endl;
+//                    std::cout << "Diffuse Texture " << textureIndex << ": " << texturePath << std::endl;
                 }
             }
             
@@ -93,7 +93,7 @@ void Mesh::loadObj(std::string filePath) {
                     int textureIndex = static_cast<int>(normalFilePaths.size());
                     normalTextureIndexMap[normalTexName] = textureIndex;
                     normalFilePaths.push_back(texturePath);
-                    std::cout << "Normal Texture " << textureIndex << ": " << texturePath << std::endl;
+//                    std::cout << "Normal Texture " << textureIndex << ": " << texturePath << std::endl;
                 }
             }
         }
@@ -251,9 +251,9 @@ void Mesh::calculateTangentSpace(std::vector<Vertex>& vertices, const std::vecto
 void Mesh::createBuffers(MTL::VertexDescriptor* vertexDescriptor) {
     // Create Vertex Buffers
     unsigned long vertexCount = vertices.size();
-    std::cout << "Mesh Vertex Count: " << vertexCount << std::endl;
+//    std::cout << "Mesh Vertex Count: " << vertexCount << std::endl;
     unsigned long vertexBufferSize = sizeof(Vertex) * vertices.size();
-    std::cout << "Mesh Vertex Buffer Size: " << vertexBufferSize << std::endl;
+//    std::cout << "Mesh Vertex Buffer Size: " << vertexBufferSize << std::endl;
     vertexBuffer = device->newBuffer(vertices.data(), vertexBufferSize, MTL::ResourceStorageModeShared);
     vertexBuffer->setLabel(NS::String::string("Mesh Vertex Buffer", NS::ASCIIStringEncoding));
     // Create Index Buffer
@@ -277,8 +277,8 @@ void Mesh::createBuffers(MTL::VertexDescriptor* vertexDescriptor) {
         normalTextures->setLabel(NS::String::string("Normal Texture Array", NS::ASCIIStringEncoding));
         // Create normal Texture Info
         size_t normalBufferSize = normalTexturesArray->normalTextureInfos.size() * sizeof(TextureInfo);
-        std::cout << "Normal Texture Count: " << normalTexturesArray->normalTextureInfos.size() << std::endl;
-        std::cout << "TextureInfo size: " << sizeof(TextureInfo) << std::endl;
+//        std::cout << "Normal Texture Count: " << normalTexturesArray->normalTextureInfos.size() << std::endl;
+//        std::cout << "TextureInfo size: " << sizeof(TextureInfo) << std::endl;
         normalTextureInfos = device->newBuffer(normalTexturesArray->normalTextureInfos.data(), normalBufferSize, MTL::ResourceStorageModeShared);
         normalTextureInfos->setLabel(NS::String::string("Normal Texture Info Array", NS::ASCIIStringEncoding));
     }

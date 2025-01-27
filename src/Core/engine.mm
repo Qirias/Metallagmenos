@@ -5,8 +5,7 @@ Engine::Engine()
 , lastFrame(0.0f)
 , frameNumber(0)
 , currentFrameIndex(0)
-, totalTriangles(0)
-, debugLinesCount(0) {
+, totalTriangles(0) {
 	inFlightSemaphore = dispatch_semaphore_create(MaxFramesInFlight);
 
     for (int i = 0; i < MaxFramesInFlight; i++) {
@@ -20,6 +19,7 @@ void Engine::init() {
     initWindow();
 
     editor = std::make_unique<Editor>(glfwWindow, metalDevice);
+    debug = std::make_unique<Debug>(metalDevice);
 
     createCommandQueue();
 	loadScene();
@@ -30,7 +30,8 @@ void Engine::init() {
     createAccelerationStructureWithDescriptors();
     setupTriangleResources();
     // Debug
-    populateLineData();
+    createSphereGrid();
+    createDebugLines();
 }
 
 void Engine::run() {
@@ -59,8 +60,6 @@ void Engine::cleanup() {
 		frameDataBuffers[i]->release();
     }
 	
-    lineCountBuffer->release();
-    lineBuffer->release();
     forwardDepthStencilTexture->release();
     rayTracingTexture->release();
     resourceBuffer->release();
@@ -508,56 +507,56 @@ void Engine::setupTriangleResources() {
                 size_t vertexIndex = mesh->vertexIndices[i + j];
                 triangle.normals[j] = mesh->vertices[vertexIndex].normal;
                 triangle.colors[j] = simd::float4{0.1, 0.2, 0.3, 0.4};
-                debugLinesCount++;
             }
         }
     }
 }
 
-void Engine::populateLineData() {
-    size_t lineBufferSize = debugLinesCount * 2 * sizeof(DebugLineVertex);
-    lineBuffer = metalDevice->newBuffer(lineBufferSize, MTL::ResourceStorageModeShared);
-    lineBuffer->setLabel(NS::String::string("Line Buffer", NS::ASCIIStringEncoding));
+void Engine::createSphereGrid() {
+    const int gridSize = 4; 
+    const float spacing = 2.0f;
+    const float sphereRadius = 0.3f; 
+    const simd::float3 sphereColor = {1.0f, 0.0f, 0.0f};
 
-    // Line count buffer (single uint32_t to track active lines)
-    lineCountBuffer = metalDevice->newBuffer(sizeof(uint32_t), MTL::ResourceStorageModeShared);
-    lineCountBuffer->setLabel(NS::String::string("Line Count Buffer", NS::ASCIIStringEncoding));
-    
-    DebugLineVertex* lineVertices = reinterpret_cast<DebugLineVertex*>(lineBuffer->contents());
-    uint32_t* lineCount = reinterpret_cast<uint32_t*>(lineCountBuffer->contents());
+    std::vector<simd::float3> spherePositions;
+    for (int x = 0; x < gridSize; ++x) {
+        for (int z = 0; z < gridSize; ++z) {
+            spherePositions.push_back(simd::float3{x * spacing, 1.0f, z * spacing - 3.0f});
+        }
+    }
 
-    size_t lineIndex = 0;
+    debug->drawSpheres(spherePositions, sphereRadius, sphereColor);
+}
+
+void Engine::createDebugLines() {
+    std::vector<simd::float3> startPoints;
+    std::vector<simd::float3> endPoints;
 
     for (const auto& mesh : meshes) {
         for (size_t i = 0; i < mesh->vertexIndices.size(); i += 3) {
             for (size_t j = 0; j < 3; ++j) {
                 size_t vertexIndex = mesh->vertexIndices[i + j];
-                simd::float4 vertexPosition = mesh->vertices[vertexIndex].position;
-                simd::float4 normal = mesh->vertices[vertexIndex].normal;
-                simd::float4 endPosition = vertexPosition + normal * 0.1f; // length
+                simd::float3 vertexPosition = simd::float3{mesh->vertices[vertexIndex].position.xyz};
+                simd::float3 normal = simd::float3{mesh->vertices[vertexIndex].normal.xyz};
+                simd::float3 endPosition = vertexPosition + normal * 0.1f; // length
 
-                if (lineIndex < debugLinesCount) {
-                    lineVertices[lineIndex * 2 + 0].position = {vertexPosition};
-                    lineVertices[lineIndex * 2 + 1].position = {endPosition};
-                    lineVertices[lineIndex * 2 + 0].color = mesh->vertices[vertexIndex].normal * 0.5 + 0.5;
-                    lineVertices[lineIndex * 2 + 1].color = mesh->vertices[vertexIndex].normal * 0.5 + 0.5;
-                    
-                    ++lineIndex;
-                }
+                startPoints.push_back(vertexPosition);
+                endPoints.push_back(endPosition);
             }
         }
     }
 
-    *lineCount = static_cast<uint32_t>(lineIndex);
+    simd::float3 lineColor = {0.5f, 0.5f, 1.0f};
+    debug->drawLines(startPoints, endPoints, lineColor);
 }
 
 void Engine::drawDebug(MTL::RenderCommandEncoder* commandEncoder, MTL::CommandBuffer* commandBuffer) {
     commandEncoder->setRenderPipelineState(renderPipelines.getRenderPipeline(RenderPipelineType::ForwardDebug));
 
-    commandEncoder->setVertexBuffer(lineBuffer, 0, 0);
+    commandEncoder->setVertexBuffer(debug->lineBuffer, 0, 0);
     commandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
 
-    uint32_t* lineCount = reinterpret_cast<uint32_t*>(lineCountBuffer->contents());
+    uint32_t* lineCount = reinterpret_cast<uint32_t*>(debug->lineCountBuffer->contents());
 
     if (*lineCount > 0 && editor->debug.enableDebugFeature) {
          commandEncoder->drawPrimitives(MTL::PrimitiveTypeLine, 0, *lineCount * 2, 1);

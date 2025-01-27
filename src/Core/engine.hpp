@@ -25,6 +25,7 @@
 #include "../../data/shaders/config.hpp"
 #include "managers/renderPipeline.hpp"
 #include "../editor/editor.hpp"
+#include "../debug/debug.hpp"
 
 #include <stb/stb_image.h>
 
@@ -94,7 +95,7 @@ private:
     CA::MetalDrawable*  metalDrawable;
 
     // Managers
-    /*std::unique_ptr<RenderPipeline>*/RenderPipeline     renderPipelines;
+    RenderPipeline                renderPipelines;
     std::unique_ptr<Editor>       editor;
     
     bool                windowResizeFlag = false;
@@ -144,19 +145,11 @@ private:
     void dispatchRaytracing(MTL::CommandBuffer* commandBuffer);
     
     // Forward Debug
+    std::unique_ptr<Debug> debug;
     MTL::RenderPassDescriptor*  forwardDescriptor;
+    MTL::Texture*               forwardDepthStencilTexture;
     
-    MTL::Buffer*    lineCountBuffer;
-    MTL::Buffer*    lineBuffer;
-    
-    MTL::Texture*   forwardDepthStencilTexture;
-    
-    uint32_t        debugLinesCount;
-    
-    void populateLineData();
+    void createSphereGrid();
+    void createDebugLines();
     void drawDebug(MTL::RenderCommandEncoder* commandEncoder, MTL::CommandBuffer* commandBuffer);
-    
-    
-    // Editor
-    std::vector<std::pair<std::string, double>> currentFrameTimestamps;
 };

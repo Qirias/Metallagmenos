@@ -62,6 +62,7 @@ void Engine::cleanup() {
 	
     forwardDepthStencilTexture->release();
     rayTracingTexture->release();
+    minMaxDepthTexture->release();
     resourceBuffer->release();
 	defaultVertexDescriptor->release();
 	viewRenderPassDescriptor->release();
@@ -295,7 +296,7 @@ void Engine::createRenderPipelines() {
     NS::Error* error;
 	
 	albedoSpecularGBufferFormat = MTL::PixelFormatRGBA8Unorm_sRGB;
-	normalMapGBufferFormat 	= MTL::PixelFormatRGBA8Snorm;
+	normalMapGBufferFormat 	    = MTL::PixelFormatRGBA8Snorm;
 	depthGBufferFormat			= MTL::PixelFormatR32Float;
 
     #pragma mark Deferred render pipeline setup
@@ -407,6 +408,27 @@ void Engine::createRenderPipelines() {
             .colorPixelFormat = metalDrawable->texture()->pixelFormat()
         };
         renderPipelines.createRenderPipeline(RenderPipelineType::ForwardDebug, debugConfig);
+    }
+    
+    #pragma mark Min Max Depth Buffer
+    {
+        #pragma mark Init Min Max Depth Buffer Pipeline state
+        {
+            ComputePipelineConfig initMinMaxDepthConfig{
+                .label = "Init Min Max Depth Buffer",
+                .computeFunctionName = "initMinMaxDepthKernel"
+            };
+            renderPipelines.createComputePipeline(ComputePipelineType::InitMinMaxDepth, initMinMaxDepthConfig);
+        }
+        
+        #pragma mark Min Max Depth Buffer Pipeline state
+        {
+            ComputePipelineConfig minMaxDepthConfig{
+                .label = "Min Max Depth Buffer",
+                .computeFunctionName = "minMaxDepthKernel"
+            };
+            renderPipelines.createComputePipeline(ComputePipelineType::MinMaxDepth, minMaxDepthConfig);
+        }
     }
 }
 
@@ -607,6 +629,7 @@ void Engine::createViewRenderPassDescriptor() {
 	gbufferTextureDesc->setPixelFormat(normalMapGBufferFormat);
 	normalMapGBuffer = metalDevice->newTexture(gbufferTextureDesc);
 	gbufferTextureDesc->setPixelFormat(depthGBufferFormat);
+    gbufferTextureDesc->setStorageMode(MTL::StorageModeShared); // shared for min max depth buffer
 	depthGBuffer = metalDevice->newTexture(gbufferTextureDesc);
 
     // Create depth/stencil texture
@@ -675,6 +698,21 @@ void Engine::createViewRenderPassDescriptor() {
     depthStencilDesc->release();
     
     forwardDescriptor = MTL::RenderPassDescriptor::alloc()->init();
+
+    // Min Max Depth Buffer
+    MTL::TextureDescriptor* descriptor = MTL::TextureDescriptor::alloc()->init();
+    descriptor->setTextureType(MTL::TextureType2D);
+    descriptor->setPixelFormat(MTL::PixelFormatRG32Float); // 2x32-bit floats
+    descriptor->setWidth(metalLayer.drawableSize.width);
+    descriptor->setHeight(metalLayer.drawableSize.height);
+    descriptor->setStorageMode(MTL::StorageModePrivate);
+    descriptor->setUsage(MTL::TextureUsageShaderRead | MTL::TextureUsageShaderWrite);
+    
+    // Enable mipmaps so we can generate hierarchical depth manually
+    descriptor->setMipmapLevelCount(log2(std::max(metalLayer.drawableSize.width, metalLayer.drawableSize.height)));
+
+    minMaxDepthTexture = metalDevice->newTexture(descriptor);
+    descriptor->release();
 }
 
 void Engine::updateRenderPassDescriptor() {
@@ -740,6 +778,70 @@ void Engine::drawDirectionalLight(MTL::RenderCommandEncoder* renderCommandEncode
 	renderCommandEncoder->drawPrimitives(MTL::PrimitiveTypeTriangle, (NS::UInteger)0, (NS::UInteger)3);
 }
 
+void Engine::dispatchMinMaxDepthMipmaps(MTL::CommandBuffer* commandBuffer) {
+    {
+        MTL::ComputeCommandEncoder* initEncoder = commandBuffer->computeCommandEncoder();
+        initEncoder->setComputePipelineState(renderPipelines.getComputePipeline(ComputePipelineType::InitMinMaxDepth));
+
+        initEncoder->setTexture(depthGBuffer, 0);
+        initEncoder->setTexture(minMaxDepthTexture, 1);
+
+        MTL::Size threadsPerGroup(8, 8, 1);
+        MTL::Size threadgroups((minMaxDepthTexture->width() + 7) / 8, (minMaxDepthTexture->height() + 7) / 8, 1);
+
+        initEncoder->dispatchThreadgroups(threadgroups, threadsPerGroup);
+        initEncoder->endEncoding();
+    }
+    
+    MTL::ComputeCommandEncoder* encoder = commandBuffer->computeCommandEncoder();
+    encoder->setComputePipelineState(renderPipelines.getComputePipeline(ComputePipelineType::MinMaxDepth));
+
+    unsigned long mipLevels = minMaxDepthTexture->mipmapLevelCount();
+
+    for (uint32_t level = 1; level < mipLevels; ++level) {
+        std::string labelStr = "MipLevel: " + std::to_string(level);
+        NS::String* label = NS::String::string(labelStr.c_str(), NS::ASCIIStringEncoding);
+        
+        encoder->pushDebugGroup(label);
+                   
+        NS::Range levelRangeSrc(level - 1, 1);
+        NS::Range levelRangeDst(level, 1);
+        NS::Range sliceRange(0, 1);
+
+        MTL::Texture* srcMip = minMaxDepthTexture->newTextureView(
+            MTL::PixelFormatRG32Float,
+            MTL::TextureType2D,
+            levelRangeSrc,
+            sliceRange
+        );
+
+        MTL::Texture* dstMip = minMaxDepthTexture->newTextureView(
+            MTL::PixelFormatRG32Float,
+            MTL::TextureType2D,
+            levelRangeDst,
+            sliceRange
+        );
+        
+        srcMip->setLabel(label);
+        dstMip->setLabel(label);
+
+        encoder->setTexture(srcMip, 0);
+        encoder->setTexture(dstMip, 1);
+
+        MTL::Size threadsPerGroup(8, 8, 1);
+        MTL::Size threadgroups((dstMip->width() + 7) / 8, (dstMip->height() + 7) / 8, 1);
+
+        encoder->dispatchThreadgroups(threadgroups, threadsPerGroup);
+
+        srcMip->release();
+        dstMip->release();
+        
+        encoder->popDebugGroup();
+    }
+
+    encoder->endEncoding();
+}
+
 void Engine::draw() {
     // First command buffer for raytracing pass
     MTL::CommandBuffer* raytracingCommandBuffer = beginFrame(false);
@@ -770,6 +872,8 @@ void Engine::draw() {
 
         gBufferEncoder->endEncoding();
     }
+
+    dispatchMinMaxDepthMipmaps(commandBuffer);
 
     // Forward/debug render pass descriptor setup
     forwardDescriptor->colorAttachments()->object(0)->setTexture(metalDrawable->texture());

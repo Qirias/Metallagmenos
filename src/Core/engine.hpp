@@ -152,4 +152,8 @@ private:
     void createSphereGrid();
     void createDebugLines();
     void drawDebug(MTL::RenderCommandEncoder* commandEncoder, MTL::CommandBuffer* commandBuffer);
+
+    // Min Max Depth Buffer
+    void dispatchMinMaxDepthMipmaps(MTL::CommandBuffer* commandBuffer);
+    MTL::Texture* minMaxDepthTexture;
 };

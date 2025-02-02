@@ -267,8 +267,8 @@ void Mesh::createBuffers(MTL::VertexDescriptor* vertexDescriptor) {
         diffuseTextures->setLabel(NS::String::string("Diffuse Texture Array", NS::ASCIIStringEncoding));
         // Create Diffuse Texture Info
         size_t diffuseBufferSize = diffuseTexturesArray->diffuseTextureInfos.size() * sizeof(TextureInfo);
-        std::cout << "Diffuse Texture Count: " << diffuseTexturesArray->diffuseTextureInfos.size() << std::endl;
-        std::cout << "TextureInfo size: " << sizeof(TextureInfo) << std::endl;
+//        std::cout << "Diffuse Texture Count: " << diffuseTexturesArray->diffuseTextureInfos.size() << std::endl;
+//        std::cout << "TextureInfo size: " << sizeof(TextureInfo) << std::endl;
         diffuseTextureInfos = device->newBuffer(diffuseTexturesArray->diffuseTextureInfos.data(), diffuseBufferSize, MTL::ResourceStorageModeShared);
         diffuseTextureInfos->setLabel(NS::String::string("Diffuse Texture Info Array", NS::ASCIIStringEncoding));
         

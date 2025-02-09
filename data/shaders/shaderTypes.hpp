@@ -25,12 +25,16 @@ struct FrameData {
 	// Matrix group
 	simd::float4x4 _pad2;
 	simd::float4x4 _pad3;
-	simd::float4x4 _pad4;
+    simd::float4x4 inverse_view_matrix;
 	simd::float4x4 scene_model_matrix;
 	simd::float4x4 scene_modelview_matrix;
 	
 	// Note: float3x3 is padded to float4x3 in GPU memory
 	simd::float3x3 scene_normal_matrix;          // 48 bytes
+};
+
+struct Probe {
+    simd::float4 position;
 };
 
 typedef enum RenderTargetIndex {
@@ -57,6 +61,7 @@ typedef enum TextureIndex {
 	TextureIndexNormal    = 2,
 	TextureIndexAlpha     = 3,
     TextureIndexRaytracing = 4,
+    TextureIndexMinMaxDepth = 5,
 
 	NumMeshTextures = TextureIndexNormal + 1
 
@@ -69,5 +74,6 @@ typedef enum BufferIndex {
     BufferIndexResources                = 3,
     BufferIndexAccelerationStructure    = 4,
     BufferIndexDiffuseInfo             = 5,
-    BufferIndexNormalInfo              = 6
+    BufferIndexNormalInfo              = 6,
+    BufferIndexProbeData                = 7
 } BufferIndex;

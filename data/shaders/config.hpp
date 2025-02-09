@@ -5,6 +5,7 @@
 // transform from screen space to eye space is necessary to calculate lighting
 // contributions in the deferred pass.
 #define USE_EYE_DEPTH              1
+//#define USE_REVERSE_Z              1
 
 // When enabled, uses the stencil buffer to avoid execution of lighting
 // calculations on fragments that do not intersect with a 3D light volume.
@@ -13,5 +14,3 @@
 // will have expensive lighting calculations executed than is actually
 // necessary.
 #define LIGHT_STENCIL_CULLING      1
-
-

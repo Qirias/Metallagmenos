@@ -11,7 +11,6 @@ Engine::Engine()
     for (int i = 0; i < MaxFramesInFlight; i++) {
         frameSemaphores[i] = dispatch_semaphore_create(1);
     }
-
 }
 
 void Engine::init() {
@@ -29,9 +28,6 @@ void Engine::init() {
 	createViewRenderPassDescriptor();
     createAccelerationStructureWithDescriptors();
     setupTriangleResources();
-    // Debug
-    createSphereGrid();
-    createDebugLines();
 }
 
 void Engine::run() {
@@ -155,23 +151,9 @@ void Engine::initWindow() {
 }
 
 MTL::CommandBuffer* Engine::beginFrame(bool isPaused) {
-	
     // Wait on the semaphore for the current frame
     dispatch_semaphore_wait(frameSemaphores[currentFrameIndex], DISPATCH_TIME_FOREVER);
 
-    // Create a new command buffer for each render pass to the current drawable
-    MTL::CommandBuffer* commandBuffer = metalCommandQueue->commandBuffer();
-
-    updateWorldState(isPaused);
-	
-	return commandBuffer;
-}
-
-/// Perform operations necessary to obtain a command buffer for rendering to the drawable. By
-/// endoding commands that are not dependant on the drawable in a separate command buffer, Metal
-/// can begin executing encoded commands for the frame (commands from the previous command buffer)
-/// before a drawable for this frame becomes available.
-MTL::CommandBuffer* Engine::beginDrawableCommands() {
 	MTL::CommandBuffer* commandBuffer = metalCommandQueue->commandBuffer();
 	
 	MTL::CommandBufferHandler handler = [this](MTL::CommandBuffer*) {
@@ -179,6 +161,8 @@ MTL::CommandBuffer* Engine::beginDrawableCommands() {
 		dispatch_semaphore_signal(frameSemaphores[currentFrameIndex]);
 	};
 	commandBuffer->addCompletedHandler(handler);
+    
+    updateWorldState(isPaused);
 	
 	return commandBuffer;
 }
@@ -187,6 +171,11 @@ void Engine::endFrame(MTL::CommandBuffer* commandBuffer, MTL::Drawable* currentD
     if(commandBuffer) {
         commandBuffer->presentDrawable(metalDrawable);
         commandBuffer->commit();
+        
+        if (frameNumber == 1) {
+            commandBuffer->waitUntilCompleted();
+            createSphereGrid();
+        }
         
         // Move to next frame
         currentFrameIndex = (currentFrameIndex + 1) % MaxFramesInFlight;
@@ -198,7 +187,10 @@ void Engine::loadScene() {
 	
     std::string objPath = std::string(SCENES_PATH) + "/sponza/sponza.obj";
     meshes.push_back(new Mesh(objPath.c_str(), metalDevice, defaultVertexDescriptor, true));
-	
+//    objPath = std::string(MODELS_PATH) + "/SMG/smg.obj";
+//    meshes.push_back(new Mesh(objPath.c_str(), metalDevice, defaultVertexDescriptor, true));
+
+    
 //	GLTFLoader gltfLoader(metalDevice);
 //	std::string modelPath = std::string(SCENES_PATH) + "/DamagedHelmet/DamagedHelmet.gltf";
 //	auto gltfModel = gltfLoader.loadModel(modelPath);
@@ -238,6 +230,15 @@ void Engine::createDefaultLibrary() {
     }
 }
 
+void printMatrix(const matrix_float4x4& matrix) {
+    for (int i = 0; i < 4; ++i) {
+        for (int j = 0; j < 4; ++j) {
+            std::cout << matrix.columns[j][i] << " ";
+        }
+        std::cout << std::endl;
+    }
+}
+
 void Engine::updateWorldState(bool isPaused) {
 	if (!isPaused) {
 		frameNumber++;
@@ -247,10 +248,11 @@ void Engine::updateWorldState(bool isPaused) {
 
 	float aspectRatio = metalDrawable->layer()->drawableSize().width / metalDrawable->layer()->drawableSize().height;
 	
-	camera.setProjectionMatrix(45, aspectRatio, 0.1f, 1000.0f);
+	camera.setProjectionMatrix(45, aspectRatio, 0.1f, 100.0f);
 	frameData->projection_matrix = camera.getProjectionMatrix();
 	frameData->projection_matrix_inverse = matrix_invert(frameData->projection_matrix);
 	frameData->view_matrix = camera.getViewMatrix();
+    frameData->inverse_view_matrix = camera.getInverseViewMatrix();
     
     frameData->cameraUp         = float4{camera.up.x,       camera.up.y,        camera.up.z, 1.0f};
     frameData->cameraRight      = float4{camera.right.x,    camera.right.y,     camera.right.z, 1.0f};
@@ -274,7 +276,7 @@ void Engine::updateWorldState(bool isPaused) {
 	float sunX = 0.0f;
 
 	// Sun world position
-	float4 sunWorldPosition = {sunX, sunY, sunZ, 1.0};
+	float4 sunWorldPosition = {sunX, sunY, /*sunZ*/0.0, 1.0};
 	float4 sunWorldDirection = -sunWorldPosition;
 
 	// Update the sun direction in view space
@@ -286,7 +288,6 @@ void Engine::updateWorldState(bool isPaused) {
 	frameData->scene_modelview_matrix = frameData->view_matrix * frameData->scene_model_matrix;
 	frameData->scene_normal_matrix = matrix3x3_upper_left(frameData->scene_model_matrix);
 }
-
 
 void Engine::createCommandQueue() {
     metalCommandQueue = metalDevice->newCommandQueue();
@@ -437,6 +438,12 @@ void Engine::createAccelerationStructureWithDescriptors() {
     MTL::CommandQueue* commandQueue = metalDevice->newCommandQueue();
     MTL::CommandBuffer* commandBuffer = commandQueue->commandBuffer();
 
+    debugProbeCount = floor(metalLayer.drawableSize.width / (8 * 1 << 0)) * floor(metalLayer.drawableSize.height / (8 * 1 << 0));
+
+    size_t probeBufferSize = debugProbeCount * sizeof(Probe);
+    probePosBuffer = metalDevice->newBuffer(probeBufferSize, MTL::ResourceStorageModeShared);
+    probePosBuffer->setLabel(NS::String::string("probePosBuffer", NS::ASCIIStringEncoding));
+
     std::vector<Vertex> mergedVertices;
     std::vector<uint32_t> mergedIndices;
 
@@ -535,17 +542,16 @@ void Engine::setupTriangleResources() {
 }
 
 void Engine::createSphereGrid() {
-    const int gridSize = 4; 
-    const float spacing = 2.0f;
-    const float sphereRadius = 0.3f; 
+    const float sphereRadius = 0.03f;
     const simd::float3 sphereColor = {1.0f, 0.0f, 0.0f};
-
     std::vector<simd::float3> spherePositions;
-    for (int x = 0; x < gridSize; ++x) {
-        for (int z = 0; z < gridSize; ++z) {
-            spherePositions.push_back(simd::float3{x * spacing, 1.0f, z * spacing - 3.0f});
-        }
-    }
+    
+    Probe* probes = reinterpret_cast<Probe*>(probePosBuffer->contents());
+
+     for (int i = 0; i < debugProbeCount; ++i) {
+         spherePositions.push_back(probes[i].position.xyz);
+//         std::cout << "Probe: " << i << "\tx: " << probes[i].position.x << "\ty: " << probes[i].position.y << "\tz: " << probes[i].position.z << "\tw: " << probes[i].position.w << "\n";
+     }
 
     debug->drawSpheres(spherePositions, sphereRadius, sphereColor);
 }
@@ -579,8 +585,8 @@ void Engine::drawDebug(MTL::RenderCommandEncoder* commandEncoder, MTL::CommandBu
     commandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
 
     uint32_t* lineCount = reinterpret_cast<uint32_t*>(debug->lineCountBuffer->contents());
-
-    if (*lineCount > 0 && editor->debug.enableDebugFeature) {
+    
+    if (lineCount != nil && *lineCount > 0 && editor->debug.enableDebugFeature) {
          commandEncoder->drawPrimitives(MTL::PrimitiveTypeLine, 0, *lineCount * 2, 1);
     }
     editor->endFrame(commandBuffer, commandEncoder);
@@ -588,14 +594,20 @@ void Engine::drawDebug(MTL::RenderCommandEncoder* commandEncoder, MTL::CommandBu
 
 void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
     MTL::ComputeCommandEncoder* computeEncoder = commandBuffer->computeCommandEncoder();
+    computeEncoder->setLabel(NS::String::string("Ray Tracing", NS::ASCIIStringEncoding));
     
     computeEncoder->setComputePipelineState(renderPipelines.getComputePipeline(ComputePipelineType::Raytracing));
     computeEncoder->setTexture(rayTracingTexture, TextureIndexRaytracing);
     computeEncoder->setBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
     computeEncoder->setBuffer(resourceBuffer, 0, BufferIndexResources);
+    computeEncoder->setBuffer(probePosBuffer, 0, BufferIndexProbeData);
+    computeEncoder->setTexture(minMaxDepthTexture, TextureIndexMinMaxDepth);
     
     computeEncoder->useResource(resourceBuffer, MTL::ResourceUsageRead);
-    
+    computeEncoder->useResource(probePosBuffer, MTL::ResourceUsageWrite);
+    computeEncoder->useResource(minMaxDepthTexture, MTL::ResourceUsageRead);
+    computeEncoder->useResource(rayTracingTexture, MTL::ResourceUsageWrite);
+
     // Set acceleration structures
     for (uint i = 0; i < primitiveAccelerationStructures.size(); i++) {
         computeEncoder->setAccelerationStructure(primitiveAccelerationStructures[i], BufferIndexAccelerationStructure);
@@ -629,10 +641,10 @@ void Engine::createViewRenderPassDescriptor() {
 	gbufferTextureDesc->setPixelFormat(normalMapGBufferFormat);
 	normalMapGBuffer = metalDevice->newTexture(gbufferTextureDesc);
 	gbufferTextureDesc->setPixelFormat(depthGBufferFormat);
-    gbufferTextureDesc->setStorageMode(MTL::StorageModeShared); // shared for min max depth buffer
 	depthGBuffer = metalDevice->newTexture(gbufferTextureDesc);
 
     // Create depth/stencil texture
+    gbufferTextureDesc->setStorageMode(MTL::StorageModeShared); // shared for min max depth buffer
 	gbufferTextureDesc->setPixelFormat(MTL::PixelFormatDepth32Float_Stencil8);
 	depthStencilTexture = metalDevice->newTexture(gbufferTextureDesc);
 	
@@ -705,10 +717,9 @@ void Engine::createViewRenderPassDescriptor() {
     descriptor->setPixelFormat(MTL::PixelFormatRG32Float); // 2x32-bit floats
     descriptor->setWidth(metalLayer.drawableSize.width);
     descriptor->setHeight(metalLayer.drawableSize.height);
-    descriptor->setStorageMode(MTL::StorageModePrivate);
+    descriptor->setStorageMode(MTL::StorageModeShared);
     descriptor->setUsage(MTL::TextureUsageShaderRead | MTL::TextureUsageShaderWrite);
     
-    // Enable mipmaps so we can generate hierarchical depth manually
     descriptor->setMipmapLevelCount(log2(std::max(metalLayer.drawableSize.width, metalLayer.drawableSize.height)));
 
     minMaxDepthTexture = metalDevice->newTexture(descriptor);
@@ -774,16 +785,16 @@ void Engine::drawDirectionalLight(MTL::RenderCommandEncoder* renderCommandEncode
 	renderCommandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
 	renderCommandEncoder->setFragmentBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
 
-	// Draw full screen triangle
 	renderCommandEncoder->drawPrimitives(MTL::PrimitiveTypeTriangle, (NS::UInteger)0, (NS::UInteger)3);
 }
 
 void Engine::dispatchMinMaxDepthMipmaps(MTL::CommandBuffer* commandBuffer) {
     {
         MTL::ComputeCommandEncoder* initEncoder = commandBuffer->computeCommandEncoder();
+        initEncoder->setLabel(NS::String::string("First Min Max Depth", NS::ASCIIStringEncoding));
         initEncoder->setComputePipelineState(renderPipelines.getComputePipeline(ComputePipelineType::InitMinMaxDepth));
 
-        initEncoder->setTexture(depthGBuffer, 0);
+        initEncoder->setTexture(depthStencilTexture, 0);
         initEncoder->setTexture(minMaxDepthTexture, 1);
 
         MTL::Size threadsPerGroup(8, 8, 1);
@@ -794,6 +805,7 @@ void Engine::dispatchMinMaxDepthMipmaps(MTL::CommandBuffer* commandBuffer) {
     }
     
     MTL::ComputeCommandEncoder* encoder = commandBuffer->computeCommandEncoder();
+    encoder->setLabel(NS::String::string("Min Max Depth", NS::ASCIIStringEncoding));
     encoder->setComputePipelineState(renderPipelines.getComputePipeline(ComputePipelineType::MinMaxDepth));
 
     unsigned long mipLevels = minMaxDepthTexture->mipmapLevelCount();
@@ -844,13 +856,7 @@ void Engine::dispatchMinMaxDepthMipmaps(MTL::CommandBuffer* commandBuffer) {
 
 void Engine::draw() {
     // First command buffer for raytracing pass
-    MTL::CommandBuffer* raytracingCommandBuffer = beginFrame(false);
-    raytracingCommandBuffer->setLabel(NS::String::string("Raytracing Commands", NS::ASCIIStringEncoding));
-    dispatchRaytracing(raytracingCommandBuffer);
-    raytracingCommandBuffer->commit();
-
-    MTL::CommandBuffer* commandBuffer = beginDrawableCommands();
-    commandBuffer->setLabel(NS::String::string("Deferred Rendering Commands", NS::ASCIIStringEncoding));
+    MTL::CommandBuffer* commandBuffer = beginFrame(false);
     
     // G-Buffer render pass descriptor setup
     viewRenderPassDescriptor->colorAttachments()->object(RenderTargetLighting)->setTexture(metalDrawable->texture());
@@ -859,13 +865,13 @@ void Engine::draw() {
 
     viewRenderPassDescriptor->depthAttachment()->setTexture(depthStencilTexture);
     viewRenderPassDescriptor->depthAttachment()->setLoadAction(MTL::LoadActionClear);
+    viewRenderPassDescriptor->depthAttachment()->setStoreAction(MTL::StoreActionStore);
     viewRenderPassDescriptor->depthAttachment()->setClearDepth(1.0); // Clear depth to farthest
-    viewRenderPassDescriptor->stencilAttachment()->setTexture(depthStencilTexture);
-    viewRenderPassDescriptor->stencilAttachment()->setLoadAction(MTL::LoadActionClear);
     viewRenderPassDescriptor->stencilAttachment()->setClearStencil(0); // Clear stencil
 
     // G-Buffer pass
     MTL::RenderCommandEncoder* gBufferEncoder = commandBuffer->renderCommandEncoder(viewRenderPassDescriptor);
+    gBufferEncoder->setLabel(NS::String::string("GBuffer", NS::ASCIIStringEncoding));
     if (gBufferEncoder) {
         drawGBuffer(gBufferEncoder);
         drawDirectionalLight(gBufferEncoder);
@@ -874,6 +880,7 @@ void Engine::draw() {
     }
 
     dispatchMinMaxDepthMipmaps(commandBuffer);
+    dispatchRaytracing(commandBuffer);
 
     // Forward/debug render pass descriptor setup
     forwardDescriptor->colorAttachments()->object(0)->setTexture(metalDrawable->texture());
@@ -881,22 +888,18 @@ void Engine::draw() {
     forwardDescriptor->colorAttachments()->object(0)->setClearColor(MTL::ClearColor(41.0f / 255.0f, 42.0f / 255.0f, 48.0f / 255.0f, 1.0));
 
     forwardDescriptor->depthAttachment()->setTexture(forwardDepthStencilTexture);
-    forwardDescriptor->depthAttachment()->setLoadAction(MTL::LoadActionClear);
+    forwardDescriptor->depthAttachment()->setLoadAction(MTL::LoadActionLoad);
     forwardDescriptor->depthAttachment()->setClearDepth(1.0);
     forwardDescriptor->stencilAttachment()->setTexture(forwardDepthStencilTexture);
-    forwardDescriptor->stencilAttachment()->setLoadAction(MTL::LoadActionClear);
+    forwardDescriptor->stencilAttachment()->setLoadAction(MTL::LoadActionLoad);
     forwardDescriptor->stencilAttachment()->setClearStencil(0);
     
     editor->beginFrame(forwardDescriptor);
 
     MTL::RenderCommandEncoder* debugEncoder = commandBuffer->renderCommandEncoder(forwardDescriptor);
-    if (debugEncoder) {
-        debugEncoder->setLabel(NS::String::string("Debug and ImGui Pass", NS::ASCIIStringEncoding));
-        
-        drawDebug(debugEncoder, commandBuffer);
-        
-        debugEncoder->endEncoding();
-    }
+    debugEncoder->setLabel(NS::String::string("Debug and ImGui", NS::ASCIIStringEncoding));
+    drawDebug(debugEncoder, commandBuffer);
+    debugEncoder->endEncoding();
 
     endFrame(commandBuffer, metalDrawable);
 }

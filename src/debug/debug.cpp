@@ -89,7 +89,9 @@ void Debug::addSphereLines(const simd::float3& center, float radius, const simd:
 }
 
 void Debug::drawSpheres(const std::vector<simd::float3>& spherePositions, float radius, const simd::float3& color) {
-    size_t additionalLines = spherePositions.size() * 16 * 16 * 4;
+    int slices = 8;
+    int stack = 8;
+    size_t additionalLines = spherePositions.size() * slices * stack * 4;
     allocateBuffers(additionalLines);
 
     DebugLineVertex* lineVertices = reinterpret_cast<DebugLineVertex*>(lineBuffer->contents());
@@ -97,7 +99,7 @@ void Debug::drawSpheres(const std::vector<simd::float3>& spherePositions, float 
 
     size_t lineIndex = currentLineCount;
     for (const auto& position : spherePositions) {
-        addSphereLines(position, radius, color, 16, 16, lineVertices, lineIndex);
+        addSphereLines(position, radius, color, slices, stack, lineVertices, lineIndex);
     }
 
     currentLineCount = lineIndex;

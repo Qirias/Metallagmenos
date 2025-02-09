@@ -27,6 +27,7 @@ public:
 	void setViewMatrix() { viewMatrix = matrix_look_at_right_hand(position, position + front, up); }
 
 	matrix_float4x4 getViewMatrix() const { return viewMatrix; }
+    matrix_float4x4 getInverseViewMatrix() const { return simd::inverse(viewMatrix); }
 	matrix_float4x4 getProjectionMatrix() const { return projectionMatrix; }
     
     simd::float3 getPosition() const { return position; }

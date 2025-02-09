@@ -17,3 +17,5 @@ struct AccumLightBuffer
 {
 	half4 lighting [[color(RenderTargetLighting), raster_order_group(LightingROG)]];
 };
+
+constexpr sampler depthSampler(coord::normalized, filter::linear, mip_filter::linear);

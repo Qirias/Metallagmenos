@@ -114,7 +114,7 @@ void Camera::setFrustumCornersWorldSpace(simd::float3* frustumCorners, float nea
 				simd::float4 pt = matrix_multiply(inv, simd::float4{
 					2.0f * x - 1.0f,
 					2.0f * y - 1.0f,
-					z == 0 ? nearZ : farZ,  // Use actual near/far values
+					z == 0 ? nearZ : farZ,
 					1.0f
 				});
 				

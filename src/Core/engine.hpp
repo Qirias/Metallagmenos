@@ -32,13 +32,14 @@
 #include <simd/simd.h>
 #include <filesystem>
 
-constexpr uint8_t MaxFramesInFlight = 3;
+constexpr uint8_t MaxFramesInFlight = 1;
 
 class Engine {
     struct TriangleData {
         simd::float4 normals[3];
         simd::float4 colors[3];
     };
+    
 public:
     void init();
     void run();
@@ -148,6 +149,7 @@ private:
     std::unique_ptr<Debug> debug;
     MTL::RenderPassDescriptor*  forwardDescriptor;
     MTL::Texture*               forwardDepthStencilTexture;
+    MTL::Buffer*                probePosBuffer;
     
     void createSphereGrid();
     void createDebugLines();
@@ -156,4 +158,5 @@ private:
     // Min Max Depth Buffer
     void dispatchMinMaxDepthMipmaps(MTL::CommandBuffer* commandBuffer);
     MTL::Texture* minMaxDepthTexture;
+    int debugProbeCount = 0;
 };

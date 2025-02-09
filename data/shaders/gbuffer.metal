@@ -58,6 +58,10 @@ vertex ColorInOut gbuffer_vertex(DescriptorDefinedVertex  	in        	[[stage_in
 	return out;
 }
 
+float linearDepth(float depth, float near, float far) {
+    float z = depth * 2.0f - 1.0f;
+    return (2.0f * near * far) / (far + near - z * (far - near));
+}
 
 fragment GBufferData gbuffer_fragment(ColorInOut            in                  [[stage_in]],
                           constant    FrameData&            frameData           [[buffer(BufferIndexFrameData)]],
@@ -103,14 +107,22 @@ fragment GBufferData gbuffer_fragment(ColorInOut            in                  
 
 	// Prepare GBuffer output
 	GBufferData gBuffer;
-	gBuffer.albedo_specular = base_color_sample;                   // Albedo (RGB) + Specular (A) if needed
+	gBuffer.albedo_specular = base_color_sample; // Albedo (RGB) + Specular (A) if needed
 	gBuffer.normal_map = half4(eye_normal, 1.0f);
 
-	#if USE_EYE_DEPTH
+    float P22 = frameData.projection_matrix[2][2];
+    float P23 = frameData.projection_matrix[2][3];
+    float near = P23 / (P22 - 1.0);
+    float far = P23 / (P22 + 1.0);
+    
+#if USE_EYE_DEPTH
 	gBuffer.depth = in.eye_position.z;
-	#else
-	gBuffer.depth = in.position.z;
-	#endif
+    // Compute Linear Depth
+#elif USE_REVERSE_Z
+    gBuffer.depth = near / (in.position.z * (far - near) + near);
+#else
+    gBuffer.depth = linearDepth(in.position.z, near, far);
+#endif
 
 	return gBuffer;
 }

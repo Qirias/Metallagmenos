@@ -287,6 +287,8 @@ void Engine::updateWorldState(bool isPaused) {
 	frameData->scene_model_matrix = matrix4x4_translation(0.0f, 0.0f, 0.0f); // Sponza at origin
 	frameData->scene_modelview_matrix = frameData->view_matrix * frameData->scene_model_matrix;
 	frameData->scene_normal_matrix = matrix3x3_upper_left(frameData->scene_model_matrix);
+    
+    frameData->cascadeLevel = cascadeLevel;
 }
 
 void Engine::createCommandQueue() {
@@ -438,7 +440,7 @@ void Engine::createAccelerationStructureWithDescriptors() {
     MTL::CommandQueue* commandQueue = metalDevice->newCommandQueue();
     MTL::CommandBuffer* commandBuffer = commandQueue->commandBuffer();
 
-    debugProbeCount = floor(metalLayer.drawableSize.width / (8 * 1 << 0)) * floor(metalLayer.drawableSize.height / (8 * 1 << 0));
+    debugProbeCount = floor(metalLayer.drawableSize.width / (8 * 1 << cascadeLevel)) * floor(metalLayer.drawableSize.height / (8 * 1 << cascadeLevel));
 
     size_t probeBufferSize = debugProbeCount * sizeof(Probe);
     probePosBuffer = metalDevice->newBuffer(probeBufferSize, MTL::ResourceStorageModeShared);
@@ -542,14 +544,14 @@ void Engine::setupTriangleResources() {
 }
 
 void Engine::createSphereGrid() {
-    const float sphereRadius = 0.03f;
-    const simd::float3 sphereColor = {1.0f, 0.0f, 0.0f};
-    std::vector<simd::float3> spherePositions;
+    const float sphereRadius = 0.02f * float(1 << cascadeLevel);
+    simd::float3 sphereColor = {1.0f, 0.0f, 0.0f};
+    std::vector<simd::float4> spherePositions;
     
     Probe* probes = reinterpret_cast<Probe*>(probePosBuffer->contents());
 
      for (int i = 0; i < debugProbeCount; ++i) {
-         spherePositions.push_back(probes[i].position.xyz);
+         spherePositions.push_back(probes[i].position);
 //         std::cout << "Probe: " << i << "\tx: " << probes[i].position.x << "\ty: " << probes[i].position.y << "\tz: " << probes[i].position.z << "\tw: " << probes[i].position.w << "\n";
      }
 
@@ -615,9 +617,12 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
 
     }
 
+    int tile_size = 8 * 1 << cascadeLevel;
+    size_t probeGridSizeX = (rayTracingTexture->width() + tile_size - 1) / tile_size;
+    size_t probeGridSizeY = (rayTracingTexture->height() + tile_size - 1) / tile_size;
+    
     MTL::Size threadGroupSize = MTL::Size(16, 16, 1);
-    MTL::Size gridSize = MTL::Size((rayTracingTexture->width() + threadGroupSize.width - 1) / threadGroupSize.width,
-                                   (rayTracingTexture->height() + threadGroupSize.height - 1) / threadGroupSize.height, 1);
+    MTL::Size gridSize = MTL::Size(probeGridSizeX, probeGridSizeY, 1);
 
     computeEncoder->dispatchThreadgroups(gridSize, threadGroupSize);
     computeEncoder->popDebugGroup();

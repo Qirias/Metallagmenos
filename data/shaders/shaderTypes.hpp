@@ -16,7 +16,7 @@ struct FrameData {
 	uint framebuffer_width;
 	uint framebuffer_height;
 	float sun_specular_intensity;
-	uint _pad1;
+    uint cascadeLevel;
 	
 	// Vector group
 	simd::float4 sun_color;

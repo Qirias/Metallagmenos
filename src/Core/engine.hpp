@@ -159,4 +159,5 @@ private:
     void dispatchMinMaxDepthMipmaps(MTL::CommandBuffer* commandBuffer);
     MTL::Texture* minMaxDepthTexture;
     int debugProbeCount = 0;
+    int cascadeLevel = 1;
 };

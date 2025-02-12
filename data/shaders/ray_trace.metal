@@ -35,74 +35,27 @@ kernel void raytracingKernel(texture2d<float, access::write>    rayTracingTextur
                              texture2d<float, access::sample>   minMaxTexture           [[texture(TextureIndexMinMaxDepth)]],
                              uint2                              tid                     [[thread_position_in_grid]]) {
     
-    if (tid.x >= rayTracingTexture.get_width() || tid.y >= rayTracingTexture.get_height()) {
+    int tile_size = 8 * 1 << frameData.cascadeLevel;
+    uint2 probeGridSize = uint2(frameData.framebuffer_width / tile_size, frameData.framebuffer_height / tile_size);
+
+    if (tid.x >= probeGridSize.x || tid.y >= probeGridSize.y) {
         return;
     }
-    
-    float2 pixel = float2(tid);
-    float2 grid_size = float2(frameData.framebuffer_width, frameData.framebuffer_height);
-    float2 uv = (pixel + 0.5f) / float2(frameData.framebuffer_width, frameData.framebuffer_height);
+
+    float2 uv = (float2(tid) + 0.5f) / float2(probeGridSize);
     float2 ndc = uv * 2.0f - 1.0f;
     ndc.y = -ndc.y;
+    
+    uint probeIndex = tid.y * probeGridSize.x + tid.x;
 
-//    float4 viewSpace = frameData.projection_matrix_inverse * float4(ndc, 1.0f, 1.0f);
-//    viewSpace = viewSpace / viewSpace.w;
-//
-//    ray ray;
-//    ray.origin = frameData.cameraPosition.xyz;
-//    ray.direction = normalize(viewSpace.xyz);
-//
-//    ray.direction = normalize(ray.direction.x * frameData.cameraRight.xyz +
-//                              ray.direction.y * frameData.cameraUp.xyz +
-//                             -ray.direction.z * frameData.cameraForward.xyz);
-//    
-//    ray.min_distance = 0.001f;
-//    ray.max_distance = INFINITY;
-//    
-//    // Perform intersection
-//    intersector<triangle_data> intersector;
-//    intersection_result<triangle_data> result = intersector.intersect(ray, accelerationStructure);
-//    
-//    float3 color = 0.0f;
-//    if (result.type != intersection_type::none) {
-//        
-//        unsigned int primitiveIndex = result.primitive_id;
-//
-//        // Barycentric interpolation for normal
-//        float2 barycentrics = result.triangle_barycentric_coord;
-//        
-//        const device TriangleResources::TriangleData& triangle = resources[primitiveIndex];
-//
-//        float3 normal = normalize(triangle.normals[0].xyz * (1.0 - barycentrics.x - barycentrics.y) +
-//                                  triangle.normals[1].xyz * barycentrics.x +
-//                                  triangle.normals[2].xyz * barycentrics.y);
-//
-//        color = normal*0.5+0.5;
-//    }
-
-    constexpr int TILE_SIZE = 8;
-    uint2 tileCount     = uint2(grid_size) / TILE_SIZE;
-    uint2 tileID        = tid / TILE_SIZE;
-    uint2 pixelInTile   = tid % TILE_SIZE;
-    float probeDepth    = 0.0f;
-    float3 worldPos     = float3(0.0);
-
-    // Only process at tile centers
-    if (pixelInTile.x == 4 && pixelInTile.y == 4) {
-        uint probeIndex = tileID.y * tileCount.x + tileID.x;
-        
-        if (probeIndex < (100 * 75)) {
-            float2 minMaxDepth = minMaxTexture.sample(depthSampler, uv, level(0)).xy;
-            probeDepth = minMaxDepth.y; // Use max depth
-            
-            worldPos = reconstructWorldPosition(ndc, probeDepth,
-                                                    frameData.projection_matrix_inverse,
-                                                    frameData.inverse_view_matrix);
-            
-//            float3 r = ray.origin + ray.direction * result.distance;
-            probeData[probeIndex].position = float4(worldPos, 1.0f);
-        }
-    }
+    float2 minMaxDepth = minMaxTexture.sample(depthSampler, uv, level(frameData.cascadeLevel)).xy;
+    float probeDepth = minMaxDepth.y;
+    
+    float3 worldPos = reconstructWorldPosition(ndc, probeDepth,
+                                            frameData.projection_matrix_inverse,
+                                            frameData.inverse_view_matrix);
+    
+    probeData[probeIndex].position = float4(worldPos, (minMaxDepth.x != minMaxDepth.y ? 1.0f : 0.0f));
     
     rayTracingTexture.write(float4(probeDepth, probeDepth, probeDepth, 1.0), tid);
 }

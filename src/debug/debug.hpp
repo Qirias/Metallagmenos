@@ -12,8 +12,8 @@ public:
     Debug(MTL::Device* device);
     ~Debug();
     
-    void drawSpheres(const std::vector<simd::float3>& spherePositions, float radius, const simd::float3& color);
-    void drawLines(const std::vector<simd::float3>& startPoints, const std::vector<simd::float3>& endPoints, const simd::float3& color);
+    void drawSpheres(const std::vector<simd::float4>& spherePositions, float radius, simd::float3& color);
+    void drawLines(const std::vector<simd::float3>& startPoints, const std::vector<simd::float3>& endPoints, simd::float3& color);
 
     MTL::Buffer* lineBuffer = nullptr;
     MTL::Buffer* lineCountBuffer = nullptr;

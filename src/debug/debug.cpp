@@ -111,7 +111,7 @@ void Debug::drawSpheres(const std::vector<simd::float4>& spherePositions, float 
     *lineCount = static_cast<uint32_t>(currentLineCount);
 }
 
-void Debug::addLine(const simd::float3& start, const simd::float3& end, const simd::float3& color, DebugLineVertex* lineVertices, size_t& lineIndex) {
+void Debug::addLine(const simd::float4& start, const simd::float4& end, const simd::float3& color, DebugLineVertex* lineVertices, size_t& lineIndex) {
     lineVertices[lineIndex * 2 + 0].position = {start.x, start.y, start.z, 1.0f};
     lineVertices[lineIndex * 2 + 0].color = {color.x, color.y, color.z, 1.0f};
     lineVertices[lineIndex * 2 + 1].position = {end.x, end.y, end.z, 1.0f};
@@ -119,7 +119,7 @@ void Debug::addLine(const simd::float3& start, const simd::float3& end, const si
     ++lineIndex;
 }
 
-void Debug::drawLines(const std::vector<simd::float3>& startPoints, const std::vector<simd::float3>& endPoints, simd::float3& color) {
+void Debug::drawLines(const std::vector<simd::float4>& startPoints, const std::vector<simd::float4>& endPoints, simd::float3& color) {
     if (startPoints.size() != endPoints.size()) {
         throw std::invalid_argument("Start points and end points must have the same size.");
     }

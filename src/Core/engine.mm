@@ -175,6 +175,7 @@ void Engine::endFrame(MTL::CommandBuffer* commandBuffer, MTL::Drawable* currentD
         if (frameNumber == 1) {
             commandBuffer->waitUntilCompleted();
             createSphereGrid();
+            createDebugLines();
         }
         
         // Move to next frame
@@ -445,12 +446,17 @@ void Engine::createAccelerationStructureWithDescriptors() {
     size_t probeBufferSize = debugProbeCount * sizeof(Probe);
     probePosBuffer = metalDevice->newBuffer(probeBufferSize, MTL::ResourceStorageModeShared);
     probePosBuffer->setLabel(NS::String::string("probePosBuffer", NS::ASCIIStringEncoding));
-
+    
+    rayCount = debugProbeCount * 8 * (1 << (2 * cascadeLevel));
+    size_t rayBufferSize = rayCount * sizeof(ProbeRay);
+    rayBuffer = metalDevice->newBuffer(rayBufferSize, MTL::ResourceStorageModeShared);
+    rayBuffer->setLabel(NS::String::string("rayBuffer", NS::ASCIIStringEncoding));
+    
     std::vector<Vertex> mergedVertices;
     std::vector<uint32_t> mergedIndices;
 
     size_t vertexOffset = 0;
-        
+    
     for (const auto& mesh : meshes) {
         mergedVertices.insert(mergedVertices.end(), mesh->vertices.begin(), mesh->vertices.end());
 
@@ -559,21 +565,15 @@ void Engine::createSphereGrid() {
 }
 
 void Engine::createDebugLines() {
-    std::vector<simd::float3> startPoints;
-    std::vector<simd::float3> endPoints;
+    std::vector<simd::float4> startPoints;
+    std::vector<simd::float4> endPoints;
+    
+    ProbeRay* rays = reinterpret_cast<ProbeRay*>(rayBuffer->contents());
 
-    for (const auto& mesh : meshes) {
-        for (size_t i = 0; i < mesh->vertexIndices.size(); i += 3) {
-            for (size_t j = 0; j < 3; ++j) {
-                size_t vertexIndex = mesh->vertexIndices[i + j];
-                simd::float3 vertexPosition = simd::float3{mesh->vertices[vertexIndex].position.xyz};
-                simd::float3 normal = simd::float3{mesh->vertices[vertexIndex].normal.xyz};
-                simd::float3 endPosition = vertexPosition + normal * 0.1f; // length
-
-                startPoints.push_back(vertexPosition);
-                endPoints.push_back(endPosition);
-            }
-        }
+    
+    for (int i = 0; i < rayCount; i++) {
+        startPoints.push_back(rays[i].intervalStart);
+        endPoints.push_back(rays[i].intervalEnd);
     }
 
     simd::float3 lineColor = {0.5f, 0.5f, 1.0f};
@@ -603,10 +603,12 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
     computeEncoder->setBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
     computeEncoder->setBuffer(resourceBuffer, 0, BufferIndexResources);
     computeEncoder->setBuffer(probePosBuffer, 0, BufferIndexProbeData);
+    computeEncoder->setBuffer(rayBuffer, 0, BufferIndexProbeRayData);
     computeEncoder->setTexture(minMaxDepthTexture, TextureIndexMinMaxDepth);
     
     computeEncoder->useResource(resourceBuffer, MTL::ResourceUsageRead);
     computeEncoder->useResource(probePosBuffer, MTL::ResourceUsageWrite);
+    computeEncoder->useResource(rayBuffer, MTL::ResourceUsageWrite);
     computeEncoder->useResource(minMaxDepthTexture, MTL::ResourceUsageRead);
     computeEncoder->useResource(rayTracingTexture, MTL::ResourceUsageWrite);
 

@@ -146,10 +146,13 @@ private:
     void dispatchRaytracing(MTL::CommandBuffer* commandBuffer);
     
     // Forward Debug
-    std::unique_ptr<Debug> debug;
+    std::unique_ptr<Debug>      debug;
     MTL::RenderPassDescriptor*  forwardDescriptor;
     MTL::Texture*               forwardDepthStencilTexture;
     MTL::Buffer*                probePosBuffer;
+    MTL::Buffer*                rayBuffer;
+    int                         debugProbeCount = 0;
+    int                         rayCount = 0;
     
     void createSphereGrid();
     void createDebugLines();
@@ -158,6 +161,5 @@ private:
     // Min Max Depth Buffer
     void dispatchMinMaxDepthMipmaps(MTL::CommandBuffer* commandBuffer);
     MTL::Texture* minMaxDepthTexture;
-    int debugProbeCount = 0;
-    int cascadeLevel = 1;
+    int cascadeLevel = 0;
 };

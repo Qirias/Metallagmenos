@@ -37,6 +37,11 @@ struct Probe {
     simd::float4 position;
 };
 
+struct ProbeRay {
+    simd::float4 intervalStart;
+    simd::float4 intervalEnd;
+};
+
 typedef enum RenderTargetIndex {
 	RenderTargetLighting,
 	RenderTargetAlbedo,
@@ -75,5 +80,6 @@ typedef enum BufferIndex {
     BufferIndexAccelerationStructure    = 4,
     BufferIndexDiffuseInfo             = 5,
     BufferIndexNormalInfo              = 6,
-    BufferIndexProbeData                = 7
+    BufferIndexProbeData                = 7,
+    BufferIndexProbeRayData             = 8
 } BufferIndex;

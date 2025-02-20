@@ -6,7 +6,8 @@
 #include <cassert>
 
 enum class RenderPipelineType {
-    GBuffer,
+    GBufferTextured,
+    GBufferNonTextured,
     DirectionalLight,
     ForwardDebug
 };
@@ -30,6 +31,7 @@ struct RenderPipelineConfig {
     MTL::PixelFormat depthPixelFormat = MTL::PixelFormatDepth32Float_Stencil8;
     MTL::PixelFormat stencilPixelFormat = MTL::PixelFormatDepth32Float_Stencil8;
     MTL::VertexDescriptor* vertexDescriptor = nullptr;
+    MTL::FunctionConstantValues* functionConstants = nullptr;
 
     std::unordered_map<int, MTL::PixelFormat> colorAttachments;
 };

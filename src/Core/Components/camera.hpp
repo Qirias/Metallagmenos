@@ -12,7 +12,7 @@ public:
 		, farPlane(farPlane)
         , yaw(-180.0f)
         , pitch(0.0f)
-        , movementSpeed(1.0f)
+        , movementSpeed(5.0f)
         , mouseSensitivity(0.1f)
         , fov(45.0f)
         , isDragging(false) {

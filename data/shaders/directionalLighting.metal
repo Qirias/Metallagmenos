@@ -17,7 +17,6 @@ vertex VertexOut deferred_directional_lighting_vertex(uint 				vertexID	[[vertex
 										   constant FrameData& 			frameData 	[[buffer(BufferIndexFrameData)]]) {
     VertexOut out;
 
-    // Generate full-screen triangle
     float2 position = float2((vertexID << 1) & 2, vertexID & 2);
     out.position = float4(position * 2.0f - 1.0f, 0.0f, 1.0f);
     out.texCoords = position;
@@ -33,21 +32,14 @@ vertex VertexOut deferred_directional_lighting_vertex(uint 				vertexID	[[vertex
 fragment AccumLightBuffer deferred_directional_lighting_fragment(VertexOut 				in 			[[stage_in]],
 														constant FrameData& 			frameData 	[[buffer(BufferIndexFrameData)]],
 																 GBufferData 			GBuffer) {
-    // Extract albedo and normals from the GBuffer
-    half4 albedo_specular = GBuffer.albedo_specular;
-    half4 normal_map = GBuffer.normal_map;
+    half3 albedo = GBuffer.albedo_specular.rgb;
+    half3 normal = normalize(GBuffer.normal_map.xyz);
 
-    half3 albedo = albedo_specular.rgb;
-    half3 normal = normalize(normal_map.xyz); // Use the normal from the GBuffer
-
-    // Simulate a directional light
-    float3 lightDir = normalize(-frameData.sun_eye_direction.xyz); // Directional light from the sun
+    float3 lightDir = normalize(-frameData.sun_eye_direction.xyz);
     half NdotL = max(dot(normal, half3(lightDir)), 0.0h);
 
-    // Combine albedo and the diffuse term
     half3 finalColor = albedo * NdotL;
 
-    // Output the final color
     AccumLightBuffer output;
     output.lighting = half4(finalColor, 1.0h);
 

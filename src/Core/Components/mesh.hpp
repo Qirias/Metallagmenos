@@ -58,11 +58,12 @@ namespace std {
 }
 
 struct Mesh {
-//    Mesh(std::string filePath, MTL::Device* metalDevice);
-    Mesh(std::string filePath, MTL::Device* metalDevice, MTL::VertexDescriptor* vertexDescriptor, bool useTextures = false);
-    Mesh(MTL::Device* device, const Vertex* vertexData, size_t vertexCount, const uint32_t* indexData, size_t indexCount, bool useTextures = false);
+    Mesh(std::string filePath, MTL::Device* metalDevice, MTL::VertexDescriptor* vertexDescriptor, bool useTextures = false, float scale = 1.0f);
+    Mesh(MTL::Device* device, const Vertex* vertexData, size_t vertexCount, const uint32_t* indexData, size_t indexCount, bool useTextures = false, float scale = 1.0f);
 
     ~Mesh();
+    
+    bool meshHasTextures() const { return hasTextures; }
 
 public:
     void loadObj(std::string filePath);
@@ -74,6 +75,35 @@ public:
     TextureArray*                           diffuseTexturesArray;
     TextureArray*                           normalTexturesArray;
     std::unordered_map<Vertex, uint32_t>    vertexMap;
+    
+    matrix_float4x4 getTransformMatrix() const {
+        // Create scaling matrix manually using simd notation
+        matrix_float4x4 scaleMatrix{simd::float4{scaleX, 0.0f, 0.0f, 0.0f},
+                                    simd::float4{0.0f, scaleY, 0.0f, 0.0f},
+                                    simd::float4{0.0f, 0.0f, scaleZ, 0.0f},
+                                    simd::float4{0.0f, 0.0f, 0.0f, 1.0f}};
+        
+//        matrix_float4x4 posMatrix(
+//            simd::float4(0.0f, 0.0f, 0.0f, 0.0f),
+//            simd::float4(0.0f, 0.0f, 0.0f, 0.0f),
+//            simd::float4(0.0f, 0.0f, 0.0f, 0.0f),
+//            simd::float4(posX, posY, posZ, 1.0f)
+//        );
+        
+//        return matrix_multiply(scaleMatrix, posMatrix);
+        
+        return scaleMatrix;
+    }
+    
+   void setScale(float uniformScale) {
+       scaleX = scaleY = scaleZ = uniformScale;
+   }
+   
+   void setScale(float x, float y, float z) {
+       scaleX = x;
+       scaleY = y;
+       scaleZ = z;
+   }
     
 public:
     MTL::Device*    device;
@@ -87,4 +117,8 @@ public:
     MTL::Texture*   normalTextures;
     MTL::Buffer*    diffuseTextureInfos;
     MTL::Buffer*    normalTextureInfos;
+    
+    float scaleX = 1.0f;
+    float scaleY = 1.0f;
+    float scaleZ = 1.0f;
 };

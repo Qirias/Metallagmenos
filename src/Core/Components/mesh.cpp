@@ -1,8 +1,3 @@
-//
-//  mesh.cpp
-//  Metal-Tutorial
-//
-
 #include "mesh.hpp"
 #include "../../data/shaders/shaderTypes.hpp"
 
@@ -11,15 +6,17 @@
 #include <string>
 
 // For tinyobjloader
-Mesh::Mesh(std::string filePath, MTL::Device* metalDevice, MTL::VertexDescriptor* vertexDescriptor, bool useTextures) {
+Mesh::Mesh(std::string filePath, MTL::Device* metalDevice, MTL::VertexDescriptor* vertexDescriptor, bool useTextures, float scale) {
     device = metalDevice;
     hasTextures = useTextures;
+    
+    setScale(scale);
     loadObj(filePath);
     createBuffers(vertexDescriptor);
 }
 
 // For tinyGLTF
-Mesh::Mesh(MTL::Device* device, const Vertex* vertexData, size_t vertexCount, const uint32_t* indexData, size_t indexCount, bool useTextures)
+Mesh::Mesh(MTL::Device* device, const Vertex* vertexData, size_t vertexCount, const uint32_t* indexData, size_t indexCount, bool useTextures, float scale)
 : device(device), hasTextures(useTextures) {
     // Create vertex buffer with proper alignment
     size_t vertexBufferSize = vertexCount * sizeof(Vertex);
@@ -118,32 +115,34 @@ void Mesh::loadObj(std::string filePath) {
             }
             
             if (!hasTextures || material_id < 0 || material_id >= materials.size()) {
-                std::cerr << "Invalid material ID: " << material_id << std::endl;
-                continue;
+//                std::cerr << "Invalid material ID: " << material_id << std::endl;
+//                continue;
             }
             
             // Get texture indices for both diffuse and normal maps
             int diffuseTextureIndex = -1;
             int normalTextureIndex = -1;
             
-            const auto& material = materials[material_id];
-            
-            if (!material.diffuse_texname.empty()) {
-                auto it = diffuseTextureIndexMap.find(material.diffuse_texname);
-                if (it != diffuseTextureIndexMap.end()) {
-                    diffuseTextureIndex = it->second;
+            if (hasTextures) {
+                const auto& material = materials[material_id];
+                
+                if (!material.diffuse_texname.empty()) {
+                    auto it = diffuseTextureIndexMap.find(material.diffuse_texname);
+                    if (it != diffuseTextureIndexMap.end()) {
+                        diffuseTextureIndex = it->second;
+                    }
                 }
-            }
-            
-            std::string normalTexName = material.normal_texname;
-            if (normalTexName.empty()) {
-                normalTexName = material.bump_texname;
-            }
-            
-            if (!normalTexName.empty()) {
-                auto it = normalTextureIndexMap.find(normalTexName);
-                if (it != normalTextureIndexMap.end()) {
-                    normalTextureIndex = it->second;
+                
+                std::string normalTexName = material.normal_texname;
+                if (normalTexName.empty()) {
+                    normalTexName = material.bump_texname;
+                }
+                
+                if (!normalTexName.empty()) {
+                    auto it = normalTextureIndexMap.find(normalTexName);
+                    if (it != normalTextureIndexMap.end()) {
+                        normalTextureIndex = it->second;
+                    }
                 }
             }
             
@@ -250,10 +249,7 @@ void Mesh::calculateTangentSpace(std::vector<Vertex>& vertices, const std::vecto
 
 void Mesh::createBuffers(MTL::VertexDescriptor* vertexDescriptor) {
     // Create Vertex Buffers
-    unsigned long vertexCount = vertices.size();
-//    std::cout << "Mesh Vertex Count: " << vertexCount << std::endl;
     unsigned long vertexBufferSize = sizeof(Vertex) * vertices.size();
-//    std::cout << "Mesh Vertex Buffer Size: " << vertexBufferSize << std::endl;
     vertexBuffer = device->newBuffer(vertices.data(), vertexBufferSize, MTL::ResourceStorageModeShared);
     vertexBuffer->setLabel(NS::String::string("Mesh Vertex Buffer", NS::ASCIIStringEncoding));
     // Create Index Buffer
@@ -267,8 +263,6 @@ void Mesh::createBuffers(MTL::VertexDescriptor* vertexDescriptor) {
         diffuseTextures->setLabel(NS::String::string("Diffuse Texture Array", NS::ASCIIStringEncoding));
         // Create Diffuse Texture Info
         size_t diffuseBufferSize = diffuseTexturesArray->diffuseTextureInfos.size() * sizeof(TextureInfo);
-//        std::cout << "Diffuse Texture Count: " << diffuseTexturesArray->diffuseTextureInfos.size() << std::endl;
-//        std::cout << "TextureInfo size: " << sizeof(TextureInfo) << std::endl;
         diffuseTextureInfos = device->newBuffer(diffuseTexturesArray->diffuseTextureInfos.data(), diffuseBufferSize, MTL::ResourceStorageModeShared);
         diffuseTextureInfos->setLabel(NS::String::string("Diffuse Texture Info Array", NS::ASCIIStringEncoding));
         
@@ -277,8 +271,6 @@ void Mesh::createBuffers(MTL::VertexDescriptor* vertexDescriptor) {
         normalTextures->setLabel(NS::String::string("Normal Texture Array", NS::ASCIIStringEncoding));
         // Create normal Texture Info
         size_t normalBufferSize = normalTexturesArray->normalTextureInfos.size() * sizeof(TextureInfo);
-//        std::cout << "Normal Texture Count: " << normalTexturesArray->normalTextureInfos.size() << std::endl;
-//        std::cout << "TextureInfo size: " << sizeof(TextureInfo) << std::endl;
         normalTextureInfos = device->newBuffer(normalTexturesArray->normalTextureInfos.data(), normalBufferSize, MTL::ResourceStorageModeShared);
         normalTextureInfos->setLabel(NS::String::string("Normal Texture Info Array", NS::ASCIIStringEncoding));
     }
@@ -288,37 +280,37 @@ void Mesh::createBuffers(MTL::VertexDescriptor* vertexDescriptor) {
         vertexDescriptor->attributes()->object(VertexAttributePosition)->setFormat(MTL::VertexFormatFloat4);
         vertexDescriptor->attributes()->object(VertexAttributePosition)->setOffset(offsetof(Vertex, position));
         vertexDescriptor->attributes()->object(VertexAttributePosition)->setBufferIndex(0);
-
         // Normal
         vertexDescriptor->attributes()->object(VertexAttributeNormal)->setFormat(MTL::VertexFormatFloat4);
         vertexDescriptor->attributes()->object(VertexAttributeNormal)->setOffset(offsetof(Vertex, normal));
         vertexDescriptor->attributes()->object(VertexAttributeNormal)->setBufferIndex(0);
 
-        // Tangent
-        vertexDescriptor->attributes()->object(VertexAttributeTangent)->setFormat(MTL::VertexFormatFloat4);
-        vertexDescriptor->attributes()->object(VertexAttributeTangent)->setOffset(offsetof(Vertex, tangent));
-        vertexDescriptor->attributes()->object(VertexAttributeTangent)->setBufferIndex(0);
+        if (hasTextures) {
+            // Tangent
+            vertexDescriptor->attributes()->object(VertexAttributeTangent)->setFormat(MTL::VertexFormatFloat4);
+            vertexDescriptor->attributes()->object(VertexAttributeTangent)->setOffset(offsetof(Vertex, tangent));
+            vertexDescriptor->attributes()->object(VertexAttributeTangent)->setBufferIndex(0);
 
-        // Bitangent
-        vertexDescriptor->attributes()->object(VertexAttributeBitangent)->setFormat(MTL::VertexFormatFloat4);
-        vertexDescriptor->attributes()->object(VertexAttributeBitangent)->setOffset(offsetof(Vertex, bitangent));
-        vertexDescriptor->attributes()->object(VertexAttributeBitangent)->setBufferIndex(0);
+            // Bitangent
+            vertexDescriptor->attributes()->object(VertexAttributeBitangent)->setFormat(MTL::VertexFormatFloat4);
+            vertexDescriptor->attributes()->object(VertexAttributeBitangent)->setOffset(offsetof(Vertex, bitangent));
+            vertexDescriptor->attributes()->object(VertexAttributeBitangent)->setBufferIndex(0);
 
-        // TextureCoordinate
-        vertexDescriptor->attributes()->object(VertexAttributeTexcoord)->setFormat(MTL::VertexFormatFloat2);
-        vertexDescriptor->attributes()->object(VertexAttributeTexcoord)->setOffset(offsetof(Vertex, textureCoordinate));
-        vertexDescriptor->attributes()->object(VertexAttributeTexcoord)->setBufferIndex(0);
-        
-        // DiffuseTextureIndex
-        vertexDescriptor->attributes()->object(VertexAttributeDiffuseIndex)->setFormat(MTL::VertexFormatInt);
-        vertexDescriptor->attributes()->object(VertexAttributeDiffuseIndex)->setOffset(offsetof(Vertex, diffuseTextureIndex));
-        vertexDescriptor->attributes()->object(VertexAttributeDiffuseIndex)->setBufferIndex(0);
-        
-        // NormalTextureIndex
-        vertexDescriptor->attributes()->object(VertexAttributeNormalIndex)->setFormat(MTL::VertexFormatInt);
-        vertexDescriptor->attributes()->object(VertexAttributeNormalIndex)->setOffset(offsetof(Vertex, normalTextureIndex));
-        vertexDescriptor->attributes()->object(VertexAttributeNormalIndex)->setBufferIndex(0);
-
+            // TextureCoordinate
+            vertexDescriptor->attributes()->object(VertexAttributeTexcoord)->setFormat(MTL::VertexFormatFloat2);
+            vertexDescriptor->attributes()->object(VertexAttributeTexcoord)->setOffset(offsetof(Vertex, textureCoordinate));
+            vertexDescriptor->attributes()->object(VertexAttributeTexcoord)->setBufferIndex(0);
+            
+            // DiffuseTextureIndex
+            vertexDescriptor->attributes()->object(VertexAttributeDiffuseIndex)->setFormat(MTL::VertexFormatInt);
+            vertexDescriptor->attributes()->object(VertexAttributeDiffuseIndex)->setOffset(offsetof(Vertex, diffuseTextureIndex));
+            vertexDescriptor->attributes()->object(VertexAttributeDiffuseIndex)->setBufferIndex(0);
+            
+            // NormalTextureIndex
+            vertexDescriptor->attributes()->object(VertexAttributeNormalIndex)->setFormat(MTL::VertexFormatInt);
+            vertexDescriptor->attributes()->object(VertexAttributeNormalIndex)->setOffset(offsetof(Vertex, normalTextureIndex));
+            vertexDescriptor->attributes()->object(VertexAttributeNormalIndex)->setBufferIndex(0);
+        }
         // Set layout
         vertexDescriptor->layouts()->object(0)->setStride(sizeof(Vertex));
     }

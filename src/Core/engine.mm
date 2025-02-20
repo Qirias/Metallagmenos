@@ -188,9 +188,8 @@ void Engine::loadScene() {
 	
     std::string objPath = std::string(SCENES_PATH) + "/sponza/sponza.obj";
     meshes.push_back(new Mesh(objPath.c_str(), metalDevice, defaultVertexDescriptor, true));
-//    objPath = std::string(MODELS_PATH) + "/SMG/smg.obj";
-//    meshes.push_back(new Mesh(objPath.c_str(), metalDevice, defaultVertexDescriptor, true));
-
+    objPath = std::string(MODELS_PATH) + "/hornbug.obj";
+    meshes.push_back(new Mesh(objPath.c_str(), metalDevice, defaultVertexDescriptor, false, 1.0f));
     
 //	GLTFLoader gltfLoader(metalDevice);
 //	std::string modelPath = std::string(SCENES_PATH) + "/DamagedHelmet/DamagedHelmet.gltf";
@@ -318,7 +317,25 @@ void Engine::createRenderPipelines() {
                 {RenderTargetNormal, normalMapGBufferFormat},
                 {RenderTargetDepth, depthGBufferFormat}
             };
-            renderPipelines.createRenderPipeline(RenderPipelineType::GBuffer, gbufferConfig);
+            
+            // Create the function constant object
+            static NS::String* hasTexturesID = NS::String::string("hasTextures", NS::ASCIIStringEncoding);
+            MTL::FunctionConstantValues* hasTexturesTrue = MTL::FunctionConstantValues::alloc()->init();
+            bool trueValue = true;
+            hasTexturesTrue->setConstantValue(&trueValue, MTL::DataTypeBool, hasTexturesID);
+
+            MTL::FunctionConstantValues* hasTexturesFalse = MTL::FunctionConstantValues::alloc()->init();
+            bool falseValue = false;
+            hasTexturesFalse->setConstantValue(&falseValue, MTL::DataTypeBool, hasTexturesID);
+
+            // Create pipelines for both cases
+            RenderPipelineConfig gbufferTexturedConfig = gbufferConfig;
+            gbufferTexturedConfig.functionConstants = hasTexturesTrue;
+            renderPipelines.createRenderPipeline(RenderPipelineType::GBufferTextured, gbufferTexturedConfig);
+
+            RenderPipelineConfig gbufferNonTexturedConfig = gbufferConfig;
+            gbufferNonTexturedConfig.functionConstants = hasTexturesFalse;
+            renderPipelines.createRenderPipeline(RenderPipelineType::GBufferNonTextured, gbufferNonTexturedConfig);
 		}
 		
 		#pragma mark GBuffer depth state setup
@@ -749,10 +766,16 @@ void Engine::drawMeshes(MTL::RenderCommandEncoder* renderCommandEncoder) {
 	renderCommandEncoder->setCullMode(MTL::CullModeBack);
     
     for (int i = 0; i < meshes.size(); i++) {
+        if (meshes[i]->meshHasTextures()) {
+            renderCommandEncoder->setRenderPipelineState(renderPipelines.getRenderPipeline(RenderPipelineType::GBufferTextured));
+        } else {
+            renderCommandEncoder->setRenderPipelineState(renderPipelines.getRenderPipeline(RenderPipelineType::GBufferNonTextured));
+        }
+
         //	renderCommandEncoder->setTriangleFillMode(MTL::TriangleFillModeLines);
         renderCommandEncoder->setVertexBuffer(meshes[i]->vertexBuffer, 0, BufferIndexVertexData);
         
-        matrix_float4x4 modelMatrix = matrix4x4_translation(0.0f, 0.0f, 0.0f);
+        matrix_float4x4 modelMatrix = meshes[i]->getTransformMatrix();
         renderCommandEncoder->setVertexBytes(&modelMatrix, sizeof(modelMatrix), BufferIndexVertexBytes);
         
         // Set any textures read/sampled from the render pipeline
@@ -770,7 +793,7 @@ void Engine::drawGBuffer(MTL::RenderCommandEncoder* renderCommandEncoder)
 {
 	renderCommandEncoder->pushDebugGroup(NS::String::string("Draw G-Buffer", NS::ASCIIStringEncoding));
 	renderCommandEncoder->setCullMode(MTL::CullModeBack);
-	renderCommandEncoder->setRenderPipelineState(renderPipelines.getRenderPipeline(RenderPipelineType::GBuffer));
+//	renderCommandEncoder->setRenderPipelineState(renderPipelines.getRenderPipeline(RenderPipelineType::GBuffer));
 	renderCommandEncoder->setDepthStencilState(renderPipelines.getDepthStencilState(DepthStencilType::GBuffer));
 	renderCommandEncoder->setStencilReferenceValue(128);
     renderCommandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);

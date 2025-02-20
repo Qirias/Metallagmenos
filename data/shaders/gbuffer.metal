@@ -18,44 +18,53 @@ struct ColorInOut
 	int    normalTextureIndex;
 };
 
+constant bool hasTextures [[function_constant(0)]];
+
 struct DescriptorDefinedVertex
 {
-	float4  position    [[attribute(VertexAttributePosition)]];
-	float2  tex_coord   [[attribute(VertexAttributeTexcoord)]];
-	half4   normal      [[attribute(VertexAttributeNormal)]];
-	half4   tangent     [[attribute(VertexAttributeTangent)]];
-	half4   bitangent   [[attribute(VertexAttributeBitangent)]];
+    float4  position    [[attribute(VertexAttributePosition)]];
+    half4   normal      [[attribute(VertexAttributeNormal)]];
+    float2  tex_coord   [[attribute(VertexAttributeTexcoord), function_constant(hasTextures)]];
+    half4   tangent     [[attribute(VertexAttributeTangent), function_constant(hasTextures)]];
+    half4   bitangent   [[attribute(VertexAttributeBitangent), function_constant(hasTextures)]];
 };
 
 vertex ColorInOut gbuffer_vertex(DescriptorDefinedVertex  	in        	[[stage_in]],
 								 uint 						vertexID  	[[vertex_id]],
                      constant    Vertex* 			        vertexData  [[buffer(BufferIndexVertexData)]],
-                     constant    FrameData&		            frameData 	[[buffer(BufferIndexFrameData)]]) {
+                     constant    FrameData&		            frameData 	[[buffer(BufferIndexFrameData)]],
+                     constant    float4x4&                  modelMatrix [[buffer(BufferIndexVertexBytes)]]) {
 	
-	ColorInOut out;
+    ColorInOut out;
 
-	// Convert model position to eye space and project to clip space
-	float4 model_position = in.position;
-	float4 eye_position = frameData.scene_modelview_matrix * model_position;
-	out.position = frameData.projection_matrix * eye_position;
-	out.tex_coord = in.tex_coord;
+    // Convert model position to eye space and project to clip space
+    float4 model_position = modelMatrix * in.position;
+    float4 eye_position = frameData.scene_modelview_matrix * model_position;
+    out.position = frameData.projection_matrix * eye_position;
 
-	#if USE_EYE_DEPTH
-	out.eye_position = eye_position.xyz;
-	#endif
+    // Set default values for when textures are disabled
+    out.tex_coord = hasTextures ? in.tex_coord : float2(0, 0);
+    out.diffuseTextureIndex = hasTextures ? vertexData[vertexID].diffuseTextureIndex : -1;
+    out.normalTextureIndex = hasTextures ? vertexData[vertexID].normalTextureIndex : -1;
 
-	// Rotate tangents, bitangents, and normals by the normal matrix
-	half3x3 normalMatrix = half3x3(frameData.scene_normal_matrix);
+    #if USE_EYE_DEPTH
+    out.eye_position = eye_position.xyz;
+    #endif
 
-	// Transform normal, tangent, and bitangent to eye space
-	out.tangent = normalize(normalMatrix * in.tangent.xyz);
-	out.bitangent = -normalize(normalMatrix * in.bitangent.xyz); // Note the inversion if required
-	out.normal = normalize(normalMatrix * in.normal.xyz);
-	
-	out.diffuseTextureIndex = vertexData[vertexID].diffuseTextureIndex;
-	out.normalTextureIndex = vertexData[vertexID].normalTextureIndex;
+    // Rotate normals by the normal matrix
+    half3x3 normalMatrix = half3x3(frameData.scene_normal_matrix);
 
-	return out;
+    out.normal = normalize(normalMatrix * in.normal.xyz);
+
+    if (hasTextures) {
+        out.tangent = normalize(normalMatrix * in.tangent.xyz);
+        out.bitangent = -normalize(normalMatrix * in.bitangent.xyz);
+    } else {
+        out.tangent = half3(1, 0, 0);
+        out.bitangent = half3(0, 1, 0);
+    }
+
+    return out;
 }
 
 float linearDepth(float depth, float near, float far) {
@@ -65,10 +74,10 @@ float linearDepth(float depth, float near, float far) {
 
 fragment GBufferData gbuffer_fragment(ColorInOut            in                  [[stage_in]],
                           constant    FrameData&            frameData           [[buffer(BufferIndexFrameData)]],
-									  texture2d_array<half> baseColorMap        [[texture(TextureIndexBaseColor)]],
-									  texture2d_array<half> normalMap           [[texture(TextureIndexNormal)]],
-                          constant    TextureInfo*          diffuseTextureInfos [[buffer(BufferIndexDiffuseInfo)]],
-                          constant    TextureInfo*          normalTextureInfos  [[buffer(BufferIndexNormalInfo)]]) {
+									  texture2d_array<half> baseColorMap        [[texture(TextureIndexBaseColor),   function_constant(hasTextures)]],
+									  texture2d_array<half> normalMap           [[texture(TextureIndexNormal),      function_constant(hasTextures)]],
+                          constant    TextureInfo*          diffuseTextureInfos [[buffer(BufferIndexDiffuseInfo),   function_constant(hasTextures)]],
+                          constant    TextureInfo*          normalTextureInfos  [[buffer(BufferIndexNormalInfo),    function_constant(hasTextures)]]) {
 
 	constexpr sampler linearSampler(mip_filter::linear,
 									mag_filter::linear,
@@ -90,7 +99,7 @@ fragment GBufferData gbuffer_fragment(ColorInOut            in                  
 
 	// Sample the normal from the normal map texture array
 	half3 eye_normal = normalize(in.normal.xyz); // Default normal
-	if (in.normalTextureIndex >= 0 && (uint)in.normalTextureIndex < normalMap.get_array_size()) {
+	if (hasTextures && in.normalTextureIndex >= 0 && (uint)in.normalTextureIndex < normalMap.get_array_size()) {
 		int idx = in.normalTextureIndex;
 		float2 transformedUV = in.tex_coord *
 			(float2(normalTextureInfos[idx].width, normalTextureInfos[idx].height) /
@@ -107,7 +116,7 @@ fragment GBufferData gbuffer_fragment(ColorInOut            in                  
 
 	// Prepare GBuffer output
 	GBufferData gBuffer;
-	gBuffer.albedo_specular = base_color_sample; // Albedo (RGB) + Specular (A) if needed
+    gBuffer.albedo_specular = (!hasTextures) ? half4(0, 1, 0, -1) : base_color_sample; // Albedo (RGB) + Specular (A) or use A as emissive
 	gBuffer.normal_map = half4(eye_normal, 1.0f);
 
     float P22 = frameData.projection_matrix[2][2];
@@ -117,7 +126,6 @@ fragment GBufferData gbuffer_fragment(ColorInOut            in                  
     
 #if USE_EYE_DEPTH
 	gBuffer.depth = in.eye_position.z;
-    // Compute Linear Depth
 #elif USE_REVERSE_Z
     gBuffer.depth = near / (in.position.z * (far - near) + near);
 #else

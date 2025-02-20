@@ -83,8 +83,27 @@ MTL::RenderPipelineState* RenderPipeline::createRenderPipelineState(const Render
     MTL::RenderPipelineDescriptor* descriptor = MTL::RenderPipelineDescriptor::alloc()->init();
     descriptor->setLabel(NS::String::string(config.label.c_str(), NS::ASCIIStringEncoding));
 
-    MTL::Function* vertexFunction = library->newFunction(NS::String::string(config.vertexFunctionName.c_str(), NS::ASCIIStringEncoding));
-    MTL::Function* fragmentFunction = library->newFunction(NS::String::string(config.fragmentFunctionName.c_str(), NS::ASCIIStringEncoding));
+    MTL::Function* vertexFunction = nil;
+    MTL::Function* fragmentFunction = nil;
+    
+    if (config.functionConstants) {
+           vertexFunction = library->newFunction(NS::String::string(config.vertexFunctionName.c_str(), NS::ASCIIStringEncoding),
+               config.functionConstants,
+               &error);
+           
+           if (!error) {
+               fragmentFunction = library->newFunction(
+                   NS::String::string(config.fragmentFunctionName.c_str(), NS::ASCIIStringEncoding),
+                   config.functionConstants,
+                   &error);
+           }
+       } else {
+           // Original behavior when no function constants are provided
+           vertexFunction = library->newFunction(
+               NS::String::string(config.vertexFunctionName.c_str(), NS::ASCIIStringEncoding));
+           fragmentFunction = library->newFunction(
+               NS::String::string(config.fragmentFunctionName.c_str(), NS::ASCIIStringEncoding));
+       }
 
     assert(vertexFunction && "Failed to load vertex shader!");
 

@@ -6,18 +6,23 @@
 #include <string>
 
 // For tinyobjloader
-Mesh::Mesh(std::string filePath, MTL::Device* metalDevice, MTL::VertexDescriptor* vertexDescriptor, bool useTextures, float scale) {
+Mesh::Mesh(std::string filePath, MTL::Device* metalDevice, MTL::VertexDescriptor* vertexDescriptor, const MeshInfo info) {
     device = metalDevice;
-    hasTextures = useTextures;
+    meshInfo.scale = info.scale;
+    meshInfo.position = info.position;
+    meshInfo.hasTextures = info.hasTextures;
     
-    setScale(scale);
     loadObj(filePath);
     createBuffers(vertexDescriptor);
 }
 
 // For tinyGLTF
-Mesh::Mesh(MTL::Device* device, const Vertex* vertexData, size_t vertexCount, const uint32_t* indexData, size_t indexCount, bool useTextures, float scale)
-: device(device), hasTextures(useTextures) {
+Mesh::Mesh(MTL::Device* device, const Vertex* vertexData, size_t vertexCount, const uint32_t* indexData, size_t indexCount, const MeshInfo info)
+: device(device) {
+    meshInfo.scale = info.scale;
+    meshInfo.position = info.position;
+    meshInfo.hasTextures = info.hasTextures;
+    
     // Create vertex buffer with proper alignment
     size_t vertexBufferSize = vertexCount * sizeof(Vertex);
     
@@ -31,7 +36,7 @@ Mesh::Mesh(MTL::Device* device, const Vertex* vertexData, size_t vertexCount, co
 }
 
 Mesh::~Mesh() {
-    if (hasTextures) {
+    if (meshInfo.hasTextures) {
         normalTextures->release();
         normalTextureInfos->release();
         diffuseTextures->release();
@@ -59,7 +64,7 @@ void Mesh::loadObj(std::string filePath) {
     std::vector<std::string> diffuseFilePaths;
     std::vector<std::string> normalFilePaths;
     
-    if (hasTextures) {
+    if (meshInfo.hasTextures) {
         std::cout << "Loading Textures..." << std::endl;
         // First pass: collect all textures
         for (const auto& material : materials) {
@@ -72,7 +77,6 @@ void Mesh::loadObj(std::string filePath) {
                     int textureIndex = static_cast<int>(diffuseFilePaths.size());
                     diffuseTextureIndexMap[material.diffuse_texname] = textureIndex;
                     diffuseFilePaths.push_back(texturePath);
-//                    std::cout << "Diffuse Texture " << textureIndex << ": " << texturePath << std::endl;
                 }
             }
             
@@ -110,11 +114,11 @@ void Mesh::loadObj(std::string filePath) {
         
         for (size_t f = 0; f < shape.mesh.num_face_vertices.size(); f++) {
             int material_id = -1;
-            if (hasTextures) {
+            if (meshInfo.hasTextures) {
                 material_id = shape.mesh.material_ids[f];
             }
             
-            if (!hasTextures || material_id < 0 || material_id >= materials.size()) {
+            if (!meshInfo.hasTextures || material_id < 0 || material_id >= materials.size()) {
 //                std::cerr << "Invalid material ID: " << material_id << std::endl;
 //                continue;
             }
@@ -123,7 +127,7 @@ void Mesh::loadObj(std::string filePath) {
             int diffuseTextureIndex = -1;
             int normalTextureIndex = -1;
             
-            if (hasTextures) {
+            if (meshInfo.hasTextures) {
                 const auto& material = materials[material_id];
                 
                 if (!material.diffuse_texname.empty()) {
@@ -171,14 +175,14 @@ void Mesh::loadObj(std::string filePath) {
                     };
                 }
                 
-                if (hasTextures && idx.texcoord_index >= 0) {
+                if (meshInfo.hasTextures && idx.texcoord_index >= 0) {
                     vertex.textureCoordinate = {
                         vertexArrays.texcoords[2 * idx.texcoord_index + 0],
                         vertexArrays.texcoords[2 * idx.texcoord_index + 1]
                     };
                 }
                 
-                if (hasTextures) {
+                if (meshInfo.hasTextures) {
                     vertex.diffuseTextureIndex = diffuseTextureIndex;
                     vertex.normalTextureIndex = normalTextureIndex;
                 }
@@ -200,7 +204,7 @@ void Mesh::loadObj(std::string filePath) {
         }
     }
     
-    if (hasTextures) {
+    if (meshInfo.hasTextures) {
         calculateTangentSpace(vertices, vertexIndices);
     }
 }
@@ -257,7 +261,7 @@ void Mesh::createBuffers(MTL::VertexDescriptor* vertexDescriptor) {
     unsigned long indexBufferSize = sizeof(uint32_t) * vertexIndices.size();
     indexBuffer = device->newBuffer(vertexIndices.data(), indexBufferSize, MTL::ResourceStorageModeShared);
     
-    if (hasTextures) {
+    if (meshInfo.hasTextures) {
         // Pass previously created Texture Array Pointer
         diffuseTextures = diffuseTexturesArray->diffuseTextureArray;
         diffuseTextures->setLabel(NS::String::string("Diffuse Texture Array", NS::ASCIIStringEncoding));
@@ -285,7 +289,7 @@ void Mesh::createBuffers(MTL::VertexDescriptor* vertexDescriptor) {
         vertexDescriptor->attributes()->object(VertexAttributeNormal)->setOffset(offsetof(Vertex, normal));
         vertexDescriptor->attributes()->object(VertexAttributeNormal)->setBufferIndex(0);
 
-        if (hasTextures) {
+        if (meshInfo.hasTextures) {
             // Tangent
             vertexDescriptor->attributes()->object(VertexAttributeTangent)->setFormat(MTL::VertexFormatFloat4);
             vertexDescriptor->attributes()->object(VertexAttributeTangent)->setOffset(offsetof(Vertex, tangent));

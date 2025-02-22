@@ -56,6 +56,8 @@ void Engine::cleanup() {
 		frameDataBuffers[i]->release();
     }
 	
+    probePosBuffer->release();
+    rayBuffer->release();
     forwardDepthStencilTexture->release();
     rayTracingTexture->release();
     minMaxDepthTexture->release();
@@ -172,7 +174,7 @@ void Engine::endFrame(MTL::CommandBuffer* commandBuffer, MTL::Drawable* currentD
         commandBuffer->presentDrawable(metalDrawable);
         commandBuffer->commit();
         
-        if (frameNumber == 1) {
+        if (frameNumber == 100) {
             commandBuffer->waitUntilCompleted();
             createSphereGrid();
             createDebugLines();
@@ -185,11 +187,14 @@ void Engine::endFrame(MTL::CommandBuffer* commandBuffer, MTL::Drawable* currentD
 
 void Engine::loadScene() {
 	defaultVertexDescriptor = MTL::VertexDescriptor::alloc()->init();
-	
+    MeshInfo info;
+    info.hasTextures = true;
     std::string objPath = std::string(SCENES_PATH) + "/sponza/sponza.obj";
-    meshes.push_back(new Mesh(objPath.c_str(), metalDevice, defaultVertexDescriptor, true));
+    meshes.push_back(new Mesh(objPath.c_str(), metalDevice, defaultVertexDescriptor, info));
     objPath = std::string(MODELS_PATH) + "/hornbug.obj";
-    meshes.push_back(new Mesh(objPath.c_str(), metalDevice, defaultVertexDescriptor, false, 1.0f));
+    info.hasTextures = false;
+    info.position = {-5.0f, 0.0, 0.0};
+    meshes.push_back(new Mesh(objPath.c_str(), metalDevice, defaultVertexDescriptor, info));
     
 //	GLTFLoader gltfLoader(metalDevice);
 //	std::string modelPath = std::string(SCENES_PATH) + "/DamagedHelmet/DamagedHelmet.gltf";
@@ -458,7 +463,7 @@ void Engine::createAccelerationStructureWithDescriptors() {
     MTL::CommandQueue* commandQueue = metalDevice->newCommandQueue();
     MTL::CommandBuffer* commandBuffer = commandQueue->commandBuffer();
 
-    debugProbeCount = floor(metalLayer.drawableSize.width / (8 * 1 << cascadeLevel)) * floor(metalLayer.drawableSize.height / (8 * 1 << cascadeLevel));
+    debugProbeCount = floor(metalLayer.drawableSize.width / (probeSpacing * 1 << cascadeLevel)) * floor(metalLayer.drawableSize.height / (probeSpacing * 1 << cascadeLevel));
 
     size_t probeBufferSize = debugProbeCount * sizeof(Probe);
     probePosBuffer = metalDevice->newBuffer(probeBufferSize, MTL::ResourceStorageModeShared);
@@ -475,7 +480,13 @@ void Engine::createAccelerationStructureWithDescriptors() {
     size_t vertexOffset = 0;
     
     for (const auto& mesh : meshes) {
-        mergedVertices.insert(mergedVertices.end(), mesh->vertices.begin(), mesh->vertices.end());
+        matrix_float4x4 modelMatrix = mesh->getTransformMatrix();
+
+        for (const auto& vertex : mesh->vertices) {
+            Vertex transformedVertex = vertex;
+            transformedVertex.position = modelMatrix * vertex.position;
+            mergedVertices.push_back(transformedVertex);
+        }
 
         for (size_t index : mesh->vertexIndices) {
             mergedIndices.push_back(static_cast<uint32_t>(index + vertexOffset));
@@ -553,6 +564,7 @@ void Engine::setupTriangleResources() {
     TriangleData* resourceBufferContents = (TriangleData*)((uint8_t*)(resourceBuffer->contents()));
     size_t triangleIndex = 0;
 
+    int meshCnt = 0;
     for (const auto& mesh : meshes) {
         for (size_t i = 0; i < mesh->vertexIndices.size(); i += 3) {
             TriangleData& triangle = resourceBufferContents[triangleIndex++];
@@ -560,14 +572,15 @@ void Engine::setupTriangleResources() {
             for (size_t j = 0; j < 3; ++j) {
                 size_t vertexIndex = mesh->vertexIndices[i + j];
                 triangle.normals[j] = mesh->vertices[vertexIndex].normal;
-                triangle.colors[j] = simd::float4{0.1, 0.2, 0.3, 0.4};
+                triangle.colors[j] = simd::float4{0.1f, 0.2f, 0.3f, (meshCnt == 1) ? -1.0f : 0.4f};
             }
         }
+        meshCnt = 1;
     }
 }
 
 void Engine::createSphereGrid() {
-    const float sphereRadius = 0.02f * float(1 << cascadeLevel);
+    const float sphereRadius = 0.006f * float(1 << cascadeLevel) * probeSpacing;
     simd::float3 sphereColor = {1.0f, 0.0f, 0.0f};
     std::vector<simd::float4> spherePositions;
     
@@ -584,6 +597,7 @@ void Engine::createSphereGrid() {
 void Engine::createDebugLines() {
     std::vector<simd::float4> startPoints;
     std::vector<simd::float4> endPoints;
+    std::vector<simd::float3> colors;
     
     ProbeRay* rays = reinterpret_cast<ProbeRay*>(rayBuffer->contents());
 
@@ -591,10 +605,11 @@ void Engine::createDebugLines() {
     for (int i = 0; i < rayCount; i++) {
         startPoints.push_back(rays[i].intervalStart);
         endPoints.push_back(rays[i].intervalEnd);
+        colors.push_back(rays[i].color.xyz);
     }
 
     simd::float3 lineColor = {0.5f, 0.5f, 1.0f};
-    debug->drawLines(startPoints, endPoints, lineColor);
+    debug->drawLines(startPoints, endPoints, colors);
 }
 
 void Engine::drawDebug(MTL::RenderCommandEncoder* commandEncoder, MTL::CommandBuffer* commandBuffer) {
@@ -633,17 +648,22 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
     for (uint i = 0; i < primitiveAccelerationStructures.size(); i++) {
         computeEncoder->setAccelerationStructure(primitiveAccelerationStructures[i], BufferIndexAccelerationStructure);
         computeEncoder->useResource(primitiveAccelerationStructures[i], MTL::ResourceUsageRead);
-
     }
 
-    int tile_size = 8 * 1 << cascadeLevel;
+    // Compute the number of probes in X and Y
+    int tile_size = probeSpacing * (1 << cascadeLevel);
     size_t probeGridSizeX = (rayTracingTexture->width() + tile_size - 1) / tile_size;
     size_t probeGridSizeY = (rayTracingTexture->height() + tile_size - 1) / tile_size;
-    
+
+    // Number of rays per probe
+    size_t numRays = 8 * (1 << (2 * cascadeLevel));
+
+    // Dispatch threads for all probes and rays
     MTL::Size threadGroupSize = MTL::Size(16, 16, 1);
-    MTL::Size gridSize = MTL::Size(probeGridSizeX, probeGridSizeY, 1);
+    MTL::Size gridSize = MTL::Size(probeGridSizeX * numRays, probeGridSizeY, 1);
 
     computeEncoder->dispatchThreadgroups(gridSize, threadGroupSize);
+
     computeEncoder->popDebugGroup();
     computeEncoder->endEncoding();
 }

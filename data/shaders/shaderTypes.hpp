@@ -40,6 +40,7 @@ struct Probe {
 struct ProbeRay {
     simd::float4 intervalStart;
     simd::float4 intervalEnd;
+    simd::float4 color;
 };
 
 typedef enum RenderTargetIndex {

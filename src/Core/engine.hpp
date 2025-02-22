@@ -152,6 +152,7 @@ private:
     MTL::Buffer*                probePosBuffer;
     MTL::Buffer*                rayBuffer;
     int                         debugProbeCount = 0;
+    int                         probeSpacing = 2;
     int                         rayCount = 0;
     
     void createSphereGrid();
@@ -161,5 +162,5 @@ private:
     // Min Max Depth Buffer
     void dispatchMinMaxDepthMipmaps(MTL::CommandBuffer* commandBuffer);
     MTL::Texture* minMaxDepthTexture;
-    int cascadeLevel = 0;
+    int cascadeLevel = 1;
 };

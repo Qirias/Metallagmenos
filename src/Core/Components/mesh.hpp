@@ -58,12 +58,12 @@ namespace std {
 }
 
 struct Mesh {
-    Mesh(std::string filePath, MTL::Device* metalDevice, MTL::VertexDescriptor* vertexDescriptor, bool useTextures = false, float scale = 1.0f);
-    Mesh(MTL::Device* device, const Vertex* vertexData, size_t vertexCount, const uint32_t* indexData, size_t indexCount, bool useTextures = false, float scale = 1.0f);
+    Mesh(std::string filePath, MTL::Device* metalDevice, MTL::VertexDescriptor* vertexDescriptor, const MeshInfo info);
+    Mesh(MTL::Device* device, const Vertex* vertexData, size_t vertexCount, const uint32_t* indexData, size_t indexCount, const MeshInfo info);
 
     ~Mesh();
     
-    bool meshHasTextures() const { return hasTextures; }
+    bool meshHasTextures() const { return meshInfo.hasTextures; }
 
 public:
     void loadObj(std::string filePath);
@@ -78,32 +78,18 @@ public:
     
     matrix_float4x4 getTransformMatrix() const {
         // Create scaling matrix manually using simd notation
-        matrix_float4x4 scaleMatrix{simd::float4{scaleX, 0.0f, 0.0f, 0.0f},
-                                    simd::float4{0.0f, scaleY, 0.0f, 0.0f},
-                                    simd::float4{0.0f, 0.0f, scaleZ, 0.0f},
+        matrix_float4x4 scaleMatrix{simd::float4{meshInfo.scale.x, 0.0f, 0.0f, 0.0f},
+                                    simd::float4{0.0f, meshInfo.scale.y, 0.0f, 0.0f},
+                                    simd::float4{0.0f, 0.0f, meshInfo.scale.z, 0.0f},
                                     simd::float4{0.0f, 0.0f, 0.0f, 1.0f}};
         
-//        matrix_float4x4 posMatrix(
-//            simd::float4(0.0f, 0.0f, 0.0f, 0.0f),
-//            simd::float4(0.0f, 0.0f, 0.0f, 0.0f),
-//            simd::float4(0.0f, 0.0f, 0.0f, 0.0f),
-//            simd::float4(posX, posY, posZ, 1.0f)
-//        );
-        
-//        return matrix_multiply(scaleMatrix, posMatrix);
-        
-        return scaleMatrix;
+        matrix_float4x4 posMatrix{simd::float4{1.0f, 0.0f, 0.0f, 0.0f},
+                                  simd::float4{0.0f, 1.0f, 0.0f, 0.0f},
+                                  simd::float4{0.0f, 0.0f, 1.0f, 0.0f},
+                                  simd::float4{meshInfo.position.x, meshInfo.position.y, meshInfo.position.z, 1.0f}};
+
+        return matrix_multiply(scaleMatrix, posMatrix);
     }
-    
-   void setScale(float uniformScale) {
-       scaleX = scaleY = scaleZ = uniformScale;
-   }
-   
-   void setScale(float x, float y, float z) {
-       scaleX = x;
-       scaleY = y;
-       scaleZ = z;
-   }
     
 public:
     MTL::Device*    device;
@@ -118,7 +104,5 @@ public:
     MTL::Buffer*    diffuseTextureInfos;
     MTL::Buffer*    normalTextureInfos;
     
-    float scaleX = 1.0f;
-    float scaleY = 1.0f;
-    float scaleZ = 1.0f;
+    MeshInfo        meshInfo;
 };

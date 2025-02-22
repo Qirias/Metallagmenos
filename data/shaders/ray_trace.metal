@@ -75,54 +75,85 @@ kernel void raytracingKernel(texture2d<float, access::write>    rayTracingTextur
                              texture2d<float, access::sample>   minMaxTexture           [[texture(TextureIndexMinMaxDepth)]],
                              uint2                              tid                     [[thread_position_in_grid]]) {
     
-    int tile_size = 8 * 1 << frameData.cascadeLevel;
-    uint2 probeGridSize = uint2(frameData.framebuffer_width / tile_size, frameData.framebuffer_height / tile_size);
+    // Compute probe grid size
+    uint probeSpacing = 2;
+    uint probeGridSizeX = (frameData.framebuffer_width + (probeSpacing * (1 << frameData.cascadeLevel)) - 1) / (probeSpacing * (1 << frameData.cascadeLevel));
+    uint probeGridSizeY = (frameData.framebuffer_height + (probeSpacing * (1 << frameData.cascadeLevel)) - 1) / (probeSpacing * (1 << frameData.cascadeLevel));
 
-    if (tid.x >= probeGridSize.x || tid.y >= probeGridSize.y) {
+    // Total number of rays per probe
+    uint numRays = 8 * (1 << (2 * frameData.cascadeLevel));
+
+    // Extract probe index and ray index
+    uint probeIndexX = tid.x / numRays;
+    uint probeIndexY = tid.y;
+    uint rayIndex    = tid.x % numRays;
+
+    if (probeIndexX >= probeGridSizeX || probeIndexY >= probeGridSizeY) {
         return;
     }
 
-    float2 uv = (float2(tid) + 0.5f) / float2(probeGridSize);
-    float2 ndc = uv * 2.0f - 1.0f;
-    ndc.y = -ndc.y;
-    
-    uint probeIndex = tid.y * probeGridSize.x + tid.x;
+    uint probeIndex = probeIndexY * probeGridSizeX + probeIndexX;
 
+    // Compute UV coordinates
+    float2 uv = (float2(probeIndexX, probeIndexY) + 0.5f) / float2(probeGridSizeX, probeGridSizeY);
+    float2 ndc = uv * 2.0f - 1.0f;
+    ndc.y = -ndc.y;  // Flip Y for correct NDC
+
+    // Sample depth from the min-max texture
     float2 minMaxDepth = minMaxTexture.sample(depthSampler, uv, level(frameData.cascadeLevel)).xy;
     float probeDepth = minMaxDepth.x;
-    
+
+    // Reconstruct world-space position
     float3 worldPos = reconstructWorldPosition(ndc, probeDepth,
-                                            frameData.projection_matrix_inverse,
-                                            frameData.inverse_view_matrix);
-    
-    probeData[probeIndex].position = float4(worldPos, (minMaxDepth.x != minMaxDepth.y ? 1.0f : 0.0f));
-    
-    float shortestSide = min(frameData.framebuffer_width, frameData.framebuffer_height);
-        
-    float baseLength = pow(2.0f, float(frameData.cascadeLevel)) / shortestSide;
-    float intervalStart = baseLength;
-    float intervalEnd = baseLength * 16.0f;
+                                               frameData.projection_matrix_inverse,
+                                               frameData.inverse_view_matrix);
 
-    int numRays = 8 * (1 << (2 * frameData.cascadeLevel));
-
-    for (int i = 0; i < numRays; ++i) {
-        float3 rayDir = getRayDirection(i, frameData.cascadeLevel);
-        
-        ray ray;
-        ray.origin = worldPos;
-        ray.direction = rayDir;
-        ray.min_distance = intervalStart;
-        ray.max_distance = intervalEnd;
-        
-        intersector<triangle_data> intersector;
-//        intersection_result<triangle_data> result = intersector.intersect(ray, accelerationStructure);
-        
-        float3 startPoint = worldPos + rayDir * intervalStart;
-        float3 endPoint = worldPos + rayDir * intervalEnd;
-        
-        rayData[probeIndex * numRays + i].intervalStart = float4(startPoint, 1.0);
-        rayData[probeIndex * numRays + i].intervalEnd = float4(endPoint, 1.0);
+    // Store probe position if it's the first ray
+    if (rayIndex == 0) {
+        probeData[probeIndex].position = float4(worldPos, (minMaxDepth.x != minMaxDepth.y ? 1.0f : 0.0f));
     }
 
-    rayTracingTexture.write(float4(probeDepth, probeDepth, probeDepth, 1.0), tid);
+    // Define ray tracing interval based on cascade level
+    float shortestSide = min(frameData.framebuffer_width, frameData.framebuffer_height);
+    float baseLength = pow(2.0f, float(frameData.cascadeLevel)) / shortestSide;
+    float intervalStart = baseLength;
+    float intervalEnd = baseLength * 8.0f;
+
+    // Get ray direction
+    float3 rayDir = getRayDirection(rayIndex, frameData.cascadeLevel);
+
+    // Define ray
+    ray ray;
+    ray.origin = worldPos;
+    ray.direction = rayDir;
+    ray.min_distance = intervalStart;
+    ray.max_distance = intervalEnd;
+
+    intersector<triangle_data> intersector;
+    intersection_result<triangle_data> result = intersector.intersect(ray, accelerationStructure);
+
+    // Compute interval start and end points
+    float3 startPoint = worldPos + rayDir * intervalStart;
+    float3 endPoint = worldPos + rayDir * intervalEnd;
+
+    // Store interval data
+    rayData[probeIndex * numRays + rayIndex].intervalStart = float4(startPoint, 1.0);
+    rayData[probeIndex * numRays + rayIndex].intervalEnd = float4(endPoint, 1.0);
+    
+    if (result.type != intersection_type::none) {
+        unsigned int primitiveIndex = result.primitive_id;
+        const device TriangleResources::TriangleData& triangle = resources[primitiveIndex];
+        
+        if (triangle.colors[0].a == -1.0f)
+            rayData[probeIndex * numRays + rayIndex].color = float4(1.0, 0.0, 0.0, 1.0);
+        else
+            rayData[probeIndex * numRays + rayIndex].color = float4(0.5f, 0.5f, 1.0f, 1.0);
+    }
+    else
+        rayData[probeIndex * numRays + rayIndex].color = float4(0.5f, 0.5f, 1.0f, 1.0);
+    
+    // Write probe depth to texture if first ray
+    if (rayIndex == 0) {
+        rayTracingTexture.write(float4(probeDepth, probeDepth, probeDepth, 1.0), uint2(probeIndexX, probeIndexY));
+    }
 }

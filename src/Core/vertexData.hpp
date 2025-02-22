@@ -32,3 +32,9 @@ struct DebugLineVertex {
     float4 position;
     float4 color;
 };
+
+struct MeshInfo {
+    bool hasTextures = false;
+    float3 scale = float3{1.0, 1.0, 1.0};
+    float3 position = float3{0, 0, 0};
+};

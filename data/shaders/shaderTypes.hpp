@@ -62,12 +62,13 @@ typedef enum VertexAttributes {
 } VertexAttributes;
 
 typedef enum TextureIndex {
-	TextureIndexBaseColor = 0,
-	TextureIndexSpecular  = 1,
-	TextureIndexNormal    = 2,
-	TextureIndexAlpha     = 3,
-    TextureIndexRaytracing = 4,
-    TextureIndexMinMaxDepth = 5,
+	TextureIndexBaseColor 			= 0,
+	TextureIndexSpecular  			= 1,
+	TextureIndexNormal    			= 2,
+	TextureIndexAlpha     			= 3,
+    TextureIndexRaytracing 			= 4,
+    TextureIndexMinMaxDepth 		= 5,
+	TextureIndexDirectionEncoding  	= 6,
 
 	NumMeshTextures = TextureIndexNormal + 1
 
@@ -79,8 +80,8 @@ typedef enum BufferIndex {
     BufferIndexFrameData                = 2,
     BufferIndexResources                = 3,
     BufferIndexAccelerationStructure    = 4,
-    BufferIndexDiffuseInfo             = 5,
-    BufferIndexNormalInfo              = 6,
+    BufferIndexDiffuseInfo             	= 5,
+    BufferIndexNormalInfo              	= 6,
     BufferIndexProbeData                = 7,
     BufferIndexProbeRayData             = 8
 } BufferIndex;

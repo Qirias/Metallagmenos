@@ -162,5 +162,9 @@ private:
     // Min Max Depth Buffer
     void dispatchMinMaxDepthMipmaps(MTL::CommandBuffer* commandBuffer);
     MTL::Texture* minMaxDepthTexture;
-    int cascadeLevel = 1;
+    int cascadeLevel = 5;
+
+    // Direction First
+    std::vector<MTL::Texture*>  directionTextures;
+    void dispatchDirectionEncoding(MTL::CommandBuffer* commandBuffer);
 };

@@ -84,7 +84,7 @@ private:
 	
 	dispatch_semaphore_t                                inFlightSemaphore;
     std::array<dispatch_semaphore_t, MaxFramesInFlight> frameSemaphores;
-    uint8_t                                             currentFrameIndex;
+    uint                                                currentFrameIndex;
 	
 	// Buffers used to store dynamically changing per-frame data
 	MTL::Buffer* 		frameDataBuffers[MaxFramesInFlight];
@@ -146,14 +146,14 @@ private:
     void dispatchRaytracing(MTL::CommandBuffer* commandBuffer);
     
     // Forward Debug
-    std::unique_ptr<Debug>      debug;
-    MTL::RenderPassDescriptor*  forwardDescriptor;
-    MTL::Texture*               forwardDepthStencilTexture;
-    MTL::Buffer*                probePosBuffer;
-    MTL::Buffer*                rayBuffer;
-    int                         debugProbeCount = 0;
-    int                         probeSpacing = 2;
-    int                         rayCount = 0;
+    std::unique_ptr<Debug>                  debug;
+    MTL::RenderPassDescriptor*              forwardDescriptor;
+    MTL::Texture*                           forwardDepthStencilTexture;
+    std::vector<std::vector<MTL::Buffer*>>  probePosBuffer;
+    std::vector<std::vector<MTL::Buffer*>>  rayBuffer;
+    int                                     debugProbeCount = 0;
+    int                                     probeSpacing = 2;
+    int                                     rayCount = 0;
     
     void createSphereGrid();
     void createDebugLines();
@@ -163,8 +163,7 @@ private:
     void dispatchMinMaxDepthMipmaps(MTL::CommandBuffer* commandBuffer);
     MTL::Texture* minMaxDepthTexture;
     int cascadeLevel = 5;
-
-    // Direction First
-    std::vector<MTL::Texture*>  directionTextures;
-    void dispatchDirectionEncoding(MTL::CommandBuffer* commandBuffer);
+    
+    std::vector<MTL::Texture*>              directionTextures;
+    std::vector<std::vector<MTL::Buffer*>>  cascadeDataBuffer;
 };

@@ -33,6 +33,11 @@ struct FrameData {
 	simd::float3x3 scene_normal_matrix;          // 48 bytes
 };
 
+struct CascadeData {
+    uint cascadeLevel;
+    uint probeSpacing;
+};
+
 struct Probe {
     simd::float4 position;
 };
@@ -66,9 +71,9 @@ typedef enum TextureIndex {
 	TextureIndexSpecular  			= 1,
 	TextureIndexNormal    			= 2,
 	TextureIndexAlpha     			= 3,
-    TextureIndexRaytracing 			= 4,
+    TextureIndexRadiance 			= 4,
     TextureIndexMinMaxDepth 		= 5,
-	TextureIndexDirectionEncoding  	= 6,
+    
 
 	NumMeshTextures = TextureIndexNormal + 1
 
@@ -83,5 +88,6 @@ typedef enum BufferIndex {
     BufferIndexDiffuseInfo             	= 5,
     BufferIndexNormalInfo              	= 6,
     BufferIndexProbeData                = 7,
-    BufferIndexProbeRayData             = 8
+    BufferIndexProbeRayData             = 8,
+    BufferIndexCascadeData              = 9
 } BufferIndex;

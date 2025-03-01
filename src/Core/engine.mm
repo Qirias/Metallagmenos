@@ -23,6 +23,7 @@ void Engine::init() {
     createCommandQueue();
 	loadScene();
     createDefaultLibrary();
+    createBuffers();
     renderPipelines.initialize(metalDevice, metalDefaultLibrary);
     createRenderPipelines();
 	createViewRenderPassDescriptor();
@@ -52,13 +53,17 @@ void Engine::cleanup() {
     for (auto& mesh : meshes)
             delete mesh;
 	
-	for(uint8_t i = 0; i < MaxFramesInFlight; i++) {
-		frameDataBuffers[i]->release();
+	for(int frame = 0; frame < MaxFramesInFlight; frame++) {
+		frameDataBuffers[frame]->release();
+        
+        for (int cascade = 0; cascade < cascadeLevel; cascade++) {
+            cascadeDataBuffer[frame][cascade]->release();
+            probePosBuffer[frame][cascade]->release();
+            rayBuffer[frame][cascade]->release();
+        }
     }
 	
     directionTextures.clear();
-    probePosBuffer->release();
-    rayBuffer->release();
     forwardDepthStencilTexture->release();
     rayTracingTexture->release();
     minMaxDepthTexture->release();
@@ -219,11 +224,6 @@ void Engine::createDefaultLibrary() {
     NS::Error* error = nullptr;
 
     printf("Selected Device: %s\n", metalDevice->name()->utf8String());
-
-    for(uint8_t i = 0; i < MaxFramesInFlight; i++) {
-        frameDataBuffers[i] = metalDevice->newBuffer(sizeof(FrameData), MTL::ResourceStorageModeShared);
-        frameDataBuffers[i]->setLabel(NS::String::string("FrameData", NS::ASCIIStringEncoding));
-    }
     
     metalDefaultLibrary = metalDevice->newLibrary(libraryPath, &error);
     
@@ -233,6 +233,43 @@ void Engine::createDefaultLibrary() {
             std::cerr << "\nError: " << error->localizedDescription()->utf8String();
         }
         std::exit(-1);
+    }
+}
+
+void Engine::createBuffers() {
+ 
+    cascadeDataBuffer.resize(MaxFramesInFlight);
+    probePosBuffer.resize(MaxFramesInFlight);
+    rayBuffer.resize(MaxFramesInFlight);
+    
+    for (int frame = 0; frame < MaxFramesInFlight; frame++) {
+        frameDataBuffers[frame] = metalDevice->newBuffer(sizeof(FrameData), MTL::ResourceStorageModeShared);
+        frameDataBuffers[frame]->setLabel(NS::String::string("FrameData", NS::ASCIIStringEncoding));
+        
+        cascadeDataBuffer[frame].resize(cascadeLevel);
+        probePosBuffer[frame].resize(cascadeLevel);
+        rayBuffer[frame].resize(cascadeLevel);
+        for (int cascade = 0; cascade < cascadeLevel; cascade++) {
+            std::string labelStr = "Frame: " + std::to_string(frame) + "|CascadeData: " + std::to_string(cascade);
+            NS::String* label = NS::String::string(labelStr.c_str(), NS::ASCIIStringEncoding);
+            cascadeDataBuffer[frame][cascade] = metalDevice->newBuffer(sizeof(CascadeData), MTL::ResourceStorageModeShared);
+            cascadeDataBuffer[frame][cascade]->setLabel(label);
+            
+            debugProbeCount = floor(metalLayer.drawableSize.width / (probeSpacing * 1 << cascade)) * floor(metalLayer.drawableSize.height / (probeSpacing * 1 << cascade));
+            size_t probeBufferSize = debugProbeCount * sizeof(Probe);
+            rayCount = debugProbeCount * 8 * (1 << (2 * cascade));
+            size_t rayBufferSize = rayCount * sizeof(ProbeRay);
+            
+            labelStr = "Frame: " + std::to_string(frame) + "|CascadeProbes: " + std::to_string(cascade);
+            label = NS::String::string(labelStr.c_str(), NS::ASCIIStringEncoding);
+            probePosBuffer[frame][cascade] = metalDevice->newBuffer(probeBufferSize, MTL::ResourceStorageModeShared);
+            probePosBuffer[frame][cascade]->setLabel(NS::String::string("probePosBuffer", NS::ASCIIStringEncoding));
+            
+            labelStr = "Frame: " + std::to_string(frame) + "|CascadeRays: " + std::to_string(cascade);
+            label = NS::String::string(labelStr.c_str(), NS::ASCIIStringEncoding);
+            rayBuffer[frame][cascade] = metalDevice->newBuffer(rayBufferSize, MTL::ResourceStorageModeShared);
+            rayBuffer[frame][cascade]->setLabel(NS::String::string("rayBuffer", NS::ASCIIStringEncoding));
+        }
     }
 }
 
@@ -457,15 +494,6 @@ void Engine::createRenderPipelines() {
             renderPipelines.createComputePipeline(ComputePipelineType::MinMaxDepth, minMaxDepthConfig);
         }
     }
-
-    #pragma mark Direction Encoding
-    {
-        ComputePipelineConfig directionConfig{
-            .label = "Direction Encoding",
-            .computeFunctionName = "direction_encoding_kernel"
-        };
-        renderPipelines.createComputePipeline(ComputePipelineType::DirectionEncoding, directionConfig);
-    }
 }
 
 void Engine::createAccelerationStructureWithDescriptors() {
@@ -473,17 +501,6 @@ void Engine::createAccelerationStructureWithDescriptors() {
     MTL::CommandQueue* commandQueue = metalDevice->newCommandQueue();
     MTL::CommandBuffer* commandBuffer = commandQueue->commandBuffer();
 
-    debugProbeCount = floor(metalLayer.drawableSize.width / (probeSpacing * 1 << cascadeLevel)) * floor(metalLayer.drawableSize.height / (probeSpacing * 1 << cascadeLevel));
-
-    size_t probeBufferSize = debugProbeCount * sizeof(Probe);
-    probePosBuffer = metalDevice->newBuffer(probeBufferSize, MTL::ResourceStorageModeShared);
-    probePosBuffer->setLabel(NS::String::string("probePosBuffer", NS::ASCIIStringEncoding));
-    
-    rayCount = debugProbeCount * 8 * (1 << (2 * cascadeLevel));
-    size_t rayBufferSize = rayCount * sizeof(ProbeRay);
-    rayBuffer = metalDevice->newBuffer(rayBufferSize, MTL::ResourceStorageModeShared);
-    rayBuffer->setLabel(NS::String::string("rayBuffer", NS::ASCIIStringEncoding));
-    
     std::vector<Vertex> mergedVertices;
     std::vector<uint32_t> mergedIndices;
 
@@ -590,12 +607,15 @@ void Engine::setupTriangleResources() {
 }
 
 void Engine::createSphereGrid() {
-    const float sphereRadius = 0.006f * float(1 << cascadeLevel) * probeSpacing;
+    int debugCascadeLevel = 0;
+    debugProbeCount = floor(metalLayer.drawableSize.width / (probeSpacing * 1 << debugCascadeLevel)) * floor(metalLayer.drawableSize.height / (probeSpacing * 1 << debugCascadeLevel));
+    
+    const float sphereRadius = 0.006f * float(1 << debugCascadeLevel) * probeSpacing;
     simd::float3 sphereColor = {1.0f, 0.0f, 0.0f};
     std::vector<simd::float4> spherePositions;
     
-    Probe* probes = reinterpret_cast<Probe*>(probePosBuffer->contents());
-
+    Probe* probes = reinterpret_cast<Probe*>(probePosBuffer[currentFrameIndex][debugCascadeLevel]->contents());
+        
      for (int i = 0; i < debugProbeCount; ++i) {
          spherePositions.push_back(probes[i].position);
 //         std::cout << "Probe: " << i << "\tx: " << probes[i].position.x << "\ty: " << probes[i].position.y << "\tz: " << probes[i].position.z << "\tw: " << probes[i].position.w << "\n";
@@ -605,20 +625,21 @@ void Engine::createSphereGrid() {
 }
 
 void Engine::createDebugLines() {
+    int debugRayLevel = 0;
+    rayCount = debugProbeCount * 8 * (1 << (2 * debugRayLevel));
+    
     std::vector<simd::float4> startPoints;
     std::vector<simd::float4> endPoints;
-    std::vector<simd::float3> colors;
+    std::vector<simd::float4> colors;
     
-    ProbeRay* rays = reinterpret_cast<ProbeRay*>(rayBuffer->contents());
-
+    ProbeRay* rays = reinterpret_cast<ProbeRay*>(rayBuffer[currentFrameIndex][debugRayLevel]->contents());
     
     for (int i = 0; i < rayCount; i++) {
         startPoints.push_back(rays[i].intervalStart);
         endPoints.push_back(rays[i].intervalEnd);
-        colors.push_back(rays[i].color.xyz);
+        colors.push_back(rays[i].color);
     }
 
-    simd::float3 lineColor = {0.5f, 0.5f, 1.0f};
     debug->drawLines(startPoints, endPoints, colors);
 }
 
@@ -636,84 +657,103 @@ void Engine::drawDebug(MTL::RenderCommandEncoder* commandEncoder, MTL::CommandBu
     editor->endFrame(commandBuffer, commandEncoder);
 }
 
-void Engine::dispatchDirectionEncoding(MTL::CommandBuffer* commandBuffer) {
-    MTL::ComputeCommandEncoder* computeEncoder = commandBuffer->computeCommandEncoder();
-    computeEncoder->setLabel(NS::String::string("Direction Encoding", NS::ASCIIStringEncoding));
+void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
 
-    computeEncoder->setComputePipelineState(renderPipelines.getComputePipeline(ComputePipelineType::DirectionEncoding));
-    computeEncoder->setBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
-
-    for (int cascade = 0; cascade < 5; ++cascade) {
-        std::string labelStr = "DirectionCascade: " + std::to_string(cascade);
-        NS::String* label = NS::String::string(labelStr.c_str(), NS::ASCIIStringEncoding);
-        computeEncoder->pushDebugGroup(label);
-
-        computeEncoder->setTexture(directionTextures[cascade], TextureIndexDirectionEncoding);
-        computeEncoder->setBytes(&cascade, sizeof(int), 0);
-
-        int tileSize = probeSpacing * (1 << cascade);
-        size_t probeGridSizeX = (metalDrawable->texture()->width() + tileSize - 1) / tileSize;
-        size_t probeGridSizeY = (metalDrawable->texture()->height() + tileSize - 1) / tileSize;
+    for (int level = 0; level < cascadeLevel; ++level) {
+        MTL::ComputeCommandEncoder* computeEncoder = commandBuffer->computeCommandEncoder();
+        computeEncoder->setLabel(NS::String::string(("Ray Tracing Cascade " + std::to_string(level)).c_str(), NS::ASCIIStringEncoding));
         
-        size_t numRays = 8 * (1 << (2 * cascade));
-        
-        size_t totalThreads = probeGridSizeX * probeGridSizeY * numRays;
+        // Update cascade level in frame data
+        CascadeData *cascadeData = reinterpret_cast<CascadeData*>(cascadeDataBuffer[currentFrameIndex][level]->contents());
+        cascadeData->cascadeLevel = level;
+        cascadeData->probeSpacing = probeSpacing;
+
+        computeEncoder->setComputePipelineState(renderPipelines.getComputePipeline(ComputePipelineType::Raytracing));
+        computeEncoder->setTexture(directionTextures[level], TextureIndexRadiance);
+        computeEncoder->setBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
+        computeEncoder->setBuffer(cascadeDataBuffer[currentFrameIndex][level], 0, BufferIndexCascadeData);
+        computeEncoder->setBuffer(resourceBuffer, 0, BufferIndexResources);
+        computeEncoder->setBuffer(probePosBuffer[currentFrameIndex][level], 0, BufferIndexProbeData);
+        computeEncoder->setBuffer(rayBuffer[currentFrameIndex][level], 0, BufferIndexProbeRayData);
+        computeEncoder->setTexture(minMaxDepthTexture, TextureIndexMinMaxDepth);
+
+        computeEncoder->useResource(resourceBuffer, MTL::ResourceUsageRead);
+        computeEncoder->useResource(probePosBuffer[currentFrameIndex][level], MTL::ResourceUsageWrite);
+        computeEncoder->useResource(rayBuffer[currentFrameIndex][level], MTL::ResourceUsageWrite);
+        computeEncoder->useResource(minMaxDepthTexture, MTL::ResourceUsageRead);
+        computeEncoder->useResource(directionTextures[level], MTL::ResourceUsageWrite);
+
+        // Set acceleration structures
+        for (uint i = 0; i < primitiveAccelerationStructures.size(); i++) {
+            computeEncoder->setAccelerationStructure(primitiveAccelerationStructures[i], BufferIndexAccelerationStructure);
+            computeEncoder->useResource(primitiveAccelerationStructures[i], MTL::ResourceUsageRead);
+        }
+
+        // Compute probe grid and thread counts
+        int tile_size = probeSpacing * (1 << level);
+        size_t probeGridSizeX = (metalDrawable->texture()->width() + tile_size - 1) / tile_size;
+        size_t probeGridSizeY = (metalDrawable->texture()->height() + tile_size - 1) / tile_size;
+        size_t numRays = 8 * (1 << (2 * level));
+        size_t totalProbes = probeGridSizeX * probeGridSizeY;
+        size_t totalThreads = totalProbes * numRays;
+
         MTL::Size threadGroupSize = MTL::Size(128, 1, 1);
         size_t numThreadGroups = (totalThreads + threadGroupSize.width - 1) / threadGroupSize.width;
+        MTL::Size gridSize = MTL::Size(numThreadGroups * threadGroupSize.width, 1, 1);
 
+//        std::cout << "Cascade " << level << ": Probes " << probeGridSizeX << "x" << probeGridSizeY
+//                  << ", Rays/Probe " << numRays << ", Total Threads " << totalThreads << "\n";
+//        std::cout << "Frame " << currentFrameIndex << ", Cascade " << level << ", Threads " << totalThreads << "\n";
         computeEncoder->dispatchThreadgroups(MTL::Size(numThreadGroups, 1, 1), threadGroupSize);
-        computeEncoder->popDebugGroup();
+        computeEncoder->endEncoding();
     }
-
-    computeEncoder->endEncoding();
 }
 
-void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
-    MTL::ComputeCommandEncoder* computeEncoder = commandBuffer->computeCommandEncoder();
-    computeEncoder->setLabel(NS::String::string("Ray Tracing", NS::ASCIIStringEncoding));
-    
-    computeEncoder->setComputePipelineState(renderPipelines.getComputePipeline(ComputePipelineType::Raytracing));
-    computeEncoder->setTexture(rayTracingTexture, TextureIndexRaytracing);
-    computeEncoder->setBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
-    computeEncoder->setBuffer(resourceBuffer, 0, BufferIndexResources);
-    computeEncoder->setBuffer(probePosBuffer, 0, BufferIndexProbeData);
-    computeEncoder->setBuffer(rayBuffer, 0, BufferIndexProbeRayData);
-    computeEncoder->setTexture(minMaxDepthTexture, TextureIndexMinMaxDepth);
-    computeEncoder->setTexture(directionTextures[0], TextureIndexDirectionEncoding);
-    
-    
-    computeEncoder->useResource(resourceBuffer, MTL::ResourceUsageRead);
-    computeEncoder->useResource(probePosBuffer, MTL::ResourceUsageWrite);
-    computeEncoder->useResource(rayBuffer, MTL::ResourceUsageWrite);
-    computeEncoder->useResource(minMaxDepthTexture, MTL::ResourceUsageRead);
-    computeEncoder->useResource(rayTracingTexture, MTL::ResourceUsageWrite);
-    computeEncoder->useResource(directionTextures[0], MTL::ResourceUsageRead);
-    
-
-    // Set acceleration structures
-    for (uint i = 0; i < primitiveAccelerationStructures.size(); i++) {
-        computeEncoder->setAccelerationStructure(primitiveAccelerationStructures[i], BufferIndexAccelerationStructure);
-        computeEncoder->useResource(primitiveAccelerationStructures[i], MTL::ResourceUsageRead);
-    }
-
-    // Compute the number of probes in X and Y
-    int tile_size = probeSpacing * (1 << cascadeLevel);
-    size_t probeGridSizeX = (rayTracingTexture->width() + tile_size - 1) / tile_size;
-    size_t probeGridSizeY = (rayTracingTexture->height() + tile_size - 1) / tile_size;
-
-    size_t numRays = 8 * (1 << (2 * cascadeLevel));
-    size_t totalProbes = probeGridSizeX * probeGridSizeY;
-    size_t totalThreads = totalProbes * numRays;
-
-    MTL::Size threadGroupSize = MTL::Size(128, 1, 1);
-    size_t numThreadGroups = (totalThreads + threadGroupSize.width - 1) / threadGroupSize.width;
-
-    MTL::Size gridSize = MTL::Size(numThreadGroups * threadGroupSize.width, 1, 1);
-    computeEncoder->dispatchThreadgroups(MTL::Size(numThreadGroups, 1, 1), threadGroupSize);
-
-    computeEncoder->popDebugGroup();
-    computeEncoder->endEncoding();
-}
+//void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
+//    MTL::ComputeCommandEncoder* computeEncoder = commandBuffer->computeCommandEncoder();
+//    computeEncoder->setLabel(NS::String::string("Ray Tracing", NS::ASCIIStringEncoding));
+//    
+//    computeEncoder->setComputePipelineState(renderPipelines.getComputePipeline(ComputePipelineType::Raytracing));
+//    computeEncoder->setTexture(directionTextures[0], TextureIndexRadiance);
+//    computeEncoder->setBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
+//    computeEncoder->setBuffer(resourceBuffer, 0, BufferIndexResources);
+//    computeEncoder->setBuffer(probePosBuffer, 0, BufferIndexProbeData);
+//    computeEncoder->setBuffer(rayBuffer, 0, BufferIndexProbeRayData);
+//    computeEncoder->setTexture(minMaxDepthTexture, TextureIndexMinMaxDepth);
+//    
+//    
+//    computeEncoder->useResource(resourceBuffer, MTL::ResourceUsageRead);
+//    computeEncoder->useResource(probePosBuffer, MTL::ResourceUsageWrite);
+//    computeEncoder->useResource(rayBuffer, MTL::ResourceUsageWrite);
+//    computeEncoder->useResource(minMaxDepthTexture, MTL::ResourceUsageRead);
+//    computeEncoder->useResource(rayTracingTexture, MTL::ResourceUsageWrite);
+//    computeEncoder->useResource(directionTextures[0], MTL::ResourceUsageRead);
+//    
+//
+//    // Set acceleration structures
+//    for (uint i = 0; i < primitiveAccelerationStructures.size(); i++) {
+//        computeEncoder->setAccelerationStructure(primitiveAccelerationStructures[i], BufferIndexAccelerationStructure);
+//        computeEncoder->useResource(primitiveAccelerationStructures[i], MTL::ResourceUsageRead);
+//    }
+//
+//    // Compute the number of probes in X and Y
+//    int tile_size = probeSpacing * (1 << cascadeLevel);
+//    size_t probeGridSizeX = (rayTracingTexture->width() + tile_size - 1) / tile_size;
+//    size_t probeGridSizeY = (rayTracingTexture->height() + tile_size - 1) / tile_size;
+//
+//    size_t numRays = 8 * (1 << (2 * cascadeLevel));
+//    size_t totalProbes = probeGridSizeX * probeGridSizeY;
+//    size_t totalThreads = totalProbes * numRays;
+//
+//    MTL::Size threadGroupSize = MTL::Size(128, 1, 1);
+//    size_t numThreadGroups = (totalThreads + threadGroupSize.width - 1) / threadGroupSize.width;
+//
+//    MTL::Size gridSize = MTL::Size(numThreadGroups * threadGroupSize.width, 1, 1);
+//    computeEncoder->dispatchThreadgroups(MTL::Size(numThreadGroups, 1, 1), threadGroupSize);
+//
+//    computeEncoder->popDebugGroup();
+//    computeEncoder->endEncoding();
+//}
 
 void Engine::createViewRenderPassDescriptor() {
 	MTL::TextureDescriptor* gbufferTextureDesc = MTL::TextureDescriptor::alloc()->init();
@@ -817,41 +857,32 @@ void Engine::createViewRenderPassDescriptor() {
     descriptor->release();
 
     // Direction Texture
-    int baseRayCount = 8;
-    int probeCountWidth = floor(metalDrawable->texture()->width() / float(probeSpacing * (1 << 0)));
-    int probeCountHeight = floor(metalDrawable->texture()->height() / float(probeSpacing * (1 << 0)));
+    directionTextures.resize(cascadeLevel);
 
-    int totalProbes = probeCountWidth * probeCountHeight;
-    int totalRays = totalProbes * baseRayCount;
+    for (int cascade = 0; cascade < cascadeLevel; ++cascade) {
+        int tileSize = probeSpacing * (1 << cascade);
+        unsigned long probeGridSizeX = (metalDrawable->texture()->width() + tileSize - 1) / tileSize;
+        unsigned long probeGridSizeY = (metalDrawable->texture()->height() + tileSize - 1) / tileSize;
+        uint numRays = 8 * (1 << (2 * cascade));
+        uint probeDim = cascade == 0 ? 4 : uint(ceil(sqrt(float(numRays))));
+        if (cascade == 5) probeDim = 64;
+        else if (cascade == 6) probeDim = 182;
 
-    // Compute texture width as the largest power of 2 <= sqrt(totalRays)
-    int texWidth = 1;
-    while (texWidth * 2 <= sqrt(float(totalRays))) {
-        texWidth *= 2;
-    }
+        MTL::TextureDescriptor* desc = MTL::TextureDescriptor::alloc()->init();
+        desc->setTextureType(MTL::TextureType2D);
+        desc->setPixelFormat(MTL::PixelFormatRGBA16Float);
+        desc->setWidth(probeGridSizeX * probeDim);
+        desc->setHeight(probeGridSizeY * probeDim);
+        desc->setStorageMode(MTL::StorageModeShared);
+        desc->setUsage(MTL::TextureUsageShaderRead | MTL::TextureUsageShaderWrite);
 
-    // Compute height to fit all rays
-    int texHeight = (totalRays + texWidth - 1) / texWidth; // Round up to fit all rays
-    
-    std::cout << "Width: " << texWidth << "\tHeight: " << texHeight << "\n";
-
-    // Create Metal texture
-    MTL::TextureDescriptor* directionDescriptor = MTL::TextureDescriptor::alloc()->init();
-    directionDescriptor->setTextureType(MTL::TextureType2D);
-    directionDescriptor->setPixelFormat(MTL::PixelFormatRG16Float);
-    directionDescriptor->setWidth(texWidth);
-    directionDescriptor->setHeight(texHeight);
-    directionDescriptor->setStorageMode(MTL::StorageModeShared);
-    directionDescriptor->setUsage(MTL::TextureUsageShaderRead | MTL::TextureUsageShaderWrite);
-    
-    for (int i = 0; i < 5; i++) {
-        std::string labelStr = "Direction: " + std::to_string(i);
+        std::string labelStr = "Radiance_Cascade_" + std::to_string(cascade);
         NS::String* label = NS::String::string(labelStr.c_str(), NS::ASCIIStringEncoding);
-        
-        directionTextures.push_back(metalDevice->newTexture(directionDescriptor));
-        directionTextures[i]->setLabel(label);
+        directionTextures[cascade] = metalDevice->newTexture(desc);
+        directionTextures[cascade]->setLabel(label);
+
+        desc->release();
     }
-    directionDescriptor->release();
 
 }
 
@@ -1015,7 +1046,6 @@ void Engine::draw() {
     }
 
     dispatchMinMaxDepthMipmaps(commandBuffer);
-    dispatchDirectionEncoding(commandBuffer);
     dispatchRaytracing(commandBuffer);
 
     // Forward/debug render pass descriptor setup

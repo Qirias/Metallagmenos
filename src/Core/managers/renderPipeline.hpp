@@ -15,8 +15,7 @@ enum class RenderPipelineType {
 enum class ComputePipelineType {
     Raytracing,
     InitMinMaxDepth,
-    MinMaxDepth,
-    DirectionEncoding
+    MinMaxDepth
 };
 
 enum class DepthStencilType {

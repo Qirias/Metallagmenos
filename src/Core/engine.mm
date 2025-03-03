@@ -132,7 +132,7 @@ void Engine::resizeFrameBuffer(int width, int height) {
 void Engine::initWindow() {
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindow = glfwCreateWindow(800, 600, "Metalλαγμένος", NULL, NULL);
+    glfwWindow = glfwCreateWindow(512, 512, "Metalλαγμένος", NULL, NULL);
     if (!glfwWindow) {
         glfwTerminate();
         exit(EXIT_FAILURE);
@@ -659,7 +659,7 @@ void Engine::drawDebug(MTL::RenderCommandEncoder* commandEncoder, MTL::CommandBu
 
 void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
 
-    for (int level = 0; level < cascadeLevel; ++level) {
+    for (int level = cascadeLevel-1; level >= 0; --level) {
         MTL::ComputeCommandEncoder* computeEncoder = commandBuffer->computeCommandEncoder();
         computeEncoder->setLabel(NS::String::string(("Ray Tracing Cascade " + std::to_string(level)).c_str(), NS::ASCIIStringEncoding));
         
@@ -670,6 +670,12 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
 
         computeEncoder->setComputePipelineState(renderPipelines.getComputePipeline(ComputePipelineType::Raytracing));
         computeEncoder->setTexture(directionTextures[level], TextureIndexRadiance);
+        
+        if (level < cascadeLevel-1) {
+            computeEncoder->setTexture(directionTextures[level+1], TextureIndexRadianceUpper);
+            computeEncoder->useResource(directionTextures[level + 1], MTL::ResourceUsageRead);
+        }
+        
         computeEncoder->setBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
         computeEncoder->setBuffer(cascadeDataBuffer[currentFrameIndex][level], 0, BufferIndexCascadeData);
         computeEncoder->setBuffer(resourceBuffer, 0, BufferIndexResources);
@@ -701,59 +707,10 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
         size_t numThreadGroups = (totalThreads + threadGroupSize.width - 1) / threadGroupSize.width;
         MTL::Size gridSize = MTL::Size(numThreadGroups * threadGroupSize.width, 1, 1);
 
-//        std::cout << "Cascade " << level << ": Probes " << probeGridSizeX << "x" << probeGridSizeY
-//                  << ", Rays/Probe " << numRays << ", Total Threads " << totalThreads << "\n";
-//        std::cout << "Frame " << currentFrameIndex << ", Cascade " << level << ", Threads " << totalThreads << "\n";
         computeEncoder->dispatchThreadgroups(MTL::Size(numThreadGroups, 1, 1), threadGroupSize);
         computeEncoder->endEncoding();
     }
 }
-
-//void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
-//    MTL::ComputeCommandEncoder* computeEncoder = commandBuffer->computeCommandEncoder();
-//    computeEncoder->setLabel(NS::String::string("Ray Tracing", NS::ASCIIStringEncoding));
-//    
-//    computeEncoder->setComputePipelineState(renderPipelines.getComputePipeline(ComputePipelineType::Raytracing));
-//    computeEncoder->setTexture(directionTextures[0], TextureIndexRadiance);
-//    computeEncoder->setBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
-//    computeEncoder->setBuffer(resourceBuffer, 0, BufferIndexResources);
-//    computeEncoder->setBuffer(probePosBuffer, 0, BufferIndexProbeData);
-//    computeEncoder->setBuffer(rayBuffer, 0, BufferIndexProbeRayData);
-//    computeEncoder->setTexture(minMaxDepthTexture, TextureIndexMinMaxDepth);
-//    
-//    
-//    computeEncoder->useResource(resourceBuffer, MTL::ResourceUsageRead);
-//    computeEncoder->useResource(probePosBuffer, MTL::ResourceUsageWrite);
-//    computeEncoder->useResource(rayBuffer, MTL::ResourceUsageWrite);
-//    computeEncoder->useResource(minMaxDepthTexture, MTL::ResourceUsageRead);
-//    computeEncoder->useResource(rayTracingTexture, MTL::ResourceUsageWrite);
-//    computeEncoder->useResource(directionTextures[0], MTL::ResourceUsageRead);
-//    
-//
-//    // Set acceleration structures
-//    for (uint i = 0; i < primitiveAccelerationStructures.size(); i++) {
-//        computeEncoder->setAccelerationStructure(primitiveAccelerationStructures[i], BufferIndexAccelerationStructure);
-//        computeEncoder->useResource(primitiveAccelerationStructures[i], MTL::ResourceUsageRead);
-//    }
-//
-//    // Compute the number of probes in X and Y
-//    int tile_size = probeSpacing * (1 << cascadeLevel);
-//    size_t probeGridSizeX = (rayTracingTexture->width() + tile_size - 1) / tile_size;
-//    size_t probeGridSizeY = (rayTracingTexture->height() + tile_size - 1) / tile_size;
-//
-//    size_t numRays = 8 * (1 << (2 * cascadeLevel));
-//    size_t totalProbes = probeGridSizeX * probeGridSizeY;
-//    size_t totalThreads = totalProbes * numRays;
-//
-//    MTL::Size threadGroupSize = MTL::Size(128, 1, 1);
-//    size_t numThreadGroups = (totalThreads + threadGroupSize.width - 1) / threadGroupSize.width;
-//
-//    MTL::Size gridSize = MTL::Size(numThreadGroups * threadGroupSize.width, 1, 1);
-//    computeEncoder->dispatchThreadgroups(MTL::Size(numThreadGroups, 1, 1), threadGroupSize);
-//
-//    computeEncoder->popDebugGroup();
-//    computeEncoder->endEncoding();
-//}
 
 void Engine::createViewRenderPassDescriptor() {
 	MTL::TextureDescriptor* gbufferTextureDesc = MTL::TextureDescriptor::alloc()->init();
@@ -863,16 +820,12 @@ void Engine::createViewRenderPassDescriptor() {
         int tileSize = probeSpacing * (1 << cascade);
         unsigned long probeGridSizeX = (metalDrawable->texture()->width() + tileSize - 1) / tileSize;
         unsigned long probeGridSizeY = (metalDrawable->texture()->height() + tileSize - 1) / tileSize;
-        uint numRays = 8 * (1 << (2 * cascade));
-        uint probeDim = cascade == 0 ? 4 : uint(ceil(sqrt(float(numRays))));
-        if (cascade == 5) probeDim = 64;
-        else if (cascade == 6) probeDim = 182;
 
         MTL::TextureDescriptor* desc = MTL::TextureDescriptor::alloc()->init();
         desc->setTextureType(MTL::TextureType2D);
         desc->setPixelFormat(MTL::PixelFormatRGBA16Float);
-        desc->setWidth(probeGridSizeX * probeDim);
-        desc->setHeight(probeGridSizeY * probeDim);
+        desc->setWidth(probeGridSizeX * tileSize);
+        desc->setHeight(probeGridSizeY * tileSize);
         desc->setStorageMode(MTL::StorageModeShared);
         desc->setUsage(MTL::TextureUsageShaderRead | MTL::TextureUsageShaderWrite);
 
@@ -883,7 +836,6 @@ void Engine::createViewRenderPassDescriptor() {
 
         desc->release();
     }
-
 }
 
 void Engine::updateRenderPassDescriptor() {

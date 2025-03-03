@@ -20,5 +20,11 @@ struct AccumLightBuffer
 
 constexpr sampler depthSampler(coord::normalized, filter::linear, mip_filter::linear);
 
+constexpr sampler samplerLinear(s_address::clamp_to_zero,
+                                t_address::clamp_to_zero,
+                                r_address::clamp_to_zero,
+                                mag_filter::linear,
+                                min_filter::linear);
+
 constant float TWO_PI = 6.28318530718f;
 constant float PI = 3.14159265359f;

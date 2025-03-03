@@ -27,29 +27,46 @@ float3 reconstructWorldPosition(float2 ndc, float depth,
     return worldPos.xyz;
 }
 
-float3 octDecode(float2 f) {
-    f = f * 2.0 - 1.0;
-    float3 n = float3(f.x, f.y, 1.0 - abs(f.x) - abs(f.y));
-    float t = -max(-n.z, 0.0);
-    n.xy += sign(n.xy) * t;
-    return normalize(n);
-}
-
-//float2 octEncode(float3 n) {
-//    n /= (abs(n.x) + abs(n.y) + abs(n.z));
-//    n.xy = (n.z >= 0.0) ? n.xy : (1.0 - abs(n.yx)) * sign(n.xy);
-//    return n.xy * 0.5 + 0.5;
-//}
-
 //float3 octDecode(float2 f) {
 //    f = f * 2.0 - 1.0;
 //    float3 n = float3(f.x, f.y, 1.0 - abs(f.x) - abs(f.y));
-//    float t = max(-n.z, 0.0);
-//    n.xy -= sign(n.xy) * t;
+//    float t = -max(-n.z, 0.0);
+//    n.xy += sign(n.xy) * t;
 //    return normalize(n);
 //}
 
+float2 octEncode(float3 n) {
+    n /= (abs(n.x) + abs(n.y) + abs(n.z));
+    n.xy = (n.z >= 0.0) ? n.xy : (1.0 - abs(n.yx)) * sign(n.xy);
+    return n.xy * 0.5 + 0.5;
+}
+
+float3 octDecode(float2 f) {
+    f = f * 2.0 - 1.0;
+    float3 n = float3(f.x, f.y, 1.0 - abs(f.x) - abs(f.y));
+    float t = max(-n.z, 0.0);
+    n.xy -= sign(n.xy) * t;
+    return normalize(n);
+}
+
+float4 mergeUpperCascade(texture2d<float, access::sample> upperRadianceTexture,
+                         uint cascadeLevel,
+                         float2 probeUV,
+                         float3 rayDir,
+                         uint tileSize,
+                         CascadeData cascadeData) {
+    if (cascadeLevel >= 5) return float4(0.0);
+    
+    uint upperTileSize = cascadeData.probeSpacing * (1 << (cascadeLevel + 1));
+    float2 upperProbeUV = probeUV * 2.0;
+    float2 upperOctUV = octEncode(rayDir);
+    float2 sampleUV = upperProbeUV + (upperOctUV * (float(tileSize) / float(upperTileSize))); // Scale to upper tile
+
+    return upperRadianceTexture.sample(samplerLinear, sampleUV);
+}
+
 kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture         [[texture(TextureIndexRadiance)]],
+                             texture2d<float, access::sample>   upperRadianceTexture    [[texture(TextureIndexRadianceUpper)]],
                     constant FrameData&                         frameData               [[buffer(BufferIndexFrameData)]],
                     constant CascadeData&                       cascadeData             [[buffer(BufferIndexCascadeData)]],
                              primitive_acceleration_structure   accelerationStructure   [[buffer(BufferIndexAccelerationStructure)]],
@@ -60,7 +77,7 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
                              uint                               tid                     [[thread_position_in_grid]]) {
     const uint probeSpacing = cascadeData.probeSpacing;
     uint cascadeLevel = cascadeData.cascadeLevel;
-    
+
     uint tileSize = probeSpacing * (1 << cascadeLevel);
     uint probeGridSizeX = (frameData.framebuffer_width + tileSize - 1) / tileSize;
     uint probeGridSizeY = (frameData.framebuffer_height + tileSize - 1) / tileSize;
@@ -77,12 +94,13 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
     uint probeIndexY = probeIndex / probeGridSizeX;
     uint probeIndexX = probeIndex % probeGridSizeX;
 
-    float2 uv = (float2(probeIndexX, probeIndexY) + 0.5f) / float2(probeGridSizeX, probeGridSizeY);
-    float2 ndc = uv * 2.0f - 1.0f;
-    ndc.y = -ndc.y;
-    float2 minMaxDepth = minMaxTexture.sample(depthSampler, uv).xy;
+    // Map probe to screen UV (center of probe’s tile)
+    float2 probeUV = (float2(probeIndexX, probeIndexY) + 0.5f) / float2(probeGridSizeX, probeGridSizeY);
+    float2 probeNDC = probeUV * 2.0f - 1.0f;
+    probeNDC.y = -probeNDC.y;
+    float2 minMaxDepth = minMaxTexture.sample(depthSampler, probeUV).xy;
     float probeDepth = minMaxDepth.y;
-    float3 worldPos = reconstructWorldPosition(ndc, probeDepth,
+    float3 worldPos = reconstructWorldPosition(probeNDC, probeDepth,
                                                frameData.projection_matrix_inverse,
                                                frameData.inverse_view_matrix);
 
@@ -90,29 +108,30 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
         probeData[probeIndex].position = float4(worldPos, (minMaxDepth.x != minMaxDepth.y ? 1.0f : 0.0f));
     }
 
-    uint probeDim = cascadeLevel == 0 ? 4 : uint(ceil(sqrt(float(numRays))));
-    
-    if (cascadeLevel == 5) probeDim = 64;
-    else if (cascadeLevel == 6) probeDim = 182;
-
-    uint raysPerDim = probeDim;
-    uint octX, octY;
+    // Map ray within probe’s tile (tileSize × tileSize pixels)
+    uint raysPerDim = cascadeLevel == 0 ? 4 : uint(sqrt(float(numRays)));
+    int rayX;
+    int rayY;
     if (cascadeLevel == 0) {
         uint gridIndices[8] = {0, 3, 5, 6, 9, 10, 12, 15};
         uint gridIndex = gridIndices[rayIndex];
-        octX = gridIndex % raysPerDim;
-        octY = gridIndex / raysPerDim;
+        rayX = gridIndex % raysPerDim;
+        rayY = gridIndex / raysPerDim;
     } else {
-        octX = rayIndex % raysPerDim;
-        octY = rayIndex / raysPerDim;
+        rayX = rayIndex % raysPerDim;
+        rayY = rayIndex / raysPerDim;
     }
-    float2 octUV = (float2(octX, octY) + 0.5f) / float(raysPerDim);
-    float3 rayDir = octDecode(octUV);
+    
+    float2 rayUV = (float2(rayX, rayY) + 0.5f) / float(raysPerDim); // 0–1 within tile
+    float2 tileUV = probeUV + (rayUV - 0.5f) * (float(tileSize) / float(frameData.framebuffer_width)); // Scale to screen UV
+    float2 rayNDC = tileUV * 2.0f - 1.0f;
+    rayNDC.y = -rayNDC.y;
+
+    float3 rayDir = octDecode(rayUV);
 
     float shortestSide = min(float(frameData.framebuffer_width), float(frameData.framebuffer_height));
-
-    float intervalStart = (cascadeData.cascadeLevel == 0) ? 0.0 : pow(8.0f, float(cascadeData.cascadeLevel-1)) / shortestSide;
-    float intervalEnd = pow(8.0f, float(cascadeData.cascadeLevel+1)) / shortestSide;
+    float intervalStart = (cascadeLevel == 0) ? 0.0 : pow(8.0f, float(cascadeLevel - 1)) / shortestSide;
+    float intervalEnd = 4.0f * pow(8.0f, float(cascadeLevel + 1)) / shortestSide;
 
     ray ray;
     ray.origin = worldPos;
@@ -134,20 +153,22 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
     if (result.type != intersection_type::none) {
         unsigned int primitiveIndex = result.primitive_id;
         const device TriangleResources::TriangleData& triangle = resources[primitiveIndex];
-        if (triangle.colors[0].a == -1.0f) {
-            radiance = float4(/*triangle.colors[0].rgb*/1.0,0.0,0.0, 1.0); // Emissive irradiance
-        } else {
-            radiance = float4(0.8, 0.8, 0.8, 1.0); // Non-emissive hit, no contribution
-//            radiance = float4(float(rayIndex) / float(numRays - 1), 0.5, 1.0, 1.0);
-        }
+        radiance = (triangle.colors[0].a == -1.0f) ? float4(triangle.colors[0].rgb, 1.0) : float4(0.0, 0.0, 0.0, 1.0);
     } else {
-        radiance = float4(0.8, 0.8, 0.8, 1.0); // No hit, default to black (or sky color)
+        radiance = float4(0.0, 0.0, 0.0, 1.0);
     }
-    
+
+    // Merge with upper cascade
+    float4 mergedRadiance = radiance;
+    if (cascadeLevel < 5) {
+        float4 upperRadiance = mergeUpperCascade(upperRadianceTexture, cascadeLevel, probeUV, rayDir, tileSize, cascadeData);
+        mergedRadiance.rgb += upperRadiance.rgb * mergedRadiance.a;
+        mergedRadiance.a *= upperRadiance.a;
+    }
+
     rayData[rayDataIndex].color = radiance;
 
-    uint texX = probeIndexX * probeDim + (rayIndex % probeDim);
-    uint texY = probeIndexY * probeDim + (rayIndex / probeDim);
-    
+    uint texX = uint(tileUV.x * frameData.framebuffer_width);
+    uint texY = uint(tileUV.y * frameData.framebuffer_height);
     radianceTexture.write(radiance, uint2(texX, texY));
 }

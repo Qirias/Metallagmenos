@@ -8,9 +8,7 @@
 // For tinyobjloader
 Mesh::Mesh(std::string filePath, MTL::Device* metalDevice, MTL::VertexDescriptor* vertexDescriptor, const MeshInfo info) {
     device = metalDevice;
-    meshInfo.scale = info.scale;
-    meshInfo.position = info.position;
-    meshInfo.hasTextures = info.hasTextures;
+    meshInfo = info;
     
     loadObj(filePath);
     createBuffers(vertexDescriptor);
@@ -252,70 +250,139 @@ void Mesh::calculateTangentSpace(std::vector<Vertex>& vertices, const std::vecto
 }
 
 void Mesh::createBuffers(MTL::VertexDescriptor* vertexDescriptor) {
-    // Create Vertex Buffers
-    unsigned long vertexBufferSize = sizeof(Vertex) * vertices.size();
-    vertexBuffer = device->newBuffer(vertices.data(), vertexBufferSize, MTL::ResourceStorageModeShared);
-    vertexBuffer->setLabel(NS::String::string("Mesh Vertex Buffer", NS::ASCIIStringEncoding));
-    // Create Index Buffer
-    indexCount = vertexIndices.size();
-    unsigned long indexBufferSize = sizeof(uint32_t) * vertexIndices.size();
-    indexBuffer = device->newBuffer(vertexIndices.data(), indexBufferSize, MTL::ResourceStorageModeShared);
-    
-    if (meshInfo.hasTextures) {
-        // Pass previously created Texture Array Pointer
-        diffuseTextures = diffuseTexturesArray->diffuseTextureArray;
-        diffuseTextures->setLabel(NS::String::string("Diffuse Texture Array", NS::ASCIIStringEncoding));
-        // Create Diffuse Texture Info
-        size_t diffuseBufferSize = diffuseTexturesArray->diffuseTextureInfos.size() * sizeof(TextureInfo);
-        diffuseTextureInfos = device->newBuffer(diffuseTexturesArray->diffuseTextureInfos.data(), diffuseBufferSize, MTL::ResourceStorageModeShared);
-        diffuseTextureInfos->setLabel(NS::String::string("Diffuse Texture Info Array", NS::ASCIIStringEncoding));
-        
-        // Pass previously created Texture Array Pointer
-        normalTextures = normalTexturesArray->normalTextureArray;
-        normalTextures->setLabel(NS::String::string("Normal Texture Array", NS::ASCIIStringEncoding));
-        // Create normal Texture Info
-        size_t normalBufferSize = normalTexturesArray->normalTextureInfos.size() * sizeof(TextureInfo);
-        normalTextureInfos = device->newBuffer(normalTexturesArray->normalTextureInfos.data(), normalBufferSize, MTL::ResourceStorageModeShared);
-        normalTextureInfos->setLabel(NS::String::string("Normal Texture Info Array", NS::ASCIIStringEncoding));
+    // Check for empty vertices
+    if (vertices.empty()) {
+        std::cerr << "Error: Cannot create vertex buffer - no vertices loaded" << std::endl;
+        return;
     }
     
-    if (vertexDescriptor) {
-        // Position
-        vertexDescriptor->attributes()->object(VertexAttributePosition)->setFormat(MTL::VertexFormatFloat4);
-        vertexDescriptor->attributes()->object(VertexAttributePosition)->setOffset(offsetof(Vertex, position));
-        vertexDescriptor->attributes()->object(VertexAttributePosition)->setBufferIndex(0);
-        // Normal
-        vertexDescriptor->attributes()->object(VertexAttributeNormal)->setFormat(MTL::VertexFormatFloat4);
-        vertexDescriptor->attributes()->object(VertexAttributeNormal)->setOffset(offsetof(Vertex, normal));
-        vertexDescriptor->attributes()->object(VertexAttributeNormal)->setBufferIndex(0);
-
-        if (meshInfo.hasTextures) {
-            // Tangent
-            vertexDescriptor->attributes()->object(VertexAttributeTangent)->setFormat(MTL::VertexFormatFloat4);
-            vertexDescriptor->attributes()->object(VertexAttributeTangent)->setOffset(offsetof(Vertex, tangent));
-            vertexDescriptor->attributes()->object(VertexAttributeTangent)->setBufferIndex(0);
-
-            // Bitangent
-            vertexDescriptor->attributes()->object(VertexAttributeBitangent)->setFormat(MTL::VertexFormatFloat4);
-            vertexDescriptor->attributes()->object(VertexAttributeBitangent)->setOffset(offsetof(Vertex, bitangent));
-            vertexDescriptor->attributes()->object(VertexAttributeBitangent)->setBufferIndex(0);
-
-            // TextureCoordinate
-            vertexDescriptor->attributes()->object(VertexAttributeTexcoord)->setFormat(MTL::VertexFormatFloat2);
-            vertexDescriptor->attributes()->object(VertexAttributeTexcoord)->setOffset(offsetof(Vertex, textureCoordinate));
-            vertexDescriptor->attributes()->object(VertexAttributeTexcoord)->setBufferIndex(0);
-            
-            // DiffuseTextureIndex
-            vertexDescriptor->attributes()->object(VertexAttributeDiffuseIndex)->setFormat(MTL::VertexFormatInt);
-            vertexDescriptor->attributes()->object(VertexAttributeDiffuseIndex)->setOffset(offsetof(Vertex, diffuseTextureIndex));
-            vertexDescriptor->attributes()->object(VertexAttributeDiffuseIndex)->setBufferIndex(0);
-            
-            // NormalTextureIndex
-            vertexDescriptor->attributes()->object(VertexAttributeNormalIndex)->setFormat(MTL::VertexFormatInt);
-            vertexDescriptor->attributes()->object(VertexAttributeNormalIndex)->setOffset(offsetof(Vertex, normalTextureIndex));
-            vertexDescriptor->attributes()->object(VertexAttributeNormalIndex)->setBufferIndex(0);
+    // Create Vertex Buffer with safety checks
+    unsigned long vertexBufferSize = sizeof(Vertex) * vertices.size();
+    if (vertexBufferSize > 0 && vertices.data() != nullptr) {
+        vertexBuffer = device->newBuffer(vertices.data(), vertexBufferSize, MTL::ResourceStorageModeShared);
+        if (vertexBuffer) {
+            vertexBuffer->setLabel(NS::String::string("Mesh Vertex Buffer", NS::ASCIIStringEncoding));
+        } else {
+            std::cerr << "Error: Failed to create vertex buffer" << std::endl;
         }
-        // Set layout
-        vertexDescriptor->layouts()->object(0)->setStride(sizeof(Vertex));
+    } else {
+        std::cerr << "Error: Invalid vertex data or size" << std::endl;
+    }
+    
+    // Check for empty indices
+    if (vertexIndices.empty()) {
+        std::cerr << "Error: Cannot create index buffer - no indices loaded" << std::endl;
+        return;
+    }
+    
+    // Create Index Buffer with safety checks
+    indexCount = vertexIndices.size();
+    unsigned long indexBufferSize = sizeof(uint32_t) * vertexIndices.size();
+    if (indexBufferSize > 0 && vertexIndices.data() != nullptr) {
+        indexBuffer = device->newBuffer(vertexIndices.data(), indexBufferSize, MTL::ResourceStorageModeShared);
+        if (!indexBuffer) {
+            std::cerr << "Error: Failed to create index buffer" << std::endl;
+        }
+    } else {
+        std::cerr << "Error: Invalid index data or size" << std::endl;
+    }
+    
+    // Handle textures only if we have them
+    if (meshInfo.hasTextures) {
+        // Check diffuse textures
+        if (diffuseTexturesArray && diffuseTexturesArray->diffuseTextureArray) {
+            diffuseTextures = diffuseTexturesArray->diffuseTextureArray;
+            diffuseTextures->setLabel(NS::String::string("Diffuse Texture Array", NS::ASCIIStringEncoding));
+            
+            // Create Diffuse Texture Info with safety checks
+            if (!diffuseTexturesArray->diffuseTextureInfos.empty()) {
+                size_t diffuseBufferSize = diffuseTexturesArray->diffuseTextureInfos.size() * sizeof(TextureInfo);
+                if (diffuseBufferSize > 0 && diffuseTexturesArray->diffuseTextureInfos.data() != nullptr) {
+                    diffuseTextureInfos = device->newBuffer(
+                        diffuseTexturesArray->diffuseTextureInfos.data(),
+                        diffuseBufferSize,
+                        MTL::ResourceStorageModeShared
+                    );
+                    if (diffuseTextureInfos) {
+                        diffuseTextureInfos->setLabel(NS::String::string("Diffuse Texture Info Array", NS::ASCIIStringEncoding));
+                    } else {
+                        std::cerr << "Error: Failed to create diffuse texture info buffer" << std::endl;
+                    }
+                } else {
+                    std::cerr << "Error: Invalid diffuse texture info data or size" << std::endl;
+                }
+            } else {
+                std::cerr << "Warning: No diffuse texture info data available" << std::endl;
+            }
+        } else {
+            std::cerr << "Warning: No diffuse texture array available" << std::endl;
+        }
+        
+        // Check normal textures
+        if (normalTexturesArray && normalTexturesArray->normalTextureArray) {
+            normalTextures = normalTexturesArray->normalTextureArray;
+            normalTextures->setLabel(NS::String::string("Normal Texture Array", NS::ASCIIStringEncoding));
+            
+            // Create normal Texture Info with safety checks
+            if (!normalTexturesArray->normalTextureInfos.empty()) {
+                size_t normalBufferSize = normalTexturesArray->normalTextureInfos.size() * sizeof(TextureInfo);
+                if (normalBufferSize > 0 && normalTexturesArray->normalTextureInfos.data() != nullptr) {
+                    normalTextureInfos = device->newBuffer(
+                        normalTexturesArray->normalTextureInfos.data(),
+                        normalBufferSize,
+                        MTL::ResourceStorageModeShared
+                    );
+                    if (normalTextureInfos) {
+                        normalTextureInfos->setLabel(NS::String::string("Normal Texture Info Array", NS::ASCIIStringEncoding));
+                    } else {
+                        std::cerr << "Error: Failed to create normal texture info buffer" << std::endl;
+                    }
+                } else {
+                    std::cerr << "Error: Invalid normal texture info data or size" << std::endl;
+                }
+            } else {
+                std::cerr << "Warning: No normal texture info data available" << std::endl;
+            }
+        } else {
+            std::cerr << "Warning: No normal texture array available" << std::endl;
+        }
+    }
+
+    // We won't modify the vertex descriptor here anymore
+    // The Engine class is now responsible for creating a complete vertex descriptor
+    // that works for both textured and non-textured meshes
+}
+
+void Mesh::defaultVertexAttributes() {
+    // Only needed for non-textured meshes
+    if (!meshInfo.hasTextures) {
+        for (auto& vertex : vertices) {
+            // Set default texture coordinates
+            vertex.textureCoordinate = {0.0f, 0.0f};
+            
+            // Set default tangent and bitangent
+            // Calculate a default tangent space from the normal
+            float3 n = float3{vertex.normal.x, vertex.normal.y, vertex.normal.z};
+            float3 t, b;
+            
+            // Find a perpendicular vector to use as tangent
+            if (std::abs(n.x) > std::abs(n.z)) {
+                t = float3{-n.y, n.x, 0.0f};
+            } else {
+                t = float3{0.0f, -n.z, n.y};
+            }
+            t = normalize(t);
+            
+            // Calculate bitangent using cross product
+            b = cross(n, t);
+            
+            // Set the values
+            vertex.tangent = {t.x, t.y, t.z, 0.0f};
+            vertex.bitangent = {b.x, b.y, b.z, 0.0f};
+            
+            // Set default texture indices
+            vertex.diffuseTextureIndex = -1;
+            vertex.normalTextureIndex = -1;
+        }
     }
 }

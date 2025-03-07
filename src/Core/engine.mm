@@ -25,6 +25,7 @@ void Engine::init() {
     createDefaultLibrary();
     createBuffers();
     renderPipelines.initialize(metalDevice, metalDefaultLibrary);
+    defaultVertexDescriptor = createDefaultVertexDescriptor();
     createRenderPipelines();
 	createViewRenderPassDescriptor();
     createAccelerationStructureWithDescriptors();
@@ -116,14 +117,27 @@ void Engine::resizeFrameBuffer(int width, int height) {
         rayTracingTexture->release();
         rayTracingTexture = nullptr;
     }
+    if (directionTextures.size() > 0) {
+        for (auto& texture : directionTextures) {
+            texture->release();
+            texture = nullptr;
+        }
+        directionTextures.clear();
+    }
     if (forwardDepthStencilTexture) {
         forwardDepthStencilTexture->release();
         forwardDepthStencilTexture = nullptr;
     }
-    
+    if (viewRenderPassDescriptor) {
+        viewRenderPassDescriptor->release();
+        viewRenderPassDescriptor = nullptr;
+    }
+    if (forwardDescriptor) {
+        forwardDescriptor->release();
+        forwardDescriptor = nullptr;
+    }
+
 	// Recreate G-buffer textures and descriptors
-    viewRenderPassDescriptor->release();
-    forwardDescriptor->release();
 	createViewRenderPassDescriptor();
     metalDrawable = (__bridge CA::MetalDrawable*)[metalLayer nextDrawable];
     updateRenderPassDescriptor();
@@ -191,27 +205,70 @@ void Engine::endFrame(MTL::CommandBuffer* commandBuffer, MTL::Drawable* currentD
     }
 }
 
-void Engine::loadScene() {
-	defaultVertexDescriptor = MTL::VertexDescriptor::alloc()->init();
-    MeshInfo info;
-    info.hasTextures = true;
-    std::string objPath = std::string(SCENES_PATH) + "/sponza/sponza.obj";
-    meshes.push_back(new Mesh(objPath.c_str(), metalDevice, defaultVertexDescriptor, info));
-    objPath = std::string(MODELS_PATH) + "/hornbug.obj";
-    info.hasTextures = false;
-    info.position = {-5.0f, 0.0, 0.0};
-    meshes.push_back(new Mesh(objPath.c_str(), metalDevice, defaultVertexDescriptor, info));
+void Engine::loadSceneFromJSON(const std::string& jsonFilePath) {
+    if (!defaultVertexDescriptor) {
+        defaultVertexDescriptor = createDefaultVertexDescriptor();
+    }
     
-//	GLTFLoader gltfLoader(metalDevice);
-//	std::string modelPath = std::string(SCENES_PATH) + "/DamagedHelmet/DamagedHelmet.gltf";
-//	auto gltfModel = gltfLoader.loadModel(modelPath);
-	
-//	// Create mesh from the loaded data
-//	mesh = new Mesh(metalDevice,
-//				  gltfModel.vertices.data(),
-//				  gltfModel.vertices.size(),
-//				  gltfModel.indices.data(),
-//				  gltfModel.indices.size());
+    SceneParser parser(metalDevice, defaultVertexDescriptor);
+    
+    std::vector<Mesh*> loadedMeshes = parser.loadScene(jsonFilePath);
+    
+    meshes.insert(meshes.end(), loadedMeshes.begin(), loadedMeshes.end());
+}
+
+
+void Engine::loadScene() {
+    loadSceneFromJSON(std::string(SCENES_PATH) + "/cubeScene.json");
+}
+
+MTL::VertexDescriptor* Engine::createDefaultVertexDescriptor() {
+    MTL::VertexDescriptor* vertexDescriptor = MTL::VertexDescriptor::alloc()->init();
+    
+    // Position attribute
+    vertexDescriptor->attributes()->object(VertexAttributePosition)->setFormat(MTL::VertexFormatFloat4);
+    vertexDescriptor->attributes()->object(VertexAttributePosition)->setOffset(offsetof(Vertex, position));
+    vertexDescriptor->attributes()->object(VertexAttributePosition)->setBufferIndex(0);
+    
+    // Normal attribute
+    vertexDescriptor->attributes()->object(VertexAttributeNormal)->setFormat(MTL::VertexFormatFloat4);
+    vertexDescriptor->attributes()->object(VertexAttributeNormal)->setOffset(offsetof(Vertex, normal));
+    vertexDescriptor->attributes()->object(VertexAttributeNormal)->setBufferIndex(0);
+    
+    // IMPORTANT: Always include all attributes for pipeline creation, even for non-textured meshes
+    // The function constants will handle their usage in the shader
+    
+    // Texture coordinate attribute
+    vertexDescriptor->attributes()->object(VertexAttributeTexcoord)->setFormat(MTL::VertexFormatFloat2);
+    vertexDescriptor->attributes()->object(VertexAttributeTexcoord)->setOffset(offsetof(Vertex, textureCoordinate));
+    vertexDescriptor->attributes()->object(VertexAttributeTexcoord)->setBufferIndex(0);
+    
+    // Tangent attribute
+    vertexDescriptor->attributes()->object(VertexAttributeTangent)->setFormat(MTL::VertexFormatFloat4);
+    vertexDescriptor->attributes()->object(VertexAttributeTangent)->setOffset(offsetof(Vertex, tangent));
+    vertexDescriptor->attributes()->object(VertexAttributeTangent)->setBufferIndex(0);
+    
+    // Bitangent attribute
+    vertexDescriptor->attributes()->object(VertexAttributeBitangent)->setFormat(MTL::VertexFormatFloat4);
+    vertexDescriptor->attributes()->object(VertexAttributeBitangent)->setOffset(offsetof(Vertex, bitangent));
+    vertexDescriptor->attributes()->object(VertexAttributeBitangent)->setBufferIndex(0);
+    
+    // DiffuseTextureIndex
+    vertexDescriptor->attributes()->object(VertexAttributeDiffuseIndex)->setFormat(MTL::VertexFormatInt);
+    vertexDescriptor->attributes()->object(VertexAttributeDiffuseIndex)->setOffset(offsetof(Vertex, diffuseTextureIndex));
+    vertexDescriptor->attributes()->object(VertexAttributeDiffuseIndex)->setBufferIndex(0);
+    
+    // NormalTextureIndex
+    vertexDescriptor->attributes()->object(VertexAttributeNormalIndex)->setFormat(MTL::VertexFormatInt);
+    vertexDescriptor->attributes()->object(VertexAttributeNormalIndex)->setOffset(offsetof(Vertex, normalTextureIndex));
+    vertexDescriptor->attributes()->object(VertexAttributeNormalIndex)->setBufferIndex(0);
+    
+    // Set layout
+    vertexDescriptor->layouts()->object(0)->setStride(sizeof(Vertex));
+    vertexDescriptor->layouts()->object(0)->setStepRate(1);
+    vertexDescriptor->layouts()->object(0)->setStepFunction(MTL::VertexStepFunctionPerVertex);
+    
+    return vertexDescriptor;
 }
 
 void Engine::createDefaultLibrary() {
@@ -592,16 +649,32 @@ void Engine::setupTriangleResources() {
     size_t triangleIndex = 0;
 
     for (int m = 0; m < meshes.size(); m++) {
+        simd::float4 meshColor;
+        
+        if (meshes[m]->meshInfo.isEmissive) {
+            meshColor = simd::float4{
+                meshes[m]->meshInfo.emissiveColor.x,
+                meshes[m]->meshInfo.emissiveColor.y,
+                meshes[m]->meshInfo.emissiveColor.z,
+                -1.0f  // Emissive
+            };
+        } else {
+            meshColor = simd::float4{
+                meshes[m]->meshInfo.color.x,
+                meshes[m]->meshInfo.color.y,
+                meshes[m]->meshInfo.color.z,
+                1.0f  // Non-emissive
+            };
+        }
+        
+
         for (size_t i = 0; i < meshes[m]->vertexIndices.size(); i += 3) {
             TriangleData& triangle = resourceBufferContents[triangleIndex++];
 
             for (size_t j = 0; j < 3; ++j) {
                 size_t vertexIndex = meshes[m]->vertexIndices[i + j];
                 triangle.normals[j] = meshes[m]->vertices[vertexIndex].normal;
-                if (m == 1)
-                    triangle.colors[j] = simd::float4{0.0f, 1.0f, 0.0f, -1.0f};
-                else
-                    triangle.colors[j] = simd::float4{1.0f, 1.0f, 1.0f, 1.0f};
+                triangle.colors[j] = meshColor;
             }
         }
     }
@@ -817,12 +890,10 @@ void Engine::createViewRenderPassDescriptor() {
     // Direction Texture
     directionTextures.resize(cascadeLevel);
 
-    directionTextures.resize(cascadeLevel);
-
     for (int cascade = 0; cascade < cascadeLevel; ++cascade) {
         int tileSize = probeSpacing * (1 << cascade);
-        unsigned long probeGridSizeX = (metalDrawable->texture()->width() + tileSize - 1) / tileSize;
-        unsigned long probeGridSizeY = (metalDrawable->texture()->height() + tileSize - 1) / tileSize;
+        unsigned long probeGridSizeX = (metalLayer.drawableSize.width + tileSize - 1) / tileSize;
+        unsigned long probeGridSizeY = (metalLayer.drawableSize.height + tileSize - 1) / tileSize;
 
         MTL::TextureDescriptor* desc = MTL::TextureDescriptor::alloc()->init();
         desc->setTextureType(MTL::TextureType2D);
@@ -850,6 +921,10 @@ void Engine::updateRenderPassDescriptor() {
 	// Update depth/stencil attachment
 	viewRenderPassDescriptor->depthAttachment()->setTexture(depthStencilTexture);
 	viewRenderPassDescriptor->stencilAttachment()->setTexture(depthStencilTexture);
+
+    forwardDescriptor->colorAttachments()->object(0)->setTexture(metalDrawable->texture()); 
+    forwardDescriptor->depthAttachment()->setTexture(forwardDepthStencilTexture);
+    forwardDescriptor->stencilAttachment()->setTexture(forwardDepthStencilTexture);
 }
 
 void Engine::drawMeshes(MTL::RenderCommandEncoder* renderCommandEncoder) {

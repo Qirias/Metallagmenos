@@ -21,6 +21,7 @@
 #include "components/textureArray.hpp"
 #include "components/camera.hpp"
 #include "components/gltfLoader.hpp"
+#include "components/sceneParser.hpp"
 #include "../../data/shaders/shaderTypes.hpp"
 #include "../../data/shaders/config.hpp"
 #include "managers/renderPipeline.hpp"
@@ -51,6 +52,7 @@ private:
     void initDevice();
     void initWindow();
 
+    void loadSceneFromJSON(const std::string& jsonFilePath);
     void loadScene();
     void createBuffers();
 	
@@ -70,6 +72,7 @@ private:
     // resizing window
     void updateRenderPassDescriptor();
 
+    MTL::VertexDescriptor* createDefaultVertexDescriptor();
     void createDefaultLibrary();
     void createCommandQueue();
     void createRenderPipelines();

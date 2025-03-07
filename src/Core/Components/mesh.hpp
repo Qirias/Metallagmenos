@@ -69,6 +69,7 @@ public:
     void loadObj(std::string filePath);
     void calculateTangentSpace(std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices);
     void createBuffers(MTL::VertexDescriptor* vertexDescriptor);
+    void defaultVertexAttributes();
     
     std::vector<Vertex>                     vertices;
     std::vector<uint32_t>                   vertexIndices;
@@ -88,7 +89,7 @@ public:
                                   simd::float4{0.0f, 0.0f, 1.0f, 0.0f},
                                   simd::float4{meshInfo.position.x, meshInfo.position.y, meshInfo.position.z, 1.0f}};
 
-        return matrix_multiply(scaleMatrix, posMatrix);
+        return matrix_multiply(posMatrix, scaleMatrix);
     }
     
 public:

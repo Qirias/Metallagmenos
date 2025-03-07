@@ -1,0 +1,32 @@
+{
+    "scene": {
+        "meshes": [
+            {
+                "name": "sponza",
+                "filename": "@SCENES_PATH@/sponza/sponza.obj"
+            },
+            {
+                "name": "hornbug",
+                "filename": "@MODELS_PATH@/hornbug.obj"
+            }
+        ],
+        "objects": [
+            {
+                "mesh": "sponza",
+                "pos": [0.0, 0.0, 0.0],
+                "scale": [1.0, 1.0, 1.0],
+                "color": [1.0, 1.0, 1.0],
+                "hasTextures": true,
+                "hasEmissive": false
+            },
+            {
+                "mesh": "hornbug",
+                "pos": [-5.0, 0.0, 0.0],
+                "scale": [1.0, 1.0, 1.0],
+                "color": [1.0, 1.0, 1.0],
+                "hasTextures": false,
+                "hasEmissive": false
+            }
+        ]
+    }
+}

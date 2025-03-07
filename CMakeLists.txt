@@ -43,6 +43,7 @@ file(GLOB_RECURSE SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/external/*.mm"
     "${CMAKE_CURRENT_SOURCE_DIR}/external/*.cc"
     "${CMAKE_CURRENT_SOURCE_DIR}/external/*.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/external/*.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/data/shaders/*.hpp"
 )
 
@@ -56,6 +57,7 @@ file(GLOB SHADER_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/data/shaders/*.metal")
 add_definitions(-DTEXTURE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/textures")
 add_definitions(-DMODELS_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/models")
 add_definitions(-DSCENES_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/scenes")
+
 
 # tiny_glTF doesn't need to compile stb_image again
 add_definitions(-DTINYGLTF_NO_STB_IMAGE -DTINYGLTF_NO_STB_IMAGE_WRITE)

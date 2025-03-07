@@ -126,8 +126,6 @@ std::vector<Mesh*> SceneParser::loadScene(const std::string& jsonFilePath) {
                 }
                 
                 std::string meshPath = meshPaths[meshName];
-                std::cout << "Creating mesh from: " << meshPath << std::endl;
-                
                 Mesh* newMesh = new Mesh(meshPath.c_str(), metalDevice, defaultVertexDescriptor, info);
                 
                 newMesh->defaultVertexAttributes();

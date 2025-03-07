@@ -13,7 +13,6 @@
 #include <QuartzCore/CAMetalLayer.h>
 #include <QuartzCore/QuartzCore.hpp>
 
-// #include "AAPLMathUtilities.h"
 
 #include "vertexData.hpp"
 #include "texture.hpp"
@@ -167,6 +166,6 @@ private:
     MTL::Texture* minMaxDepthTexture;
     int cascadeLevel = 5;
     
-    std::vector<MTL::Texture*>              directionTextures;
+    MTL::Texture*                           finalGatherTexture;
     std::vector<std::vector<MTL::Buffer*>>  cascadeDataBuffer;
 };

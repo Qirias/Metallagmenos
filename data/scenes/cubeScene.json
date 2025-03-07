@@ -21,8 +21,8 @@
                 "scale": [1.0, 1.0, 1.0],
                 "color": [0.0, 1.0, 0.0],
                 "hasTextures": false,
-                "isEmissive": true,
-                "emissiveColor": [0.0, 1.0, 0.0]
+                "isEmissive": false,
+                "emissiveColor": [1.0, 0.0, 0.0]
             },
             {
                 "mesh": "cube",
@@ -31,7 +31,7 @@
                 "color": [1.0, 0.0, 0.0],
                 "hasTextures": false,
                 "isEmissive": true,
-                "emissiveColor": [1.0, 0.0, 0.0]
+                "emissiveColor": [0.0, 1.0, 0.0]
             }
         ]
     }

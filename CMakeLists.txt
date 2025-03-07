@@ -53,18 +53,20 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES})
 # Find all Metal shader files
 file(GLOB SHADER_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/data/shaders/*.metal")
 
+# Gather all files under the data folder recursively
+file(GLOB_RECURSE DATA_FILES "${CMAKE_CURRENT_SOURCE_DIR}/data/*.*")
+
 # Set texture path as a definition
 add_definitions(-DTEXTURE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/textures")
 add_definitions(-DMODELS_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/models")
 add_definitions(-DSCENES_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/scenes")
 
-
 # tiny_glTF doesn't need to compile stb_image again
 add_definitions(-DTINYGLTF_NO_STB_IMAGE -DTINYGLTF_NO_STB_IMAGE_WRITE)
 add_definitions(-DIMGUI_IMPL_METAL_CPP)
 
-# Create source groups for Xcode
-source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES} ${SHADER_SOURCES})
+# Combine all files into a single source group for Xcode
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES} ${SHADER_SOURCES} ${DATA_FILES})
 
 # Add the metal-cmake subdirectory but hide it from IDE
 add_subdirectory(metal-cmake EXCLUDE_FROM_ALL)
@@ -108,7 +110,7 @@ add_custom_target(shaders DEPENDS ${SHADER_METALLIB} ${SHADER_SOURCES})
 set_target_properties(shaders PROPERTIES FOLDER "Hidden")
 
 # Add the executable target
-add_executable(${PROJECT_NAME} ${SOURCES} ${SHADER_SOURCES})
+add_executable(${PROJECT_NAME} ${SOURCES} ${SHADER_SOURCES} ${DATA_FILES})
 
 # Check if it's a standalone build or an Xcode build
 if(DEFINED STANDALONE_BUILD)

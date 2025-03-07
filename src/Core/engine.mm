@@ -180,11 +180,11 @@ void Engine::endFrame(MTL::CommandBuffer* commandBuffer, MTL::Drawable* currentD
         commandBuffer->presentDrawable(metalDrawable);
         commandBuffer->commit();
         
-        if (frameNumber == 100) {
-            commandBuffer->waitUntilCompleted();
-            createSphereGrid();
-            createDebugLines();
-        }
+//        if (frameNumber == 100) {
+//            commandBuffer->waitUntilCompleted();
+//            createSphereGrid();
+//            createDebugLines();
+//        }
         
         // Move to next frame
         currentFrameIndex = (currentFrameIndex + 1) % MaxFramesInFlight;
@@ -591,18 +591,19 @@ void Engine::setupTriangleResources() {
     TriangleData* resourceBufferContents = (TriangleData*)((uint8_t*)(resourceBuffer->contents()));
     size_t triangleIndex = 0;
 
-    int meshCnt = 0;
-    for (const auto& mesh : meshes) {
-        for (size_t i = 0; i < mesh->vertexIndices.size(); i += 3) {
+    for (int m = 0; m < meshes.size(); m++) {
+        for (size_t i = 0; i < meshes[m]->vertexIndices.size(); i += 3) {
             TriangleData& triangle = resourceBufferContents[triangleIndex++];
 
             for (size_t j = 0; j < 3; ++j) {
-                size_t vertexIndex = mesh->vertexIndices[i + j];
-                triangle.normals[j] = mesh->vertices[vertexIndex].normal;
-                triangle.colors[j] = simd::float4{0.1f, 0.2f, 0.3f, (meshCnt == 1) ? -1.0f : 0.4f};
+                size_t vertexIndex = meshes[m]->vertexIndices[i + j];
+                triangle.normals[j] = meshes[m]->vertices[vertexIndex].normal;
+                if (m == 1)
+                    triangle.colors[j] = simd::float4{0.0f, 1.0f, 0.0f, -1.0f};
+                else
+                    triangle.colors[j] = simd::float4{1.0f, 1.0f, 1.0f, 1.0f};
             }
         }
-        meshCnt = 1;
     }
 }
 
@@ -816,6 +817,8 @@ void Engine::createViewRenderPassDescriptor() {
     // Direction Texture
     directionTextures.resize(cascadeLevel);
 
+    directionTextures.resize(cascadeLevel);
+
     for (int cascade = 0; cascade < cascadeLevel; ++cascade) {
         int tileSize = probeSpacing * (1 << cascade);
         unsigned long probeGridSizeX = (metalDrawable->texture()->width() + tileSize - 1) / tileSize;
@@ -829,7 +832,7 @@ void Engine::createViewRenderPassDescriptor() {
         desc->setStorageMode(MTL::StorageModeShared);
         desc->setUsage(MTL::TextureUsageShaderRead | MTL::TextureUsageShaderWrite);
 
-        std::string labelStr = "Radiance_Cascade_" + std::to_string(cascade);
+        std::string labelStr = "RadianceCascade" + std::to_string(cascade);
         NS::String* label = NS::String::string(labelStr.c_str(), NS::ASCIIStringEncoding);
         directionTextures[cascade] = metalDevice->newTexture(desc);
         directionTextures[cascade]->setLabel(label);

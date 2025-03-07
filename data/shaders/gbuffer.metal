@@ -116,7 +116,7 @@ fragment GBufferData gbuffer_fragment(ColorInOut            in                  
 
 	// Prepare GBuffer output
 	GBufferData gBuffer;
-    gBuffer.albedo_specular = (!hasTextures) ? half4(0, 1, 0, -1) : base_color_sample; // Albedo (RGB) + Specular (A) or use A as emissive
+    gBuffer.albedo_specular = (!hasTextures) ? half4(1, 1, 1, 1) : base_color_sample; // Albedo (RGB) + Specular (A) or use A as emissive
 	gBuffer.normal_map = half4(eye_normal, 1.0f);
 
     float P22 = frameData.projection_matrix[2][2];

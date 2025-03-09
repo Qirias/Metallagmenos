@@ -11,9 +11,10 @@ endif()
 # Set C++ standard
 set(CMAKE_CXX_STANDARD 20)
 
-# Group sources into virtual folders for Xcode
+# Group sources into virtual folders for IDEs
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
+# Define ImGui sources
 set(IMGUI_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/imgui")
 set(IMGUI_SOURCES
     ${IMGUI_DIR}/imgui.cpp
@@ -47,14 +48,50 @@ file(GLOB_RECURSE SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/data/shaders/*.hpp"
 )
 
-# Group sources into virtual folders for Xcode
-source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES})
-
 # Find all Metal shader files
 file(GLOB SHADER_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/data/shaders/*.metal")
 
-# Gather all files under the data folder recursively
+# Gather all files under the data folder recursively, excluding hidden files
 file(GLOB_RECURSE DATA_FILES "${CMAKE_CURRENT_SOURCE_DIR}/data/*.*")
+list(FILTER DATA_FILES EXCLUDE REGEX "/\\.[^/]*$")
+
+# Group sources into virtual folders (SOURCES and SHADER_SOURCES for all builds)
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES} ${SHADER_SOURCES})
+
+# Add the executable target (without DATA_FILES as sources)
+add_executable(${PROJECT_NAME} ${SOURCES} ${SHADER_SOURCES})
+
+# Check if it's a standalone build or an Xcode build
+if(DEFINED STANDALONE_BUILD)
+    message(STATUS "Building as standalone")
+    set_target_properties(${PROJECT_NAME} PROPERTIES
+        MACOSX_BUNDLE FALSE   
+        XCODE_GENERATE_SCHEME FALSE
+    )
+    # Copy data directory for standalone build
+    add_custom_command(
+        TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_CURRENT_SOURCE_DIR}/data"
+                "$<TARGET_FILE_DIR:${PROJECT_NAME}>/data"
+        COMMENT "Copying data directory to output"
+    )
+elseif(DEFINED XCODE_BUILD)
+    message(STATUS "Building with Xcode")
+    set_target_properties(${PROJECT_NAME} PROPERTIES
+        MACOSX_BUNDLE TRUE 
+        XCODE_GENERATE_SCHEME TRUE
+        XCODE_SCHEME_WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        XCODE_SCHEME_LAUNCH_MODE "0"  # Prevent multiple executables
+    )
+    # Group DATA_FILES for Xcode Project Explorer
+    source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${DATA_FILES})
+    # Add DATA_FILES as resources to the target
+    target_sources(${PROJECT_NAME} PRIVATE ${DATA_FILES})
+    set_source_files_properties(${DATA_FILES} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/data")
+else()
+    message(STATUS "Unknown build mode")
+endif()
 
 # Set texture path as a definition
 add_definitions(-DTEXTURE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/textures")
@@ -64,9 +101,6 @@ add_definitions(-DSCENES_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/scenes")
 # tiny_glTF doesn't need to compile stb_image again
 add_definitions(-DTINYGLTF_NO_STB_IMAGE -DTINYGLTF_NO_STB_IMAGE_WRITE)
 add_definitions(-DIMGUI_IMPL_METAL_CPP)
-
-# Combine all files into a single source group for Xcode
-source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES} ${SHADER_SOURCES} ${DATA_FILES})
 
 # Add the metal-cmake subdirectory but hide it from IDE
 add_subdirectory(metal-cmake EXCLUDE_FROM_ALL)
@@ -109,33 +143,13 @@ add_custom_command(
 add_custom_target(shaders DEPENDS ${SHADER_METALLIB} ${SHADER_SOURCES})
 set_target_properties(shaders PROPERTIES FOLDER "Hidden")
 
-# Add the executable target
-add_executable(${PROJECT_NAME} ${SOURCES} ${SHADER_SOURCES} ${DATA_FILES})
-
-# Check if it's a standalone build or an Xcode build
-if(DEFINED STANDALONE_BUILD)
-    message(STATUS "Building as standalone")
+# Set the Xcode-specific attributes (only if XCODE_BUILD is defined)
+if(DEFINED XCODE_BUILD)
     set_target_properties(${PROJECT_NAME} PROPERTIES
-        MACOSX_BUNDLE FALSE   
-        XCODE_GENERATE_SCHEME FALSE
-    )
-elseif(DEFINED XCODE_BUILD)
-    message(STATUS "Building with Xcode")
-    set_target_properties(${PROJECT_NAME} PROPERTIES
-        MACOSX_BUNDLE TRUE 
         XCODE_GENERATE_SCHEME TRUE
         XCODE_SCHEME_WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-        XCODE_SCHEME_LAUNCH_MODE "0"  # Prevent multiple executables
     )
-else()
-    message(STATUS "Unknown build mode")
 endif()
-
-# Set the Xcode specific attributes
-set_target_properties(${PROJECT_NAME} PROPERTIES
-    XCODE_GENERATE_SCHEME TRUE
-    XCODE_SCHEME_WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-)
 
 # Make sure shaders are built before the main target
 add_dependencies(${PROJECT_NAME} shaders)

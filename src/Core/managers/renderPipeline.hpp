@@ -8,7 +8,7 @@
 enum class RenderPipelineType {
     GBufferTextured,
     GBufferNonTextured,
-    DirectionalLight,
+    FinalGather,
     ForwardDebug
 };
 
@@ -20,7 +20,7 @@ enum class ComputePipelineType {
 
 enum class DepthStencilType {
     GBuffer,
-    DirectionalLight
+    FinalGather
 };
 
 struct RenderPipelineConfig {

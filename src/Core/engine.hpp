@@ -63,7 +63,7 @@ private:
 	void draw();
 	void drawMeshes(MTL::RenderCommandEncoder* renderCommandEncoder);
 	void drawGBuffer(MTL::RenderCommandEncoder* renderCommandEncoder);
-	void drawDirectionalLight(MTL::RenderCommandEncoder* renderCommandEncoder);
+	void drawFinalGathering(MTL::RenderCommandEncoder* renderCommandEncoder);
 
     void createDepthTexture();
 	void createViewRenderPassDescriptor();

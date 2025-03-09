@@ -361,7 +361,7 @@ void Engine::updateWorldState(bool isPaused) {
 	frameData->framebuffer_height = (uint)metalLayer.drawableSize.height;
 
 	// Define the sun color
-	frameData->sun_color = simd_make_float4(1.0, 1.0, 1.0, 1.0);
+	frameData->sun_color = simd_make_float4(0.95, 0.95, 0.9, 1.0);
 	frameData->sun_specular_intensity = 1.0;
 
 	// Calculate the sun's X position oscillating over time
@@ -459,14 +459,14 @@ void Engine::createRenderPipelines() {
             renderPipelines.createDepthStencilState(DepthStencilType::GBuffer, gbufferDepthConfig);
 		}
 		
-		// Setup render state to apply directional light in final pass
+		// Setup render state to apply the radiance light in final pass
 		{
-            #pragma mark Directional lighting render pipeline setup
+            #pragma mark Final gathering render pipeline setup
             {
-                RenderPipelineConfig directionalConfig{
-                    .label = "Deferred Directional Lighting",
-                    .vertexFunctionName = "deferred_directional_lighting_vertex",
-                    .fragmentFunctionName = "deferred_directional_lighting_fragment",
+                RenderPipelineConfig finalGatherConfig{
+                    .label = "Final Gathering",
+                    .vertexFunctionName = "final_gather_vertex",
+                    .fragmentFunctionName = "final_gather_fragment",
                     .colorPixelFormat = MTL::PixelFormatBGRA8Unorm,
                     .depthPixelFormat = MTL::PixelFormatDepth32Float_Stencil8,
                     .stencilPixelFormat = MTL::PixelFormatDepth32Float_Stencil8,
@@ -474,18 +474,18 @@ void Engine::createRenderPipelines() {
                 };
 
                 // Add additional color attachments for GBuffer
-                directionalConfig.colorAttachments = {
+                finalGatherConfig.colorAttachments = {
                     {RenderTargetLighting, MTL::PixelFormatBGRA8Unorm},
                     {RenderTargetAlbedo, albedoSpecularGBufferFormat},
                     {RenderTargetNormal, normalMapGBufferFormat},
                     {RenderTargetDepth, depthGBufferFormat}
                 };
-                renderPipelines.createRenderPipeline(RenderPipelineType::DirectionalLight, directionalConfig);
+                renderPipelines.createRenderPipeline(RenderPipelineType::FinalGather, finalGatherConfig);
             }
 
-			#pragma mark Directional lighting mask depth stencil state setup
+			#pragma mark Final gather mask depth stencil state setup
 			{
-				StencilConfig directionalStencil{
+				StencilConfig finalGatherStencil{
                 #if LIGHT_STENCIL_CULLING
                     .stencilCompareFunction = MTL::CompareFunctionEqual,
                     .stencilFailureOperation = MTL::StencilOperationKeep,
@@ -496,14 +496,14 @@ void Engine::createRenderPipelines() {
                 #endif
                 };
 
-                DepthStencilConfig directionalDepthConfig{
-                    .label = "Deferred Directional Lighting",
+                DepthStencilConfig finalGatherDepthConfig{
+                    .label = "Final Gathering",
                     .depthCompareFunction = MTL::CompareFunctionAlways,
                     .depthWriteEnabled = false,
-                    .frontStencil = directionalStencil,
-                    .backStencil = directionalStencil
+                    .frontStencil = finalGatherStencil,
+                    .backStencil = finalGatherStencil
                 };
-                renderPipelines.createDepthStencilState(DepthStencilType::DirectionalLight, directionalDepthConfig);
+                renderPipelines.createDepthStencilState(DepthStencilType::FinalGather, finalGatherDepthConfig);
 			}
 		}
     }
@@ -773,7 +773,7 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
             currentRenderTarget = rcRenderTargets[pingPongIndex];
             pingPongIndex = 1 - pingPongIndex;
         } else {
-            currentRenderTarget = metalDrawable->texture(); // instead of finalGather
+            currentRenderTarget = finalGatherTexture;// metalDrawable->texture(); // instead of finalGather
         }
         
         computeEncoder->setComputePipelineState(renderPipelines.getComputePipeline(ComputePipelineType::Raytracing));
@@ -995,17 +995,18 @@ void Engine::drawGBuffer(MTL::RenderCommandEncoder* renderCommandEncoder)
 	renderCommandEncoder->popDebugGroup();
 }
 
-/// Draw the directional ("sun") light in deferred pass.  Use stencil buffer to limit execution
+/// Use stencil buffer to limit execution
 /// of the shader to only those pixels that should be lit
-void Engine::drawDirectionalLight(MTL::RenderCommandEncoder* renderCommandEncoder)
+void Engine::drawFinalGathering(MTL::RenderCommandEncoder* renderCommandEncoder)
 {
 	renderCommandEncoder->setCullMode(MTL::CullModeBack);
 	renderCommandEncoder->setStencilReferenceValue(128);
 
-	renderCommandEncoder->setRenderPipelineState(renderPipelines.getRenderPipeline(RenderPipelineType::DirectionalLight));
-	renderCommandEncoder->setDepthStencilState(renderPipelines.getDepthStencilState(DepthStencilType::DirectionalLight));
+    renderCommandEncoder->setRenderPipelineState(renderPipelines.getRenderPipeline(RenderPipelineType::FinalGather));
+	renderCommandEncoder->setDepthStencilState(renderPipelines.getDepthStencilState(DepthStencilType::FinalGather));
 	renderCommandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
 	renderCommandEncoder->setFragmentBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
+    renderCommandEncoder->setFragmentTexture(finalGatherTexture, TextureIndexRadiance);
 
 	renderCommandEncoder->drawPrimitives(MTL::PrimitiveTypeTriangle, (NS::UInteger)0, (NS::UInteger)3);
 }
@@ -1090,20 +1091,21 @@ void Engine::draw() {
     viewRenderPassDescriptor->depthAttachment()->setStoreAction(MTL::StoreActionStore);
     viewRenderPassDescriptor->depthAttachment()->setClearDepth(1.0); // Clear depth to farthest
     viewRenderPassDescriptor->stencilAttachment()->setClearStencil(0); // Clear stencil
+    
+    
+    dispatchMinMaxDepthMipmaps(commandBuffer);
+    dispatchRaytracing(commandBuffer);
 
     // G-Buffer pass
     MTL::RenderCommandEncoder* gBufferEncoder = commandBuffer->renderCommandEncoder(viewRenderPassDescriptor);
     gBufferEncoder->setLabel(NS::String::string("GBuffer", NS::ASCIIStringEncoding));
     if (gBufferEncoder) {
         drawGBuffer(gBufferEncoder);
-        drawDirectionalLight(gBufferEncoder);
+        drawFinalGathering(gBufferEncoder);
 
         gBufferEncoder->endEncoding();
     }
-
-    dispatchMinMaxDepthMipmaps(commandBuffer);
-    dispatchRaytracing(commandBuffer);
-
+    
     // Forward/debug render pass descriptor setup
     forwardDescriptor->colorAttachments()->object(0)->setTexture(metalDrawable->texture());
     forwardDescriptor->colorAttachments()->object(0)->setLoadAction(MTL::LoadActionLoad); // Preserve G-Buffer results

@@ -20,6 +20,22 @@ float3 gammaCorrect(float3 linear) {
     return pow(linear, 1.0f / 2.2f);
 }
 
+float4 sunAndSky(float3 rayDir, FrameData frameData) {
+    const float3 skyColor = float3(0.02f, 0.08f, 0.2f);
+    
+    float3 sunDirection = normalize(frameData.sun_eye_direction.xyz);
+    float3 sunColor = frameData.sun_color.xyz;
+    
+    float cosAngle = dot(normalize(rayDir), sunDirection);
+    
+    float sunIntensity = smoothstep(0.95f, 1.0f, cosAngle);
+    float sunGlow = smoothstep(0.9f, 0.95f, cosAngle) * 0.2f;
+
+    float3 finalColor = skyColor + (sunColor * sunIntensity * 0.5f) + (sunColor * sunGlow);
+    
+    return float4(finalColor, 1.0f);
+}
+
 float3 reconstructWorldPosition(float2 ndc, float depth,
                                 simd::float4x4 projectionMatrixInverse,
                                 simd::float4x4 viewMatrixInverse) {
@@ -174,7 +190,7 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
     float2 probeNDC = probeUV * 2.0f - 1.0f;
     probeNDC.y = -probeNDC.y;
     float2 minMaxDepth = minMaxTexture.sample(depthSampler, probeUV).xy;
-    float probeDepth = (minMaxDepth.x + minMaxDepth.y) * 0.5f;
+    float probeDepth = minMaxDepth.x;//(minMaxDepth.x + minMaxDepth.y) * 0.5f;
     float3 worldPos = reconstructWorldPosition(probeNDC, probeDepth,
                                                frameData.projection_matrix_inverse,
                                                frameData.inverse_view_matrix);
@@ -225,44 +241,60 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
     rayData[rayDataIndex].intervalEnd = float4(endPoint, 1.0);
     
     // Direct radiance from current cascade
+    bool enableSky = false;
     float4 radiance = float4(0.0);
-    if (result.type != intersection_type::none) {
-        unsigned int primitiveIndex = result.primitive_id;
-        const device TriangleResources::TriangleData& triangle = resources[primitiveIndex];
-        radiance = (triangle.colors[0].a == -1.0f) ? float4(triangle.colors[0].rgb, 1.0) : float4(0.0, 0.0, 0.0, 1.0);
-    } else {
-        radiance = float4(0.0, 0.0, 0.0, 1.0);
-    }
+        if (result.type != intersection_type::none) {
+            unsigned int primitiveIndex = result.primitive_id;
+            const device TriangleResources::TriangleData& triangle = resources[primitiveIndex];
+            radiance = (triangle.colors[0].a == -1.0f) ? float4(triangle.colors[0].rgb, 1.0) : float4(0.0, 0.0, 0.0, 1.0);
+        } else {
+            // No intersection - Apply sky for higher cascades (3 and 4)
+            if (cascadeLevel >= 3 && enableSky) {
+                radiance = sunAndSky(rayDir, frameData);
+            } else {
+                radiance = float4(0.0, 0.0, 0.0, 1.0); // Use 0 alpha for transparent
+            }
+        }
     
     
     float4 upperRadiance = float4(0.0);
-    if (cascadeLevel < 5) {
-        upperRadiance = mergeUpperCascade(
-            upperRadianceTexture,
-            probeUV,
-            rayDir,
-            cascadeData,
-            frameData
-        );
-    }
+    if (cascadeLevel < 4) {
+            upperRadiance = mergeUpperCascade(
+                upperRadianceTexture,
+                probeUV,
+                rayDir,
+                cascadeData,
+                frameData
+            );
+            
+            if (result.type == intersection_type::none) {
+                // If no hit in current cascade, use upper cascade
+                // But still keep our own sky contribution for level 3
+                if (cascadeLevel == 3 && enableSky) {
+                    // Blend our sky with the upper cascade based on alpha
+                    if (upperRadiance.a < 0.9f) {
+                        float blendFactor = 1.0f - upperRadiance.a;
+                        upperRadiance = mix(upperRadiance, radiance, blendFactor);
+                        upperRadiance.a = max(upperRadiance.a, 0.9f); // Ensure good alpha
+                    }
+                }
+                radiance = upperRadiance;
+            } else {
+                // There was a hit, blend with upper cascade
+                radiance.rgb += upperRadiance.rgb * radiance.a;
+                radiance.a *= upperRadiance.a;
+            }
+        }
         
-    if (result.type == intersection_type::none) {
-        // If no hit in current cascade, fully use upper cascade
-        radiance = upperRadiance;
-    } else {
-        radiance.rgb += upperRadiance.rgb * radiance.a;
-        radiance.a *= upperRadiance.a;
-    }
-    
-    rayData[rayDataIndex].color = radiance;
-    
-    uint texX = uint(tileUV.x * frameData.framebuffer_width);
-    uint texY = uint(tileUV.y * frameData.framebuffer_height);
-    
-    if (cascadeLevel == 0) {
-        float3 gammaCorrected = gammaCorrect(radiance.rgb);
-        radianceTexture.write(float4(gammaCorrected, radiance.a), uint2(texX, texY));
-    } else {
-        radianceTexture.write(radiance, uint2(texX, texY));
-    }
+        rayData[rayDataIndex].color = radiance;
+        
+        uint texX = uint(tileUV.x * frameData.framebuffer_width);
+        uint texY = uint(tileUV.y * frameData.framebuffer_height);
+        
+        if (cascadeLevel == 0) {
+            float3 gammaCorrected = gammaCorrect(radiance.rgb);
+            radianceTexture.write(float4(gammaCorrected, radiance.a), uint2(texX, texY));
+        } else {
+            radianceTexture.write(radiance, uint2(texX, texY));
+        }
 }

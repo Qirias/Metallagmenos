@@ -36,11 +36,8 @@ struct FrameData {
 struct CascadeData {
     uint cascadeLevel;
     uint probeSpacing;
-    uint probeRaysPerDim;     // Number of rays per dimension for octahedral mapping
-    uint maxCascadeLevel;     // Maximum cascade level for merging
-    float rayStartMultiplier; // Scaling factor for ray start distances
-    float rayLengthMultiplier; // Scaling factor for ray length
-    uint padding[2];
+    uint probeRaysPerDim;
+    uint maxCascadeLevel;
 };
 
 struct Probe {

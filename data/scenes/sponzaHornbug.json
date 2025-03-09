@@ -17,7 +17,7 @@
                 "scale": [1.0, 1.0, 1.0],
                 "color": [1.0, 1.0, 1.0],
                 "hasTextures": true,
-                "hasEmissive": false
+                "isEmissive": false
             },
             {
                 "mesh": "hornbug",
@@ -25,7 +25,8 @@
                 "scale": [1.0, 1.0, 1.0],
                 "color": [1.0, 1.0, 1.0],
                 "hasTextures": false,
-                "hasEmissive": false
+                "isEmissive": true,
+                "emissiveColor": [0.0, 1.0, 0.0]
             }
         ]
     }

@@ -158,6 +158,7 @@ void Engine::initWindow() {
     metalLayer.drawableSize = CGSizeMake(width, height);
     metalWindow.contentView.layer = metalLayer;
     metalWindow.contentView.wantsLayer = YES;
+    metalLayer.framebufferOnly = false;
 
     glfwSetWindowUserPointer(glfwWindow, this);
     glfwSetFramebufferSizeCallback(glfwWindow, frameBufferSizeCallback);
@@ -688,7 +689,6 @@ void Engine::createSphereGrid() {
         
      for (int i = 0; i < debugProbeCount; ++i) {
          spherePositions.push_back(probes[i].position);
-//         std::cout << "Probe: " << i << "\tx: " << probes[i].position.x << "\ty: " << probes[i].position.y << "\tz: " << probes[i].position.z << "\tw: " << probes[i].position.w << "\n";
      }
 
     debug->drawSpheres(spherePositions, sphereRadius, sphereColor);
@@ -773,7 +773,7 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
             currentRenderTarget = rcRenderTargets[pingPongIndex];
             pingPongIndex = 1 - pingPongIndex;
         } else {
-            currentRenderTarget = finalGatherTexture;
+            currentRenderTarget = metalDrawable->texture(); // instead of finalGather
         }
         
         computeEncoder->setComputePipelineState(renderPipelines.getComputePipeline(ComputePipelineType::Raytracing));
@@ -934,7 +934,7 @@ void Engine::createViewRenderPassDescriptor() {
     desc->setUsage(MTL::TextureUsageShaderRead | MTL::TextureUsageShaderWrite);
     
     NS::String* label = NS::String::string("Final Gather", NS::ASCIIStringEncoding);
-    finalGatherTextureTexture = metalDevice->newTexture(desc);
+    finalGatherTexture = metalDevice->newTexture(desc);
     finalGatherTexture->setLabel(label);
 }
 

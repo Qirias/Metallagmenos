@@ -773,7 +773,7 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
             currentRenderTarget = rcRenderTargets[pingPongIndex];
             pingPongIndex = 1 - pingPongIndex;
         } else {
-            currentRenderTarget = finalGatherTexture;// metalDrawable->texture(); // instead of finalGather
+            currentRenderTarget = finalGatherTexture;
         }
         
         computeEncoder->setComputePipelineState(renderPipelines.getComputePipeline(ComputePipelineType::Raytracing));
@@ -817,11 +817,14 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
 
         computeEncoder->dispatchThreadgroups(MTL::Size(numThreadGroups, 1, 1), threadGroupSize);
         computeEncoder->endEncoding();
-        
+                
         if (level > 0) {
             lastMergedTexture = currentRenderTarget;
         }
     }
+    
+    rcRenderTargets[0]->release();
+    rcRenderTargets[1]->release();
 }
 
 void Engine::createViewRenderPassDescriptor() {

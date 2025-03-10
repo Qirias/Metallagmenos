@@ -12,7 +12,6 @@ public:
     struct DebugWindowOptions {
         bool enableDebugFeature = false;
         int debugCascadeLevel = 0;
-        int previousDebugCascadeLevel = 0;
         float intervalLength = 1.0f;
     } debug;
 

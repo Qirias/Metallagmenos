@@ -11,7 +11,7 @@ public:
 		, nearPlane(nearPlane)
 		, farPlane(farPlane)
         , yaw(-180.0f)
-        , pitch(0.0f)
+        , pitch(-35.0f)
         , movementSpeed(2.0f)
         , mouseSensitivity(0.1f)
         , fov(45.0f)

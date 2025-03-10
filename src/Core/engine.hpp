@@ -168,7 +168,7 @@ private:
     
     int                                     cascadeLevel = 5;
     int                                     probeSpacing = 2;
-    int                                     baseRay = 16;
+    int                                     baseRay = 8;
     MTL::Texture*                           finalGatherTexture;
     std::vector<std::vector<MTL::Buffer*>>  cascadeDataBuffer;
 };

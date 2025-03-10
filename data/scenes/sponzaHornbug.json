@@ -26,7 +26,25 @@
                 "color": [1.0, 1.0, 1.0],
                 "hasTextures": false,
                 "isEmissive": true,
-                "emissiveColor": [1.0, 1.0, 1.0]
+                "emissiveColor": [4.0, 2.0, 1.0]
+            },
+            {
+                "mesh": "hornbug",
+                "pos": [0.0, 0.0, 0.0],
+                "scale": [1.0, 1.0, 1.0],
+                "color": [1.0, 1.0, 1.0],
+                "hasTextures": false,
+                "isEmissive": true,
+                "emissiveColor": [4.0, 0.0, 0.0]
+            },
+            {
+                "mesh": "hornbug",
+                "pos": [5.0, 0.0, 0.0],
+                "scale": [1.0, 1.0, 1.0],
+                "color": [1.0, 1.0, 1.0],
+                "hasTextures": false,
+                "isEmissive": true,
+                "emissiveColor": [2.0, 5.294, 2.0]
             }
         ]
     }

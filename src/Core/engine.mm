@@ -752,17 +752,6 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
     MTL::Texture* lastMergedTexture = nil;
     int pingPongIndex = 0;
     
-    int previousDebugCascadeLevel = -1;
-
-    bool debugLevelChanged = previousDebugCascadeLevel != editor->debug.debugCascadeLevel;
-    bool goingBackwards = editor->debug.debugCascadeLevel < previousDebugCascadeLevel && previousDebugCascadeLevel != -1;
-
-    if (debugLevelChanged) {
-        pingPongIndex = 0;
-        lastMergedTexture = nil;
-        previousDebugCascadeLevel = editor->debug.debugCascadeLevel;
-    }
-
     for (int level = cascadeLevel - 1; level >= editor->debug.debugCascadeLevel; --level) {
         MTL::ComputeCommandEncoder* computeEncoder = commandBuffer->computeCommandEncoder();
         computeEncoder->setLabel(NS::String::string(("Ray Tracing Cascade " + std::to_string(level)).c_str(), NS::ASCIIStringEncoding));
@@ -780,7 +769,7 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
             currentRenderTarget = rcRenderTargets[pingPongIndex];
             pingPongIndex = 1 - pingPongIndex;
             lastMergedTexture = nil;
-        } else if (level > editor->debug.debugCascadeLevel/* && !debugLevelChanged*/) {
+        } else if (level > editor->debug.debugCascadeLevel) {
             currentRenderTarget = rcRenderTargets[pingPongIndex];
             pingPongIndex = 1 - pingPongIndex;
         } else {
@@ -834,6 +823,7 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
         }
     }
     
+    desc->release();
     rcRenderTargets[0]->release();
     rcRenderTargets[1]->release();
 }

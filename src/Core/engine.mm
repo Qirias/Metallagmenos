@@ -191,11 +191,11 @@ void Engine::endFrame(MTL::CommandBuffer* commandBuffer, MTL::Drawable* currentD
         commandBuffer->presentDrawable(metalDrawable);
         commandBuffer->commit();
         
-//        if (frameNumber == 100) {
-//            commandBuffer->waitUntilCompleted();
-//            createSphereGrid();
-//            createDebugLines();
-//        }
+        if (frameNumber == 100) {
+            commandBuffer->waitUntilCompleted();
+            createSphereGrid();
+            createDebugLines();
+        }
         
         // Move to next frame
         currentFrameIndex = (currentFrameIndex + 1) % MaxFramesInFlight;
@@ -311,7 +311,7 @@ void Engine::createBuffers() {
             
             debugProbeCount = floor(metalLayer.drawableSize.width / (probeSpacing * 1 << cascade)) * floor(metalLayer.drawableSize.height / (probeSpacing * 1 << cascade));
             size_t probeBufferSize = debugProbeCount * sizeof(Probe);
-            rayCount = debugProbeCount * 8 * (1 << (2 * cascade));
+            rayCount = debugProbeCount * baseRay * (1 << (2 * cascade));
             size_t rayBufferSize = rayCount * sizeof(ProbeRay);
             
             labelStr = "Frame: " + std::to_string(frame) + "|CascadeProbes: " + std::to_string(cascade);
@@ -678,7 +678,6 @@ void Engine::setupTriangleResources() {
 }
 
 void Engine::createSphereGrid() {
-    int debugCascadeLevel = 0;
     debugProbeCount = floor(metalLayer.drawableSize.width / (probeSpacing * 1 << debugCascadeLevel)) * floor(metalLayer.drawableSize.height / (probeSpacing * 1 << debugCascadeLevel));
     
     const float sphereRadius = 0.006f * float(1 << debugCascadeLevel) * probeSpacing;
@@ -695,14 +694,13 @@ void Engine::createSphereGrid() {
 }
 
 void Engine::createDebugLines() {
-    int debugRayLevel = 0;
-    rayCount = debugProbeCount * 8 * (1 << (2 * debugRayLevel));
+    rayCount = debugProbeCount * baseRay * (1 << (2 * debugCascadeLevel));
     
     std::vector<simd::float4> startPoints;
     std::vector<simd::float4> endPoints;
     std::vector<simd::float4> colors;
     
-    ProbeRay* rays = reinterpret_cast<ProbeRay*>(rayBuffer[currentFrameIndex][debugRayLevel]->contents());
+    ProbeRay* rays = reinterpret_cast<ProbeRay*>(rayBuffer[currentFrameIndex][debugCascadeLevel]->contents());
     
     for (int i = 0; i < rayCount; i++) {
         startPoints.push_back(rays[i].intervalStart);
@@ -753,8 +751,19 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
     
     MTL::Texture* lastMergedTexture = nil;
     int pingPongIndex = 0;
+    
+    int previousDebugCascadeLevel = -1;
 
-    for (int level = cascadeLevel - 1; level >= 0; --level) {
+    bool debugLevelChanged = previousDebugCascadeLevel != editor->debug.debugCascadeLevel;
+    bool goingBackwards = editor->debug.debugCascadeLevel < previousDebugCascadeLevel && previousDebugCascadeLevel != -1;
+
+    if (debugLevelChanged) {
+        pingPongIndex = 0;
+        lastMergedTexture = nil;
+        previousDebugCascadeLevel = editor->debug.debugCascadeLevel;
+    }
+
+    for (int level = cascadeLevel - 1; level >= editor->debug.debugCascadeLevel; --level) {
         MTL::ComputeCommandEncoder* computeEncoder = commandBuffer->computeCommandEncoder();
         computeEncoder->setLabel(NS::String::string(("Ray Tracing Cascade " + std::to_string(level)).c_str(), NS::ASCIIStringEncoding));
         
@@ -762,14 +771,16 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
         CascadeData *cascadeData = reinterpret_cast<CascadeData*>(cascadeDataBuffer[currentFrameIndex][level]->contents());
         cascadeData->cascadeLevel = level;
         cascadeData->probeSpacing = probeSpacing;
+        cascadeData->intervalLength = editor->debug.intervalLength;
+        cascadeData->maxCascade = cascadeLevel-1;
         
         MTL::Texture* currentRenderTarget = nil;
         
-        if (level == cascadeLevel - 1) {
+        if (level == cascadeLevel - 1 && editor->debug.debugCascadeLevel != cascadeLevel - 1) {
             currentRenderTarget = rcRenderTargets[pingPongIndex];
             pingPongIndex = 1 - pingPongIndex;
             lastMergedTexture = nil;
-        } else if (level > 0) {
+        } else if (level > editor->debug.debugCascadeLevel/* && !debugLevelChanged*/) {
             currentRenderTarget = rcRenderTargets[pingPongIndex];
             pingPongIndex = 1 - pingPongIndex;
         } else {
@@ -807,7 +818,7 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
         int tile_size = probeSpacing * (1 << level);
         size_t probeGridSizeX = (metalDrawable->texture()->width() + tile_size - 1) / tile_size;
         size_t probeGridSizeY = (metalDrawable->texture()->height() + tile_size - 1) / tile_size;
-        size_t numRays = 8 * (1 << (2 * level));
+        size_t numRays = baseRay * (1 << (2 * level));
         size_t totalProbes = probeGridSizeX * probeGridSizeY;
         size_t totalThreads = totalProbes * numRays;
 

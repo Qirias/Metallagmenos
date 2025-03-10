@@ -154,8 +154,8 @@ private:
     std::vector<std::vector<MTL::Buffer*>>  probePosBuffer;
     std::vector<std::vector<MTL::Buffer*>>  rayBuffer;
     int                                     debugProbeCount = 0;
-    int                                     probeSpacing = 2;
     int                                     rayCount = 0;
+    int                                     debugCascadeLevel = 0;
     
     void createSphereGrid();
     void createDebugLines();
@@ -164,8 +164,11 @@ private:
     // Min Max Depth Buffer
     void dispatchMinMaxDepthMipmaps(MTL::CommandBuffer* commandBuffer);
     MTL::Texture* minMaxDepthTexture;
-    int cascadeLevel = 5;
     
+    
+    int                                     cascadeLevel = 5;
+    int                                     probeSpacing = 2;
+    int                                     baseRay = 16;
     MTL::Texture*                           finalGatherTexture;
     std::vector<std::vector<MTL::Buffer*>>  cascadeDataBuffer;
 };

@@ -51,10 +51,10 @@ void Editor::debugWindow() {
     ImGui::Begin("Debug Window", nullptr, ImGuiWindowFlags_None);
 
     ImGui::Checkbox("Enable Debug Mode", &debug.enableDebugFeature);
-
-    if (debug.enableDebugFeature) {
-        ImGui::Text("Debug mode is active");
-    }
+    
+    ImGui::InputFloat("Interval Length", &debug.intervalLength, 0.1f, 1.0f, "%.2f");
+    
+    ImGui::SliderInt("Cascade Level", &debug.debugCascadeLevel, 0, 4);
 
     ImGui::End();
 }

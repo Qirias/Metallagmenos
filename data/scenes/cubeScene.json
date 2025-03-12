@@ -19,7 +19,7 @@
                 "mesh": "cube",
                 "pos": [0.0, 0.0, 0.0],
                 "scale": [0.5, 0.5, 0.5],
-                "color": [0.0, 1.0, 0.0],
+                "color": [0.0, 4.0, 0.0],
                 "hasTextures": false,
                 "isEmissive": true,
                 "emissiveColor": [0.0, 1.0, 0.0]

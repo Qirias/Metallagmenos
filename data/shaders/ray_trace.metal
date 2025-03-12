@@ -56,8 +56,6 @@ float3 octDecode(float2 f) {
 float4 mergeUpperCascade(texture2d<float, access::sample> upperRadianceTexture,
                          float2 probeUV,
                          float3 rayDir,
-                         float3 surfaceNormal,
-                         bool hasIntersection,
                          CascadeData cascadeData,
                          FrameData frameData) {
     uint currentCascadeLevel = cascadeData.cascadeLevel;
@@ -131,6 +129,7 @@ float4 mergeUpperCascade(texture2d<float, access::sample> upperRadianceTexture,
                 (float(dirX)) / float(upperRaysPerDim),
                 (float(dirY)) / float(upperRaysPerDim)
             );
+            
             float2 dirOffset = (dirUV - 0.5f) / float2(upperGridSizeX, upperGridSizeY);
             float2 sampleUV = probeUVCenter + dirOffset;
             
@@ -138,12 +137,6 @@ float4 mergeUpperCascade(texture2d<float, access::sample> upperRadianceTexture,
             
             probeRadiance += sample * dirBilinearWeights[dirIdx];
         }
-        
-//        if (hasIntersection) {
-//            // Lambert factor is cos(theta) between normal and incoming light direction
-//            float lambertFactor = max(0.1f, dot(surfaceNormal, -rayDir));
-//            probeWeight *= lambertFactor;
-//        }
         
         accumulatedRadiance += probeRadiance * probeWeight;
         totalWeight += probeWeight;
@@ -248,7 +241,6 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
     bool sampleSun = false;
     float4 radiance = float4(0.0);
     float3 surfaceNormal = float3(0, 0, 0);
-    bool hasIntersection = false;
 
     if (result.type != intersection_type::none) {
         unsigned int primitiveIndex = result.primitive_id;
@@ -260,7 +252,6 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
         surfaceNormal = normalize(triangle.normals[0].xyz * (1.0 - barycentrics.x - barycentrics.y) +
                                           triangle.normals[1].xyz * barycentrics.x +
                                           triangle.normals[2].xyz * barycentrics.y);
-        hasIntersection = true;
         
         if (triangle.colors[0].a == -1.0f)
             rayData[rayDataIndex].color = float4(1.0, 0.0, 0.0, 1.0);
@@ -282,8 +273,6 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
              upperRadianceTexture,
              probeUV,
              rayDir,
-             surfaceNormal,
-             hasIntersection,
              cascadeData,
              frameData
          );

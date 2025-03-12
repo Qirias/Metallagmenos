@@ -165,6 +165,10 @@ private:
     void dispatchMinMaxDepthMipmaps(MTL::CommandBuffer* commandBuffer);
     MTL::Texture* minMaxDepthTexture;
     
+    void dispatchTwoPassBlur(MTL::CommandBuffer* commandBuffer);
+    MTL::Texture*                           intermediateBlurTexture;
+    MTL::Texture*                           blurredColor;
+    
     
     int                                     cascadeLevel = 6;
     int                                     probeSpacing = 4;

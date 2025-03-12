@@ -142,7 +142,7 @@ void Engine::resizeFrameBuffer(int width, int height) {
 void Engine::initWindow() {
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindow = glfwCreateWindow(1024, 1024, "Metalλαγμένος", NULL, NULL);
+    glfwWindow = glfwCreateWindow(512, 512, "Metalλαγμένος", NULL, NULL);
     if (!glfwWindow) {
         glfwTerminate();
         exit(EXIT_FAILURE);
@@ -213,7 +213,6 @@ void Engine::loadSceneFromJSON(const std::string& jsonFilePath) {
     
     meshes.insert(meshes.end(), loadedMeshes.begin(), loadedMeshes.end());
 }
-
 
 void Engine::loadScene() {
     loadSceneFromJSON(std::string(SCENES_PATH) + "/sponzaHornbug.json");
@@ -548,6 +547,21 @@ void Engine::createRenderPipelines() {
             renderPipelines.createComputePipeline(ComputePipelineType::MinMaxDepth, minMaxDepthConfig);
         }
     }
+    
+    #pragma mark Box Blur
+    {
+        ComputePipelineConfig verticalBlurConfig{
+            .label = "Vertical Blur",
+            .computeFunctionName = "verticalBlurKernel"
+        };
+        renderPipelines.createComputePipeline(ComputePipelineType::VerticalBlur, verticalBlurConfig);
+        
+        ComputePipelineConfig horizontalBlurConfig{
+            .label = "Vertical Blur",
+            .computeFunctionName = "horizontalBlurKernel"
+        };
+        renderPipelines.createComputePipeline(ComputePipelineType::HorizontalBlur, horizontalBlurConfig);
+    }
 }
 
 void Engine::createAccelerationStructureWithDescriptors() {
@@ -731,7 +745,7 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
     
     MTL::TextureDescriptor* desc = MTL::TextureDescriptor::alloc()->init();
     desc->setTextureType(MTL::TextureType2D);
-    desc->setPixelFormat(MTL::PixelFormatRGBA32Float);
+    desc->setPixelFormat(MTL::PixelFormatRGBA16Float);
     desc->setWidth(width);
     desc->setHeight(height);
     desc->setStorageMode(MTL::StorageModeShared);
@@ -826,6 +840,63 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
     desc->release();
     rcRenderTargets[0]->release();
     rcRenderTargets[1]->release();
+}
+
+void Engine::dispatchTwoPassBlur(MTL::CommandBuffer* commandBuffer) {
+    uint width = metalLayer.drawableSize.width;
+    uint height = metalLayer.drawableSize.height;
+    
+    // First create a texture descriptor for the intermediate texture if it doesn't exist
+    if (!intermediateBlurTexture) {
+        MTL::TextureDescriptor* desc = MTL::TextureDescriptor::alloc()->init();
+        desc->setTextureType(MTL::TextureType2D);
+        desc->setPixelFormat(MTL::PixelFormatRGBA16Float);
+        desc->setWidth(width);
+        desc->setHeight(height);
+        desc->setStorageMode(MTL::StorageModePrivate);
+        desc->setUsage(MTL::TextureUsageShaderRead | MTL::TextureUsageShaderWrite);
+        
+        intermediateBlurTexture = metalDevice->newTexture(desc);
+        intermediateBlurTexture->setLabel(NS::String::string("Intermediate Blur Texture", NS::ASCIIStringEncoding));
+        
+        desc->release();
+    }
+    
+    // Thread group size used for all dispatches
+    MTL::Size threadGroupSize = MTL::Size(16, 16, 1);
+    MTL::Size threadgroups = MTL::Size(
+      (width + threadGroupSize.width - 1) / threadGroupSize.width,
+      (height + threadGroupSize.height - 1) / threadGroupSize.height, 1);
+    
+    // First pass - Horizontal blur
+    MTL::ComputeCommandEncoder* horizontalEncoder = commandBuffer->computeCommandEncoder();
+    horizontalEncoder->setLabel(NS::String::string("Horizontal Blur", NS::ASCIIStringEncoding));
+    horizontalEncoder->setComputePipelineState(renderPipelines.getComputePipeline(ComputePipelineType::HorizontalBlur));
+    
+    horizontalEncoder->setBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
+    horizontalEncoder->setTexture(finalGatherTexture, TextureIndexRadianceUpper);
+    horizontalEncoder->setTexture(intermediateBlurTexture, TextureIndexRadiance);
+    
+    horizontalEncoder->useResource(finalGatherTexture, MTL::ResourceUsageRead);
+    horizontalEncoder->useResource(intermediateBlurTexture, MTL::ResourceUsageWrite);
+    
+    horizontalEncoder->dispatchThreadgroups(threadgroups, threadGroupSize);
+    horizontalEncoder->endEncoding();
+    
+    // Second pass - Vertical blur
+    MTL::ComputeCommandEncoder* verticalEncoder = commandBuffer->computeCommandEncoder();
+    verticalEncoder->setLabel(NS::String::string("Vertical Blur", NS::ASCIIStringEncoding));
+    verticalEncoder->setComputePipelineState(renderPipelines.getComputePipeline(ComputePipelineType::VerticalBlur));
+    
+    verticalEncoder->setBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
+    verticalEncoder->setTexture(intermediateBlurTexture, TextureIndexRadianceUpper);
+    verticalEncoder->setTexture(blurredColor, TextureIndexRadiance);
+    
+    verticalEncoder->useResource(intermediateBlurTexture, MTL::ResourceUsageRead);
+    verticalEncoder->useResource(blurredColor, MTL::ResourceUsageWrite);
+    
+    verticalEncoder->dispatchThreadgroups(threadgroups, threadGroupSize);
+    verticalEncoder->endEncoding();
 }
 
 void Engine::createViewRenderPassDescriptor() {
@@ -931,7 +1002,7 @@ void Engine::createViewRenderPassDescriptor() {
     
     MTL::TextureDescriptor* desc = MTL::TextureDescriptor::alloc()->init();
     desc->setTextureType(MTL::TextureType2D);
-    desc->setPixelFormat(MTL::PixelFormatRGBA32Float);
+    desc->setPixelFormat(MTL::PixelFormatRGBA16Float);
     desc->setWidth(metalLayer.drawableSize.width);
     desc->setHeight(metalLayer.drawableSize.height);
     desc->setStorageMode(MTL::StorageModeShared);
@@ -940,6 +1011,10 @@ void Engine::createViewRenderPassDescriptor() {
     NS::String* label = NS::String::string("Final Gather", NS::ASCIIStringEncoding);
     finalGatherTexture = metalDevice->newTexture(desc);
     finalGatherTexture->setLabel(label);
+    
+    label = NS::String::string("Blurred Color", NS::ASCIIStringEncoding);
+    blurredColor = metalDevice->newTexture(desc);
+    blurredColor->setLabel(label);
 }
 
 void Engine::updateRenderPassDescriptor() {
@@ -1009,7 +1084,7 @@ void Engine::drawFinalGathering(MTL::RenderCommandEncoder* renderCommandEncoder)
 	renderCommandEncoder->setDepthStencilState(renderPipelines.getDepthStencilState(DepthStencilType::FinalGather));
 	renderCommandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
 	renderCommandEncoder->setFragmentBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
-    renderCommandEncoder->setFragmentTexture(finalGatherTexture, TextureIndexRadiance);
+    renderCommandEncoder->setFragmentTexture(blurredColor, TextureIndexRadiance);
 
 	renderCommandEncoder->drawPrimitives(MTL::PrimitiveTypeTriangle, (NS::UInteger)0, (NS::UInteger)3);
 }
@@ -1098,7 +1173,8 @@ void Engine::draw() {
     
     dispatchMinMaxDepthMipmaps(commandBuffer);
     dispatchRaytracing(commandBuffer);
-
+    dispatchTwoPassBlur(commandBuffer);
+    
     // G-Buffer pass
     MTL::RenderCommandEncoder* gBufferEncoder = commandBuffer->renderCommandEncoder(viewRenderPassDescriptor);
     gBufferEncoder->setLabel(NS::String::string("GBuffer", NS::ASCIIStringEncoding));

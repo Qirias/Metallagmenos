@@ -54,7 +54,7 @@ void Editor::debugWindow() {
     
     ImGui::InputFloat("Interval Length", &debug.intervalLength, 0.1f, 1.0f, "%.2f");
     
-    ImGui::SliderInt("Cascade Level", &debug.debugCascadeLevel, 0, 4);
+    ImGui::SliderInt("Cascade Level", &debug.debugCascadeLevel, 0, 5);
 
     ImGui::End();
 }

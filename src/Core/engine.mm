@@ -142,7 +142,7 @@ void Engine::resizeFrameBuffer(int width, int height) {
 void Engine::initWindow() {
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindow = glfwCreateWindow(512, 512, "Metalλαγμένος", NULL, NULL);
+    glfwWindow = glfwCreateWindow(1024, 1024, "Metalλαγμένος", NULL, NULL);
     if (!glfwWindow) {
         glfwTerminate();
         exit(EXIT_FAILURE);
@@ -216,7 +216,7 @@ void Engine::loadSceneFromJSON(const std::string& jsonFilePath) {
 
 
 void Engine::loadScene() {
-    loadSceneFromJSON(std::string(SCENES_PATH) + "/cubeScene.json");
+    loadSceneFromJSON(std::string(SCENES_PATH) + "/sponzaHornbug.json");
 }
 
 MTL::VertexDescriptor* Engine::createDefaultVertexDescriptor() {
@@ -726,13 +726,12 @@ void Engine::drawDebug(MTL::RenderCommandEncoder* commandEncoder, MTL::CommandBu
 }
 
 void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
-    
     uint width = metalLayer.drawableSize.width;
     uint height = metalLayer.drawableSize.height;
     
     MTL::TextureDescriptor* desc = MTL::TextureDescriptor::alloc()->init();
     desc->setTextureType(MTL::TextureType2D);
-    desc->setPixelFormat(MTL::PixelFormatRGBA16Float);
+    desc->setPixelFormat(MTL::PixelFormatRGBA32Float);
     desc->setWidth(width);
     desc->setHeight(height);
     desc->setStorageMode(MTL::StorageModeShared);
@@ -807,7 +806,8 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
         int tile_size = probeSpacing * (1 << level);
         size_t probeGridSizeX = (metalDrawable->texture()->width() + tile_size - 1) / tile_size;
         size_t probeGridSizeY = (metalDrawable->texture()->height() + tile_size - 1) / tile_size;
-        size_t numRays = baseRay * (1 << (2 * level));
+        uint raysPerDim =  (1 << (level + 2));
+        uint numRays = (raysPerDim * raysPerDim);
         size_t totalProbes = probeGridSizeX * probeGridSizeY;
         size_t totalThreads = totalProbes * numRays;
 
@@ -931,7 +931,7 @@ void Engine::createViewRenderPassDescriptor() {
     
     MTL::TextureDescriptor* desc = MTL::TextureDescriptor::alloc()->init();
     desc->setTextureType(MTL::TextureType2D);
-    desc->setPixelFormat(MTL::PixelFormatRGBA16Float);
+    desc->setPixelFormat(MTL::PixelFormatRGBA32Float);
     desc->setWidth(metalLayer.drawableSize.width);
     desc->setHeight(metalLayer.drawableSize.height);
     desc->setStorageMode(MTL::StorageModeShared);
@@ -989,7 +989,6 @@ void Engine::drawGBuffer(MTL::RenderCommandEncoder* renderCommandEncoder)
 {
 	renderCommandEncoder->pushDebugGroup(NS::String::string("Draw G-Buffer", NS::ASCIIStringEncoding));
 	renderCommandEncoder->setCullMode(MTL::CullModeBack);
-//	renderCommandEncoder->setRenderPipelineState(renderPipelines.getRenderPipeline(RenderPipelineType::GBuffer));
 	renderCommandEncoder->setDepthStencilState(renderPipelines.getDepthStencilState(DepthStencilType::GBuffer));
 	renderCommandEncoder->setStencilReferenceValue(128);
     renderCommandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);

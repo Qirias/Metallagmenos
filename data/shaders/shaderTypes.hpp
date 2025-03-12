@@ -37,10 +37,7 @@ struct CascadeData {
     uint cascadeLevel;
     uint maxCascade;
     uint probeSpacing;
-    uint probeRaysPerDim;
-    uint baseRay;
     float intervalLength;
-    uint padding[1];
 };
 
 struct Probe {

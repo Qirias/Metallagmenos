@@ -8,6 +8,10 @@
             {
                 "name": "hornbug",
                 "filename": "@MODELS_PATH@/hornbug.obj"
+            },
+            {
+                "name": "cube",
+                "filename": "@MODELS_PATH@/cube.obj"
             }
         ],
         "objects": [

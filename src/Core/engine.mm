@@ -548,7 +548,7 @@ void Engine::createRenderPipelines() {
         }
     }
     
-    #pragma mark Box Blur
+    #pragma mark Two Pass Blur
     {
         ComputePipelineConfig verticalBlurConfig{
             .label = "Vertical Blur",
@@ -825,7 +825,7 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
         size_t totalProbes = probeGridSizeX * probeGridSizeY;
         size_t totalThreads = totalProbes * numRays;
 
-        MTL::Size threadGroupSize = MTL::Size(128, 1, 1);
+        MTL::Size threadGroupSize = MTL::Size(64, 1, 1);
         size_t numThreadGroups = (totalThreads + threadGroupSize.width - 1) / threadGroupSize.width;
         MTL::Size gridSize = MTL::Size(numThreadGroups * threadGroupSize.width, 1, 1);
 
@@ -846,7 +846,6 @@ void Engine::dispatchTwoPassBlur(MTL::CommandBuffer* commandBuffer) {
     uint width = metalLayer.drawableSize.width;
     uint height = metalLayer.drawableSize.height;
     
-    // First create a texture descriptor for the intermediate texture if it doesn't exist
     if (!intermediateBlurTexture) {
         MTL::TextureDescriptor* desc = MTL::TextureDescriptor::alloc()->init();
         desc->setTextureType(MTL::TextureType2D);
@@ -862,11 +861,9 @@ void Engine::dispatchTwoPassBlur(MTL::CommandBuffer* commandBuffer) {
         desc->release();
     }
     
-    // Thread group size used for all dispatches
     MTL::Size threadGroupSize = MTL::Size(16, 16, 1);
-    MTL::Size threadgroups = MTL::Size(
-      (width + threadGroupSize.width - 1) / threadGroupSize.width,
-      (height + threadGroupSize.height - 1) / threadGroupSize.height, 1);
+    MTL::Size threadgroups = MTL::Size((width + threadGroupSize.width - 1) / threadGroupSize.width,
+                                       (height + threadGroupSize.height - 1) / threadGroupSize.height, 1);
     
     // First pass - Horizontal blur
     MTL::ComputeCommandEncoder* horizontalEncoder = commandBuffer->computeCommandEncoder();
@@ -1084,7 +1081,7 @@ void Engine::drawFinalGathering(MTL::RenderCommandEncoder* renderCommandEncoder)
 	renderCommandEncoder->setDepthStencilState(renderPipelines.getDepthStencilState(DepthStencilType::FinalGather));
 	renderCommandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
 	renderCommandEncoder->setFragmentBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
-    renderCommandEncoder->setFragmentTexture(blurredColor, TextureIndexRadiance);
+    renderCommandEncoder->setFragmentTexture(finalGatherTexture, TextureIndexRadiance);
 
 	renderCommandEncoder->drawPrimitives(MTL::PrimitiveTypeTriangle, (NS::UInteger)0, (NS::UInteger)3);
 }
@@ -1173,7 +1170,7 @@ void Engine::draw() {
     
     dispatchMinMaxDepthMipmaps(commandBuffer);
     dispatchRaytracing(commandBuffer);
-    dispatchTwoPassBlur(commandBuffer);
+//    dispatchTwoPassBlur(commandBuffer);
     
     // G-Buffer pass
     MTL::RenderCommandEncoder* gBufferEncoder = commandBuffer->renderCommandEncoder(viewRenderPassDescriptor);

@@ -33,7 +33,7 @@ kernel void horizontalBlurKernel(texture2d<float, access::read>     inputTexture
     outputTexture.write(blurredColor, gid);
 }
 
-kernel void verticalBlurKernel(texture2d<float, access::read>     inputTexture    [[texture(TextureIndexRadianceUpper)]],
+kernel void verticalBlurKernel(texture2d<float, access::read>       inputTexture    [[texture(TextureIndexRadianceUpper)]],
                                  texture2d<float, access::write>    outputTexture   [[texture(TextureIndexRadiance)]],
                         constant FrameData&                         frameData       [[buffer(BufferIndexFrameData)]],
                                  uint2                              gid             [[thread_position_in_grid]]) {

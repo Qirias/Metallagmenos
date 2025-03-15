@@ -171,19 +171,34 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
     uint raysPerDim = (1 << (cascadeLevel + 2)); // 4, 8, 16, ...
     uint numRays = (raysPerDim * raysPerDim);    // 16, 64, 256, ...
     uint totalProbes = probeGridSizeX * probeGridSizeY;
-    uint totalThreads = totalProbes * numRays;
+    uint probesPerQuad = 4; // 2x2 neighbors
+    // Number of quad groups
+    uint numQuadsX = probeGridSizeX * 0.5;
+    uint numQuadsY = probeGridSizeY * 0.5;
+    uint totalQuads = numQuadsX * numQuadsY;
+    uint totalThreads = totalQuads * probesPerQuad * numRays;
 
     if (tid >= totalThreads) {
         return;
     }
 
-    // Reorder indexing: ray first, then probe in quad order
-    uint rayIndex = tid / totalProbes; // 0 to numRays-1
-    uint probeLinearIndex = tid % totalProbes; // 0 to totalProbes-1
+    // Process 2x2 neighbors for all rays, then move to next quad
+    uint probesPerRow = probeGridSizeX;
+    uint raysPerQuad = numRays * probesPerQuad; // 16 * 4 = 64
+    uint quadIndex = tid / raysPerQuad; // Which 2x2 quad we’re in
+    uint quadX = quadIndex % numQuadsX; // Quad X position (steps by 2 probes)
+    uint quadY = quadIndex / numQuadsX; // Quad Y position (steps by 2 probes)
+    uint rayQuadIndex = tid % raysPerQuad; // Index within the quad’s rays
+    uint rayIndex = rayQuadIndex / probesPerQuad;
+    uint localProbeIndex = rayQuadIndex % probesPerQuad; // 0 to 3 within quad
 
-    // Convert linear probe index to 2D grid coordinates
-    uint probeIndexX = probeLinearIndex % probeGridSizeX;
-    uint probeIndexY = probeLinearIndex / probeGridSizeX;
+    // Compute probe indices within the 2x2 quad
+    uint probeIndexX = (quadX * 2) + (localProbeIndex % 2); // 0 or 1 in quad
+    uint probeIndexY = (quadY * 2) + (localProbeIndex / 2); // 0 or 1 in quad
+
+    if (probeIndexX >= probeGridSizeX || probeIndexY >= probeGridSizeY) {
+        return;
+    }
 
     // Map probe to screen UV
     float2 probeUV = (float2(probeIndexX, probeIndexY) + 0.5f) / float2(probeGridSizeX, probeGridSizeY);
@@ -204,7 +219,6 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
     int rayX = rayIndex % raysPerDim;
     int rayY = rayIndex / raysPerDim;
 
-    // octahedral gave a more uniform ray distribution with that offset
     float2 rayUV = float2(
         (rayX + 0.5f) / float(raysPerDim),
         (rayY + 0.5f) / float(raysPerDim)
@@ -222,7 +236,6 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
     float cascadeStartRange = (cascadeLevel == 0) ? 0.0f : (baseCascadeRange * pow(cascadeRangeMultiplier, float(cascadeLevel - 1)));
     float cascadeEndRange = baseCascadeRange * pow(cascadeRangeMultiplier, float(cascadeLevel));
     
-    // intervalLength for debugging
     float intervalStart = cascadeStartRange * intervalLength;
     float intervalEnd = cascadeEndRange * intervalLength;
 
@@ -242,14 +255,12 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
     rayData[rayDataIndex].intervalStart = float4(startPoint, 1.0);
     rayData[rayDataIndex].intervalEnd = float4(endPoint, 1.0);
     
-    // Debug coloring
-    uint quadX = probeIndexX * 0.5;
-    uint quadY = probeIndexY * 0.5;
+    // Debug coloring - color rays based on whether their quad is odd or even
     bool isOddQuad = ((quadX + quadY) % 2) != 0;
     if (isOddQuad) {
-        rayData[rayDataIndex].color = float4(1.0, 1.0, 0.0, 1.0);
+        rayData[rayDataIndex].color = float4(1.0, 1.0, 0.0, 1.0); // Yellow for odd quads
     } else {
-        rayData[rayDataIndex].color = float4(1.0, 0.0, 0.0, 1.0);
+        rayData[rayDataIndex].color = float4(1.0, 0.0, 0.0, 1.0); // Red for even quads
     }
 
     // Direct radiance from current cascade
@@ -267,7 +278,6 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
                                           triangle.normals[1].xyz * barycentrics.x +
                                           triangle.normals[2].xyz * barycentrics.y);
     } else {
-        // No intersection - Apply sky for higher cascades
         if (cascadeLevel >= cascadeData.maxCascade - 1 && sampleSun) {
             radiance = sun(rayDir, frameData);
         } else {
@@ -287,7 +297,6 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
          );
 
         if (result.type == intersection_type::none) {
-            // If no hit in current cascade, use upper cascade
             if (cascadeLevel == cascadeData.maxCascade - 1 && sampleSun) {
                 if (upperRadiance.a < 0.9f) {
                     float blendFactor = 1.0f - upperRadiance.a;
@@ -297,12 +306,12 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
             }
             radiance = upperRadiance;
         } else {
-            // There was a hit, blend with upper cascade
             radiance.rgb += upperRadiance.rgb * radiance.a;
             radiance.a *= upperRadiance.a;
         }
     }
     
+    // Write to radiance texture (no averaging yet)
     uint texX = uint(tileUV.x * frameData.framebuffer_width);
     uint texY = uint(tileUV.y * frameData.framebuffer_height);
 

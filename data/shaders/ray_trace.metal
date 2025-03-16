@@ -61,7 +61,7 @@ float4 mergeUpperCascade(texture2d<float, access::sample> upperRadianceTexture,
     uint currentCascadeLevel = cascadeData.cascadeLevel;
     
     uint upperCascadeLevel  = currentCascadeLevel + 1;
-    uint upperTileSize      = cascadeData.probeSpacing * (1 << upperCascadeLevel);
+    uint upperTileSize      = 4 * (1 << upperCascadeLevel);
     uint upperGridSizeX     = (frameData.framebuffer_width + upperTileSize - 1) / upperTileSize;
     uint upperGridSizeY     = (frameData.framebuffer_height + upperTileSize - 1) / upperTileSize;
     uint upperRaysPerDim    = 1 << (upperCascadeLevel + 2);
@@ -158,7 +158,9 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
                       device Probe*                             probeData               [[buffer(BufferIndexProbeData)]],
                       device ProbeRay*                          rayData                 [[buffer(BufferIndexProbeRayData)]],
                              texture2d<float, access::sample>   minMaxTexture           [[texture(TextureIndexMinMaxDepth)]],
-                             uint                               tid                     [[thread_position_in_grid]]) {
+                             uint                               tid                     [[thread_position_in_grid]],
+                             uint                               simd_lane_id            [[thread_index_in_simdgroup]]) {
+    
     const uint probeSpacing = cascadeData.probeSpacing;
     uint cascadeLevel = cascadeData.cascadeLevel;
     float intervalLength = cascadeData.intervalLength;
@@ -168,13 +170,11 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
     uint probeGridSizeX = (frameData.framebuffer_width + tileSize - 1) / tileSize;
     uint probeGridSizeY = (frameData.framebuffer_height + tileSize - 1) / tileSize;
 
-    uint raysPerDim = (1 << (cascadeLevel + 2)); // 4, 8, 16, ...
-    uint numRays = (raysPerDim * raysPerDim);    // 16, 64, 256, ...
-    uint totalProbes = probeGridSizeX * probeGridSizeY;
-    uint probesPerQuad = 4; // 2x2 neighbors
-    // Number of quad groups
-    uint numQuadsX = probeGridSizeX * 0.5;
-    uint numQuadsY = probeGridSizeY * 0.5;
+    uint raysPerDim = (1 << (cascadeLevel + 2));
+    uint numRays = (raysPerDim * raysPerDim);
+    uint probesPerQuad = 4;
+    uint numQuadsX = probeGridSizeX / 2;
+    uint numQuadsY = probeGridSizeY / 2;
     uint totalQuads = numQuadsX * numQuadsY;
     uint totalThreads = totalQuads * probesPerQuad * numRays;
 
@@ -182,19 +182,18 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
         return;
     }
 
-    // Process 2x2 neighbors for all rays, then move to next quad
-    uint probesPerRow = probeGridSizeX;
-    uint raysPerQuad = numRays * probesPerQuad; // 16 * 4 = 64
-    uint quadIndex = tid / raysPerQuad; // Which 2x2 quad we’re in
-    uint quadX = quadIndex % numQuadsX; // Quad X position (steps by 2 probes)
-    uint quadY = quadIndex / numQuadsX; // Quad Y position (steps by 2 probes)
-    uint rayQuadIndex = tid % raysPerQuad; // Index within the quad’s rays
+    // Process 2x2 neighbors
+    uint raysPerQuad = numRays * probesPerQuad;
+    uint quadIndex = tid / raysPerQuad;
+    uint quadX = quadIndex % numQuadsX;
+    uint quadY = quadIndex / numQuadsX;
+    uint rayQuadIndex = tid % raysPerQuad;
     uint rayIndex = rayQuadIndex / probesPerQuad;
-    uint localProbeIndex = rayQuadIndex % probesPerQuad; // 0 to 3 within quad
+    uint localProbeIndex = rayQuadIndex % probesPerQuad;
 
-    // Compute probe indices within the 2x2 quad
-    uint probeIndexX = (quadX * 2) + (localProbeIndex % 2); // 0 or 1 in quad
-    uint probeIndexY = (quadY * 2) + (localProbeIndex / 2); // 0 or 1 in quad
+    // Compute probe indices
+    uint probeIndexX = (quadX * 2) + (localProbeIndex % 2);
+    uint probeIndexY = (quadY * 2) + (localProbeIndex / 2);
 
     if (probeIndexX >= probeGridSizeX || probeIndexY >= probeGridSizeY) {
         return;
@@ -211,7 +210,6 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
                                                frameData.inverse_view_matrix);
 
     uint probeIndex = probeIndexY * probeGridSizeX + probeIndexX;
-    
     if (rayIndex == 0) {
         probeData[probeIndex].position = float4(worldPos, (minMaxDepth.x != minMaxDepth.y ? 1.0f : 0.0f));
     }
@@ -219,23 +217,18 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
     int rayX = rayIndex % raysPerDim;
     int rayY = rayIndex / raysPerDim;
 
+    // Offset gives nicer ray distribution in octahedral maps
     float2 rayUV = float2(
         (rayX + 0.5f) / float(raysPerDim),
         (rayY + 0.5f) / float(raysPerDim)
     );
-    
     float3 rayDir = octDecode(rayUV);
-    
-    float2 tileUV = float2(
-        probeUV.x + (rayUV.x - 0.5f) * (float(tileSize) / float(frameData.framebuffer_width)),
-        probeUV.y + (rayUV.y - 0.5f) * (float(tileSize) / float(frameData.framebuffer_height))
-    );
 
+    // Ray tracing
     const float baseCascadeRange = 0.016f;
     const float cascadeRangeMultiplier = 4.0f;
     float cascadeStartRange = (cascadeLevel == 0) ? 0.0f : (baseCascadeRange * pow(cascadeRangeMultiplier, float(cascadeLevel - 1)));
     float cascadeEndRange = baseCascadeRange * pow(cascadeRangeMultiplier, float(cascadeLevel));
-    
     float intervalStart = cascadeStartRange * intervalLength;
     float intervalEnd = cascadeEndRange * intervalLength;
 
@@ -254,16 +247,8 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
     uint rayDataIndex = probeIndex * numRays + rayIndex;
     rayData[rayDataIndex].intervalStart = float4(startPoint, 1.0);
     rayData[rayDataIndex].intervalEnd = float4(endPoint, 1.0);
-    
-    // Debug coloring - color rays based on whether their quad is odd or even
-    bool isOddQuad = ((quadX + quadY) % 2) != 0;
-    if (isOddQuad) {
-        rayData[rayDataIndex].color = float4(1.0, 1.0, 0.0, 1.0); // Yellow for odd quads
-    } else {
-        rayData[rayDataIndex].color = float4(1.0, 0.0, 0.0, 1.0); // Red for even quads
-    }
 
-    // Direct radiance from current cascade
+    // Direct radiance
     bool sampleSun = false;
     float4 radiance = float4(0.0);
     float3 surfaceNormal = float3(0, 0, 0);
@@ -272,53 +257,62 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
         unsigned int primitiveIndex = result.primitive_id;
         const device TriangleResources::TriangleData& triangle = resources[primitiveIndex];
         radiance = (triangle.colors[0].a == -1.0f) ? float4(triangle.colors[0].rgb, 1.0) : float4(0.0, 0.0, 0.0, 1.0);
-        
         float2 barycentrics = result.triangle_barycentric_coord;
         surfaceNormal = normalize(triangle.normals[0].xyz * (1.0 - barycentrics.x - barycentrics.y) +
-                                          triangle.normals[1].xyz * barycentrics.x +
-                                          triangle.normals[2].xyz * barycentrics.y);
+                                  triangle.normals[1].xyz * barycentrics.x +
+                                  triangle.normals[2].xyz * barycentrics.y);
+        if (triangle.colors[0].a == -1.0f)
+            rayData[rayDataIndex].color = float4(1.0, 1.0, 0.0, 1.0);
+        else
+            rayData[rayDataIndex].color = float4(1.0, 0.0, 0.0, 1.0);
     } else {
         if (cascadeLevel >= cascadeData.maxCascade - 1 && sampleSun) {
             radiance = sun(rayDir, frameData);
         } else {
             radiance = float4(0.0, 0.0, 0.0, 1.0);
+            rayData[rayDataIndex].color = float4(0.0, 0.0, 1.0, 1.0);
         }
     }
 
-    // Merge with upper cascade
-    float4 upperRadiance = float4(0.0);
-    if (cascadeLevel < cascadeData.maxCascade) {
-        upperRadiance = mergeUpperCascade(
-             upperRadianceTexture,
-             probeUV,
-             rayDir,
-             cascadeData,
-             frameData
-         );
+    // Averaging threads of the same warp
+    uint baseLane = simd_lane_id - localProbeIndex;
+    float4 r0 = simd_shuffle(radiance, baseLane);
+    float4 r1 = simd_shuffle(radiance, baseLane + 1);
+    float4 r2 = simd_shuffle(radiance, baseLane + 2);
+    float4 r3 = simd_shuffle(radiance, baseLane + 3);
+    float4 averagedRadiance = (r0 + r1 + r2 + r3) * 0.25f;
 
-        if (result.type == intersection_type::none) {
-            if (cascadeLevel == cascadeData.maxCascade - 1 && sampleSun) {
-                if (upperRadiance.a < 0.9f) {
+    // Write for first probe
+    if (localProbeIndex == 0) {
+        // Compute pixel coordinates
+        uint pixelTileSize = 4 << cascadeLevel;
+        uint texX = (quadX * pixelTileSize) + (rayX * (pixelTileSize / raysPerDim));
+        uint texY = (quadY * pixelTileSize) + (rayY * (pixelTileSize / raysPerDim));
+
+        // Merge with upper cascade after averaging
+        float4 upperRadiance = float4(0.0, 0.0, 0.0, 0.0);
+        if (cascadeLevel < cascadeData.maxCascade) {
+            upperRadiance = mergeUpperCascade(upperRadianceTexture, probeUV, rayDir, cascadeData, frameData);
+            if (result.type == intersection_type::none) {
+                if (cascadeLevel == cascadeData.maxCascade - 1 && sampleSun && upperRadiance.a < 0.9f) {
                     float blendFactor = 1.0f - upperRadiance.a;
-                    upperRadiance = mix(upperRadiance, radiance, blendFactor);
-                    upperRadiance.a = max(upperRadiance.a, 0.9f);
+                    upperRadiance = mix(upperRadiance, averagedRadiance, blendFactor);
+                    upperRadiance.a = max(upperRadiance.a, 1.0f);
                 }
+                averagedRadiance = upperRadiance;
+            } else {
+                averagedRadiance.rgb += upperRadiance.rgb * averagedRadiance.a;
+                averagedRadiance.a *= upperRadiance.a;
             }
-            radiance = upperRadiance;
-        } else {
-            radiance.rgb += upperRadiance.rgb * radiance.a;
-            radiance.a *= upperRadiance.a;
         }
-    }
-    
-    // Write to radiance texture (no averaging yet)
-    uint texX = uint(tileUV.x * frameData.framebuffer_width);
-    uint texY = uint(tileUV.y * frameData.framebuffer_height);
 
-    if (cascadeLevel == 0) {
-        float3 gammaCorrected = gammaCorrect(radiance.rgb);
-        radianceTexture.write(float4(gammaCorrected, radiance.a), uint2(texX, texY));
-    } else {
-        radianceTexture.write(radiance, uint2(texX, texY));
+        if (texX < frameData.framebuffer_width && texY < frameData.framebuffer_height) {
+            if (cascadeLevel == 0) {
+                float3 gammaCorrected = gammaCorrect(averagedRadiance.rgb);
+                radianceTexture.write(float4(gammaCorrected, averagedRadiance.a), uint2(texX, texY));
+            } else {
+                radianceTexture.write(averagedRadiance, uint2(texX, texY));
+            }
+        }
     }
 }

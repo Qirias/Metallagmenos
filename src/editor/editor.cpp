@@ -49,16 +49,56 @@ void Editor::cleanup() {
 
 void Editor::debugWindow() {
     ImGui::Begin("Debug Window", nullptr, ImGuiWindowFlags_None);
+    
+    // Set the font scale to make everything smaller
+    ImGui::SetWindowFontScale(0.8f);
+    
+    // Make the window more compact by reducing item spacing and padding
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4, 2));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2, 1));
+    
+    // Make all input widgets half width
+    float halfWidth = ImGui::GetContentRegionAvail().x * 0.5f;
+    ImGui::PushItemWidth(halfWidth);
 
     ImGui::Checkbox("Enable Debug Mode", &debug.enableDebugFeature);
     
     ImGui::InputFloat("Interval Length", &debug.intervalLength, 0.1f, 1.0f, "%.2f");
     
     ImGui::SliderInt("Cascade Level", &debug.debugCascadeLevel, 0, 5);
+    
+    // Create a collapsible header for Camera Position (closed by default)
+    if (ImGui::CollapsingHeader("Camera Position", !ImGuiTreeNodeFlags_DefaultOpen)) {
+        float camX = debug.cameraPosition.x;
+        float camY = debug.cameraPosition.y;
+        float camZ = debug.cameraPosition.z;
 
+        // Quarter width for camera inputs (even smaller)
+        float quarterWidth = ImGui::GetContentRegionAvail().x * 0.25f;
+        ImGui::PushItemWidth(quarterWidth);
+        
+        // Stack the X, Y, Z inputs vertically
+        if (ImGui::InputFloat("X##CamPos", &camX, 0.1f, 1.0f, "%.3f")) {
+            debug.cameraPosition.x = camX;
+        }
+        
+        if (ImGui::InputFloat("Y##CamPos", &camY, 0.1f, 1.0f, "%.3f")) {
+            debug.cameraPosition.y = camY;
+        }
+        
+        if (ImGui::InputFloat("Z##CamPos", &camZ, 0.1f, 1.0f, "%.3f")) {
+            debug.cameraPosition.z = camZ;
+        }
+        
+        ImGui::PopItemWidth(); // Pop camera position item width
+    }
+    
+    // Restore original settings
+    ImGui::PopItemWidth(); // Pop general item width
+    ImGui::PopStyleVar(2); // Pop both style vars
+    
     ImGui::End();
 }
-
 void Editor::createDockSpace() {
     static bool dockspaceOpen = true;
     static bool opt_fullscreen = true;

@@ -29,10 +29,10 @@ vertex VertexOut final_gather_vertex(uint       vertexID [[vertex_id]],
     return out;
 }
 
-fragment AccumLightBuffer final_gather_fragment(VertexOut           in              [[stage_in]],
-                                        constant FrameData&          frameData       [[buffer(BufferIndexFrameData)]],
-                                                 texture2d<float>    radianceTexture [[texture(TextureIndexRadiance)]],
-                                                 GBufferData         GBuffer) {
+fragment AccumLightBuffer final_gather_fragment(VertexOut               in                [[stage_in]],
+                                        constant FrameData&             frameData          [[buffer(BufferIndexFrameData)]],
+                                                 texture2d<float>       radianceTexture    [[texture(TextureIndexRadiance)]],
+                                                 GBufferData            GBuffer) {
     // Get albedo and normal from G-Buffer
     half3 albedo = GBuffer.albedo_specular.rgb;
     half3 normal = normalize(GBuffer.normal_map.xyz);

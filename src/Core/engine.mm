@@ -39,6 +39,7 @@ void Engine::run() {
         lastFrame = currentFrame;
         
         camera.processKeyboardInput(glfwWindow, deltaTime);
+        editor->debug.cameraPosition = camera.position;
         
         @autoreleasepool {
             metalDrawable = (__bridge CA::MetalDrawable*)[metalLayer nextDrawable];
@@ -825,7 +826,7 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
         size_t totalProbes = probeGridSizeX * probeGridSizeY;
         size_t totalThreads = totalProbes * numRays;
 
-        MTL::Size threadGroupSize = MTL::Size(64, 1, 1);
+        MTL::Size threadGroupSize = MTL::Size(128, 1, 1);
         size_t numThreadGroups = (totalThreads + threadGroupSize.width - 1) / threadGroupSize.width;
         MTL::Size gridSize = MTL::Size(numThreadGroups * threadGroupSize.width, 1, 1);
 
@@ -1081,7 +1082,7 @@ void Engine::drawFinalGathering(MTL::RenderCommandEncoder* renderCommandEncoder)
 	renderCommandEncoder->setDepthStencilState(renderPipelines.getDepthStencilState(DepthStencilType::FinalGather));
 	renderCommandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
 	renderCommandEncoder->setFragmentBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
-    renderCommandEncoder->setFragmentTexture(finalGatherTexture, TextureIndexRadiance);
+    renderCommandEncoder->setFragmentTexture(blurredColor, TextureIndexRadiance);
 
 	renderCommandEncoder->drawPrimitives(MTL::PrimitiveTypeTriangle, (NS::UInteger)0, (NS::UInteger)3);
 }
@@ -1155,6 +1156,8 @@ void Engine::dispatchMinMaxDepthMipmaps(MTL::CommandBuffer* commandBuffer) {
 void Engine::draw() {
     // First command buffer for raytracing pass
     MTL::CommandBuffer* commandBuffer = beginFrame(false);
+    editor->beginFrame(forwardDescriptor);
+    camera.position = editor->debug.cameraPosition;
     
     // G-Buffer render pass descriptor setup
     viewRenderPassDescriptor->colorAttachments()->object(RenderTargetLighting)->setTexture(metalDrawable->texture());
@@ -1170,7 +1173,7 @@ void Engine::draw() {
     
     dispatchMinMaxDepthMipmaps(commandBuffer);
     dispatchRaytracing(commandBuffer);
-//    dispatchTwoPassBlur(commandBuffer);
+    dispatchTwoPassBlur(commandBuffer);
     
     // G-Buffer pass
     MTL::RenderCommandEncoder* gBufferEncoder = commandBuffer->renderCommandEncoder(viewRenderPassDescriptor);
@@ -1193,8 +1196,6 @@ void Engine::draw() {
     forwardDescriptor->stencilAttachment()->setTexture(forwardDepthStencilTexture);
     forwardDescriptor->stencilAttachment()->setLoadAction(MTL::LoadActionLoad);
     forwardDescriptor->stencilAttachment()->setClearStencil(0);
-    
-    editor->beginFrame(forwardDescriptor);
 
     MTL::RenderCommandEncoder* debugEncoder = commandBuffer->renderCommandEncoder(forwardDescriptor);
     debugEncoder->setLabel(NS::String::string("Debug and ImGui", NS::ASCIIStringEncoding));

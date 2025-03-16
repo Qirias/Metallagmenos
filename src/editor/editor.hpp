@@ -4,6 +4,7 @@
 
 #include <Metal/Metal.hpp>
 #include <GLFW/glfw3.h>
+#include <simd/simd.h>
 #include "../../external/imgui/imgui.h"
 
 class Editor {
@@ -13,6 +14,7 @@ public:
         bool enableDebugFeature = false;
         int debugCascadeLevel = 0;
         float intervalLength = 1.0f;
+        simd::float3 cameraPosition = simd::float3{7.0f, 5.0f, 0.0f};
     } debug;
 
     Editor(GLFWwindow* window, MTL::Device* device);

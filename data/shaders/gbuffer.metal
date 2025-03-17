@@ -19,6 +19,7 @@ struct ColorInOut
 };
 
 constant bool hasTextures [[function_constant(0)]];
+constant bool isEmissive [[function_constant(1)]];
 
 struct DescriptorDefinedVertex
 {
@@ -74,6 +75,7 @@ float linearDepth(float depth, float near, float far) {
 
 fragment GBufferData gbuffer_fragment(ColorInOut            in                  [[stage_in]],
                           constant    FrameData&            frameData           [[buffer(BufferIndexFrameData)]],
+						  constant    bool&                 isEmissive          [[buffer(BufferIndexIsEmissive)]],
 									  texture2d_array<half> baseColorMap        [[texture(TextureIndexBaseColor),   function_constant(hasTextures)]],
 									  texture2d_array<half> normalMap           [[texture(TextureIndexNormal),      function_constant(hasTextures)]],
                           constant    TextureInfo*          diffuseTextureInfos [[buffer(BufferIndexDiffuseInfo),   function_constant(hasTextures)]],
@@ -116,7 +118,7 @@ fragment GBufferData gbuffer_fragment(ColorInOut            in                  
 
 	// Prepare GBuffer output
 	GBufferData gBuffer;
-    gBuffer.albedo_specular = (!hasTextures) ? half4(1, 1, 1, 1) : base_color_sample; // Albedo (RGB) + Specular (A) or use A as emissive
+    gBuffer.albedo_specular = (!hasTextures) ? half4(1, 1, 1, isEmissive ? 0.666h : 1.0h) : half4(base_color_sample.rgb, isEmissive ? 0.666h : 1.0h); // Albedo (RGB) + Specular (A) or use A as emissive
 	gBuffer.normal_map = half4(eye_normal, 1.0f);
 
 //    float P22 = frameData.projection_matrix[2][2];

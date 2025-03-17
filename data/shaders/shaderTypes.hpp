@@ -93,5 +93,6 @@ typedef enum BufferIndex {
     BufferIndexNormalInfo              	= 6,
     BufferIndexProbeData                = 7,
     BufferIndexProbeRayData             = 8,
-    BufferIndexCascadeData              = 9
+    BufferIndexCascadeData              = 9,
+	BufferIndexIsEmissive               = 10,
 } BufferIndex;

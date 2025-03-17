@@ -233,7 +233,7 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
     float intervalEnd = cascadeEndRange * intervalLength;
 
     ray ray;
-    ray.origin = worldPos;
+    ray.origin = worldPos + rayDir * 0.001f;
     ray.direction = rayDir;
     ray.min_distance = intervalStart;
     ray.max_distance = intervalEnd;
@@ -251,12 +251,17 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
     // Direct radiance
     bool sampleSun = false;
     float4 radiance = float4(0.0);
+    float occlusionFactor = 1.0f; // 1.0 = unoccluded, 0.0 = fully occluded
+    float hitDepth = probeDepth;
     float3 surfaceNormal = float3(0, 0, 0);
 
     if (result.type != intersection_type::none) {
         unsigned int primitiveIndex = result.primitive_id;
         const device TriangleResources::TriangleData& triangle = resources[primitiveIndex];
         radiance = (triangle.colors[0].a == -1.0f) ? float4(triangle.colors[0].rgb, 1.0) : float4(0.0, 0.0, 0.0, 1.0);
+        hitDepth = probeDepth + result.distance;
+        occlusionFactor = 0.0f; // Occluded, no upper cascade contribution
+        
         float2 barycentrics = result.triangle_barycentric_coord;
         surfaceNormal = normalize(triangle.normals[0].xyz * (1.0 - barycentrics.x - barycentrics.y) +
                                   triangle.normals[1].xyz * barycentrics.x +
@@ -266,6 +271,7 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
         else
             rayData[rayDataIndex].color = float4(1.0, 0.0, 0.0, 1.0);
     } else {
+        occlusionFactor = 1.0f; // Unoccluded, allow upper cascade
         if (cascadeLevel >= cascadeData.maxCascade - 1 && sampleSun) {
             radiance = sun(rayDir, frameData);
         } else {
@@ -281,6 +287,12 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
     float4 r2 = simd_shuffle(radiance, baseLane + 2);
     float4 r3 = simd_shuffle(radiance, baseLane + 3);
     float4 averagedRadiance = (r0 + r1 + r2 + r3) * 0.25f;
+    
+    float o0 = simd_shuffle(occlusionFactor, baseLane);
+    float o1 = simd_shuffle(occlusionFactor, baseLane + 1);
+    float o2 = simd_shuffle(occlusionFactor, baseLane + 2);
+    float o3 = simd_shuffle(occlusionFactor, baseLane + 3);
+    float averagedOcclusion = (o0 + o1 + o2 + o3) * 0.25f;
 
     // Write for first probe
     if (localProbeIndex == 0) {
@@ -301,7 +313,7 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
                 }
                 averagedRadiance = upperRadiance;
             } else {
-                averagedRadiance.rgb += upperRadiance.rgb * averagedRadiance.a;
+                averagedRadiance.rgb += upperRadiance.rgb * averagedOcclusion;
                 averagedRadiance.a *= upperRadiance.a;
             }
         }

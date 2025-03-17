@@ -65,6 +65,7 @@ void Engine::cleanup() {
         }
     }
 	
+    finalGatherTexture->release();
     forwardDepthStencilTexture->release();
     rayTracingTexture->release();
     minMaxDepthTexture->release();
@@ -1049,6 +1050,7 @@ void Engine::drawMeshes(MTL::RenderCommandEncoder* renderCommandEncoder) {
         
         // Set any textures read/sampled from the render pipeline
         renderCommandEncoder->setFragmentTexture(meshes[i]->diffuseTextures, TextureIndexBaseColor);
+        renderCommandEncoder->setFragmentBytes(&meshes[i]->meshInfo.isEmissive, sizeof(bool), BufferIndexIsEmissive);
         renderCommandEncoder->setFragmentTexture(meshes[i]->normalTextures, TextureIndexNormal);
         renderCommandEncoder->setFragmentBuffer(meshes[i]->diffuseTextureInfos, 0, BufferIndexDiffuseInfo);
         renderCommandEncoder->setFragmentBuffer(meshes[i]->normalTextureInfos, 0, BufferIndexNormalInfo);
@@ -1082,7 +1084,7 @@ void Engine::drawFinalGathering(MTL::RenderCommandEncoder* renderCommandEncoder)
 	renderCommandEncoder->setDepthStencilState(renderPipelines.getDepthStencilState(DepthStencilType::FinalGather));
 	renderCommandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
 	renderCommandEncoder->setFragmentBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
-    renderCommandEncoder->setFragmentTexture(blurredColor, TextureIndexRadiance);
+    renderCommandEncoder->setFragmentTexture(finalGatherTexture, TextureIndexRadiance);
 
 	renderCommandEncoder->drawPrimitives(MTL::PrimitiveTypeTriangle, (NS::UInteger)0, (NS::UInteger)3);
 }
@@ -1173,7 +1175,7 @@ void Engine::draw() {
     
     dispatchMinMaxDepthMipmaps(commandBuffer);
     dispatchRaytracing(commandBuffer);
-    dispatchTwoPassBlur(commandBuffer);
+//    dispatchTwoPassBlur(commandBuffer);
     
     // G-Buffer pass
     MTL::RenderCommandEncoder* gBufferEncoder = commandBuffer->renderCommandEncoder(viewRenderPassDescriptor);

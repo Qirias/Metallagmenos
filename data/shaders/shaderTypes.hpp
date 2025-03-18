@@ -94,5 +94,6 @@ typedef enum BufferIndex {
     BufferIndexProbeData                = 7,
     BufferIndexProbeRayData             = 8,
     BufferIndexCascadeData              = 9,
-	BufferIndexIsEmissive               = 10,
+	BufferIndexEmissiveColor			= 10,
+	BufferIndexIsEmissive				= 11
 } BufferIndex;

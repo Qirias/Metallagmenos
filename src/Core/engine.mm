@@ -1051,6 +1051,9 @@ void Engine::drawMeshes(MTL::RenderCommandEncoder* renderCommandEncoder) {
         // Set any textures read/sampled from the render pipeline
         renderCommandEncoder->setFragmentTexture(meshes[i]->diffuseTextures, TextureIndexBaseColor);
         renderCommandEncoder->setFragmentBytes(&meshes[i]->meshInfo.isEmissive, sizeof(bool), BufferIndexIsEmissive);
+        if (meshes[i]->meshInfo.isEmissive) {
+            renderCommandEncoder->setFragmentBytes(&meshes[i]->meshInfo.emissiveColor, sizeof(simd::float3), BufferIndexEmissiveColor);
+        }
         renderCommandEncoder->setFragmentTexture(meshes[i]->normalTextures, TextureIndexNormal);
         renderCommandEncoder->setFragmentBuffer(meshes[i]->diffuseTextureInfos, 0, BufferIndexDiffuseInfo);
         renderCommandEncoder->setFragmentBuffer(meshes[i]->normalTextureInfos, 0, BufferIndexNormalInfo);

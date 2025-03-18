@@ -54,7 +54,8 @@ fragment AccumLightBuffer final_gather_fragment(VertexOut           in          
     half4 albedoSpecular = GBuffer.albedo_specular; // rgba
     half3 albedo = albedoSpecular.rgb;
     half3 normal = normalize(GBuffer.normal_map.xyz);
-    bool isEmissive = (albedoSpecular.a >= 0.65h && albedoSpecular.a <= 0.68h);
+    bool isEmissive = (GBuffer.normal_map.a == -1);
+    AccumLightBuffer output;
     
     float2 texCoords = float2(in.texCoords.x, 1.0 - in.texCoords.y);
     float2 probeGridSize = float2(frameData.framebuffer_width * 0.25, frameData.framebuffer_height * 0.25);
@@ -79,17 +80,8 @@ fragment AccumLightBuffer final_gather_fragment(VertexOut           in          
 
         float4 radianceSum = float4(0.0);
         if (isEmissive) {
-            // TODO: Don't average and output directly the emissive color
-            for (int y = 0; y < 4; y++) {
-                for (int x = 0; x < 4; x++) {
-                    float2 dirUV = float2((x + 0.5f) / 4.0f, (y + 0.5f) / 4.0f);
-                    float2 sampleUV = probeBaseUV + dirUV * (probeTileSize * texelSize);
-                    float4 sample = radianceTexture.sample(samplerLinear, sampleUV);
-                    radianceSum += sample;
-                }
-            }
-
-            probeRadiance[i] = radianceSum / 16.0f;
+            output.lighting = half4(half3(albedoSpecular.rgb), 1.0h);
+            return output;
         } else {
             // Non-emissive: Weight by cosine law
             float totalWeight = 0.0;
@@ -115,7 +107,6 @@ fragment AccumLightBuffer final_gather_fragment(VertexOut           in          
 
     half3 finalColor = isEmissive ? half3(radiance.rgb) : albedo * half3(radiance.rgb);
     
-    AccumLightBuffer output;
     output.lighting = half4(finalColor, 1.0h);
     return output;
 }

@@ -76,6 +76,7 @@ float linearDepth(float depth, float near, float far) {
 fragment GBufferData gbuffer_fragment(ColorInOut            in                  [[stage_in]],
                           constant    FrameData&            frameData           [[buffer(BufferIndexFrameData)]],
 						  constant    bool&                 isEmissive          [[buffer(BufferIndexIsEmissive)]],
+						  constant    float3&               emissiveColor       [[buffer(BufferIndexEmissiveColor)]],
 									  texture2d_array<half> baseColorMap        [[texture(TextureIndexBaseColor),   function_constant(hasTextures)]],
 									  texture2d_array<half> normalMap           [[texture(TextureIndexNormal),      function_constant(hasTextures)]],
                           constant    TextureInfo*          diffuseTextureInfos [[buffer(BufferIndexDiffuseInfo),   function_constant(hasTextures)]],
@@ -118,8 +119,15 @@ fragment GBufferData gbuffer_fragment(ColorInOut            in                  
 
 	// Prepare GBuffer output
 	GBufferData gBuffer;
-    gBuffer.albedo_specular = (!hasTextures) ? half4(1, 1, 1, isEmissive ? 0.666h : 1.0h) : half4(base_color_sample.rgb, isEmissive ? 0.666h : 1.0h); // Albedo (RGB) + Specular (A) or use A as emissive
 	gBuffer.normal_map = half4(eye_normal, 1.0f);
+
+	if (!hasTextures) {
+		gBuffer.albedo_specular = isEmissive ? half4(half3(emissiveColor), 1.0h) : base_color_sample;
+	} else {
+		gBuffer.albedo_specular = half4(base_color_sample.rgb, 1.0); // Albedo (RGB) + Specular (A)
+	}
+
+	gBuffer.normal_map.a = (isEmissive) ? -1 : 1; // Store emissive flag in the alpha channel
 
 //    float P22 = frameData.projection_matrix[2][2];
 //    float P23 = frameData.projection_matrix[2][3];

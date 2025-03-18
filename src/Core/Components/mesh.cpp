@@ -92,7 +92,6 @@ void Mesh::loadObj(std::string filePath) {
                     int textureIndex = static_cast<int>(normalFilePaths.size());
                     normalTextureIndexMap[normalTexName] = textureIndex;
                     normalFilePaths.push_back(texturePath);
-//                    std::cout << "Normal Texture " << textureIndex << ": " << texturePath << std::endl;
                 }
             }
         }

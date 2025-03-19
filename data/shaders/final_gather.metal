@@ -51,11 +51,12 @@ fragment AccumLightBuffer final_gather_fragment(VertexOut           in          
                                     constant    FrameData&          frameData       [[buffer(BufferIndexFrameData)]],
                                                 texture2d<float>    radianceTexture [[texture(TextureIndexRadiance)]],
                                                 GBufferData         GBuffer) {
-    half4 albedoSpecular = GBuffer.albedo_specular; // rgba
+    half4 albedoSpecular = GBuffer.albedo_specular;
     half3 albedo = albedoSpecular.rgb;
     half3 normal = normalize(GBuffer.normal_map.xyz);
     bool isEmissive = (GBuffer.normal_map.a == -1);
     AccumLightBuffer output;
+    half3 finalColor;
     
     float2 texCoords = float2(in.texCoords.x, 1.0 - in.texCoords.y);
     float2 probeGridSize = float2(frameData.framebuffer_width * 0.25, frameData.framebuffer_height * 0.25);
@@ -80,14 +81,17 @@ fragment AccumLightBuffer final_gather_fragment(VertexOut           in          
 
         float4 radianceSum = float4(0.0);
         if (isEmissive) {
-            output.lighting = half4(half3(albedoSpecular.rgb), 1.0h);
+            float3 lightDir = normalize(float3(0.0, 1.0, 0.0)); 
+            half shading = max(0.0h, dot(normal, half3(lightDir))) * 0.5h + 0.5h;
+            finalColor = albedo * shading;
+            output.lighting = half4(finalColor*2.0, 1.0h);
             return output;
         } else {
             // Non-emissive: Weight by cosine law
             float totalWeight = 0.0;
             for (int y = 0; y < 4; y++) {
                 for (int x = 0; x < 4; x++) {
-                    float2 dirUV = float2((x + 0.5f) / 4.0f, (y + 0.5f) / 4.0f);
+                    float2 dirUV = float2((x + 0.5f) * 0.25f, (y + 0.5f) * 0.25f);
                     float3 direction = oct_decode(dirUV);
                     float weight = max(0.0, dot(float3(normal), direction));
                     float2 sampleUV = probeBaseUV + dirUV * (probeTileSize * texelSize);
@@ -96,7 +100,7 @@ fragment AccumLightBuffer final_gather_fragment(VertexOut           in          
                     totalWeight += weight;
                 }
             }
-            probeRadiance[i] = (totalWeight > 1e-5) ? radianceSum / totalWeight : float4(0.0);
+            probeRadiance[i] = (totalWeight > 0) ? radianceSum / totalWeight : float4(0.0);
         }
     }
 
@@ -105,7 +109,7 @@ fragment AccumLightBuffer final_gather_fragment(VertexOut           in          
                       probeRadiance[2] * bilinearWeights.z +
                       probeRadiance[3] * bilinearWeights.w;
 
-    half3 finalColor = isEmissive ? half3(radiance.rgb) : albedo * half3(radiance.rgb);
+    finalColor = albedo * half3(radiance.rgb);
     
     output.lighting = half4(finalColor, 1.0h);
     return output;

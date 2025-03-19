@@ -13,24 +13,16 @@
                 "scale": [10.0, 0.1, 10.0],
                 "color": [0.8, 0.8, 0.8],
                 "hasTextures": false,
-                "isEmissive": false
+                "isEmissive": false,
+                "emissiveColor": [0.0, 0.0, 0.0]
             },
             {
                 "mesh": "cube",
                 "pos": [0.0, 0.0, 0.0],
                 "scale": [0.5, 0.5, 0.5],
-                "color": [0.0, 4.0, 0.0],
+                "color": [0.0, 1.0, 0.0],
                 "hasTextures": false,
                 "isEmissive": true,
-                "emissiveColor": [0.0, 1.0, 0.0]
-            },
-            {
-                "mesh": "cube",
-                "pos": [1.0, 0.0, 0.0],
-                "scale": [0.1, 3.5, 0.4],
-                "color": [0.0, 4.0, 0.0],
-                "hasTextures": false,
-                "isEmissive": false,
                 "emissiveColor": [0.0, 1.0, 0.0]
             }
         ]

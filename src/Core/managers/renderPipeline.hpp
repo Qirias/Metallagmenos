@@ -14,6 +14,7 @@ enum class RenderPipelineType {
 
 enum class ComputePipelineType {
     Raytracing,
+    Merging,
     InitMinMaxDepth,
     MinMaxDepth,
     VerticalBlur,

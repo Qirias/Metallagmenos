@@ -164,12 +164,14 @@ float4 mergeUpperCascade(texture2d<float, access::sample> upperRadianceTexture,
     return accumulatedRadiance;
 }
 
-kernel void mergeCascadesKernel(texture2d<float, access::sample>   minRadianceTexture      [[texture(TextureIndexMinRadiance)]],
-                             texture2d<float, access::sample>   upperRadianceTexture    [[texture(TextureIndexUpperRadiance)]],
-                             texture2d<float, access::write>    outputRadianceTexture   [[texture(TextureIndexOutput)]],
-                    constant FrameData&                         frameData               [[buffer(BufferIndexFrameData)]],
-                    constant CascadeData&                       cascadeData             [[buffer(BufferIndexCascadeData)]],
-                             uint                               tid                     [[thread_position_in_grid]]) {
+kernel void mergeCascadesKernel(texture2d<float, access::sample>   radianceTextureMin           [[texture(TextureIndexMinRadiance)]],
+                                texture2d<float, access::sample>   upperRadianceTextureMin      [[texture(TextureIndexUpperRadianceMin)]],
+                                texture2d<float, access::sample>   upperRadianceTextureMax      [[texture(TextureIndexUpperRadianceMax)]],
+                                texture2d<float, access::sample>   upperRadianceTexture         [[texture(TextureIndexUpperRadiance)]],
+                                texture2d<float, access::write>    outputRadianceTexture        [[texture(TextureIndexOutput)]],
+                    constant    FrameData&                         frameData                    [[buffer(BufferIndexFrameData)]],
+                    constant    CascadeData&                       cascadeData                  [[buffer(BufferIndexCascadeData)]],
+                                uint                               tid                          [[thread_position_in_grid]]) {
     
     const uint probeSpacing = cascadeData.probeSpacing;
     uint cascadeLevel = cascadeData.cascadeLevel;
@@ -211,13 +213,13 @@ kernel void mergeCascadesKernel(texture2d<float, access::sample>   minRadianceTe
         probeUV.y + (rayUV.y - 0.5f) * (float(tileSize) / float(frameData.framebuffer_height))
     );
     
-    float4 radiance = minRadianceTexture.sample(samplerLinear, tileUV);
+    float4 radiance = radianceTextureMin.sample(samplerLinear, tileUV);
     
     // Merge with upper cascade
     if (cascadeLevel < cascadeData.maxCascade) {
         float4 upperRadiance = mergeUpperCascade(upperRadianceTexture, probeUV, rayDir, cascadeData, frameData);
         
-        float4 sample = minRadianceTexture.sample(samplerLinear, tileUV);
+        float4 sample = radianceTextureMin.sample(samplerLinear, tileUV);
         bool hasHit = sample.a > 0.0f;
         
         if (!hasHit) {
@@ -246,7 +248,8 @@ kernel void mergeCascadesKernel(texture2d<float, access::sample>   minRadianceTe
     }
 }
 
-kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture         [[texture(TextureIndexRadiance)]],
+kernel void raytracingKernel(texture2d<float, access::write>    radianceTextureMin      [[texture(TextureIndexRadiance)]],
+                             texture2d<float, access::write>    radianceTextureMax      [[texture(TextureIndexMaxRadiance)]],
                     constant FrameData&                         frameData               [[buffer(BufferIndexFrameData)]],
                     constant CascadeData&                       cascadeData             [[buffer(BufferIndexCascadeData)]],
                              primitive_acceleration_structure   accelerationStructure   [[buffer(BufferIndexAccelerationStructure)]],
@@ -322,7 +325,7 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
     float intervalEnd = cascadeEndRange * intervalLength;
 
     ray ray;
-    ray.origin = worldPos + rayDir * 0.1;
+    ray.origin = worldPos /*+ rayDir * 0.1*/;
     ray.direction = rayDir;
     ray.min_distance = intervalStart;
     ray.max_distance = intervalEnd;
@@ -374,11 +377,9 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
     
     uint texX = uint(tileUV.x * frameData.framebuffer_width);
     uint texY = uint(tileUV.y * frameData.framebuffer_height);
-
-    if (cascadeLevel == 0) {
-        float3 processed = postProcessColor(radiance.rgb, 2.5f);
-        radianceTexture.write(float4(processed, radiance.a), uint2(texX, texY));
-    } else {
-        radianceTexture.write(radiance, uint2(texX, texY));
-    }
+    
+    if (isMinDepthPass)
+        radianceTextureMin.write(radiance, uint2(texX, texY));
+    else
+        radianceTextureMax.write(radiance, uint2(texX, texY));
 }

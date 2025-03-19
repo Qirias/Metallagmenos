@@ -217,7 +217,7 @@ void Engine::loadSceneFromJSON(const std::string& jsonFilePath) {
 }
 
 void Engine::loadScene() {
-    loadSceneFromJSON(std::string(SCENES_PATH) + "/cubeScene.json");
+    loadSceneFromJSON(std::string(SCENES_PATH) + "/sponzaHornbug.json");
 }
 
 MTL::VertexDescriptor* Engine::createDefaultVertexDescriptor() {
@@ -753,78 +753,29 @@ void Engine::drawDebug(MTL::RenderCommandEncoder* commandEncoder, MTL::CommandBu
 void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
     uint width = metalLayer.drawableSize.width;
     uint height = metalLayer.drawableSize.height;
-    
-    MTL::TextureDescriptor* desc = MTL::TextureDescriptor::alloc()->init();
-    desc->setTextureType(MTL::TextureType2D);
-    desc->setPixelFormat(MTL::PixelFormatRGBA16Float);
-    desc->setWidth(width);
-    desc->setHeight(height);
-    desc->setStorageMode(MTL::StorageModePrivate);
-    desc->setUsage(MTL::TextureUsageShaderRead | MTL::TextureUsageShaderWrite);
-    
-    MTL::Texture* minRenderTargets[2];
-    MTL::Texture* maxRenderTargets[2];
-    MTL::Texture* mergedRenderTargets[2];
-    
-    std::string labelStr = "Min Render Target 0";
-    NS::String* label = NS::String::string(labelStr.c_str(), NS::ASCIIStringEncoding);
-    minRenderTargets[0] = metalDevice->newTexture(desc);
-    minRenderTargets[0]->setLabel(label);
-    
-    labelStr = "Min Render Target 1";
-    label = NS::String::string(labelStr.c_str(), NS::ASCIIStringEncoding);
-    minRenderTargets[1] = metalDevice->newTexture(desc);
-    minRenderTargets[1]->setLabel(label);
-    
-    labelStr = "Max Render Target 0";
-    label = NS::String::string(labelStr.c_str(), NS::ASCIIStringEncoding);
-    maxRenderTargets[0] = metalDevice->newTexture(desc);
-    maxRenderTargets[0]->setLabel(label);
-    
-    labelStr = "Max Render Target 1";
-    label = NS::String::string(labelStr.c_str(), NS::ASCIIStringEncoding);
-    maxRenderTargets[1] = metalDevice->newTexture(desc);
-    maxRenderTargets[1]->setLabel(label);
-    
-    labelStr = "Merged Render Target 0";
-    label = NS::String::string(labelStr.c_str(), NS::ASCIIStringEncoding);
-    mergedRenderTargets[0] = metalDevice->newTexture(desc);
-    mergedRenderTargets[0]->setLabel(label);
-    
-    labelStr = "Merged Render Target 1";
-    label = NS::String::string(labelStr.c_str(), NS::ASCIIStringEncoding);
-    mergedRenderTargets[1] = metalDevice->newTexture(desc);
-    mergedRenderTargets[1]->setLabel(label);
-    
+
     MTL::Texture* lastMergedTexture = nil;
-    int minPingPongIndex = 0;
-    int maxPingPongIndex = 0;
-    int mergedPingPongIndex = 0;
     bool isMinDepthPass;
-    
+
     for (int level = cascadeLevel - 1; level >= editor->debug.debugCascadeLevel; --level) {
         bool isHighestCascade = (level == cascadeLevel - 1);
-        
+
         //--------------------------------------------------------
-        // RAYTRACING: Min depth pass - always needed
+        // RAYTRACING: Min depth pass
         //--------------------------------------------------------
         MTL::ComputeCommandEncoder* minComputeEncoder = commandBuffer->computeCommandEncoder();
         minComputeEncoder->setLabel(NS::String::string(("Ray Tracing Min Cascade " + std::to_string(level)).c_str(), NS::ASCIIStringEncoding));
-        
-        CascadeData *minCascadeData = reinterpret_cast<CascadeData*>(cascadeDataBuffer[currentFrameIndex][level]->contents());
+
+        CascadeData* minCascadeData = reinterpret_cast<CascadeData*>(cascadeDataBuffer[currentFrameIndex][level]->contents());
         minCascadeData->cascadeLevel = level;
         minCascadeData->probeSpacing = probeSpacing;
         minCascadeData->intervalLength = editor->debug.intervalLength;
-        minCascadeData->maxCascade = cascadeLevel-1;
+        minCascadeData->maxCascade = cascadeLevel - 1;
         isMinDepthPass = true;
-        
-        // Select output texture for min pass
-        MTL::Texture* minRenderTarget = minRenderTargets[minPingPongIndex];
-        minPingPongIndex = 1 - minPingPongIndex;
-        
+
         minComputeEncoder->setComputePipelineState(renderPipelines.getComputePipeline(ComputePipelineType::Raytracing));
-        minComputeEncoder->setTexture(minRenderTarget, TextureIndexRadiance);
-        
+        minComputeEncoder->setTexture(radianceTextures[level][0], TextureIndexRadiance);  // Cn min
+
         minComputeEncoder->setBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
         minComputeEncoder->setBuffer(cascadeDataBuffer[currentFrameIndex][level], 0, BufferIndexCascadeData);
         minComputeEncoder->setBuffer(resourceBuffer, 0, BufferIndexResources);
@@ -837,9 +788,8 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
         minComputeEncoder->useResource(probePosBuffer[currentFrameIndex][level], MTL::ResourceUsageWrite);
         minComputeEncoder->useResource(rayBuffer[currentFrameIndex][level], MTL::ResourceUsageWrite);
         minComputeEncoder->useResource(minMaxDepthTexture, MTL::ResourceUsageRead);
-        minComputeEncoder->useResource(minRenderTarget, MTL::ResourceUsageWrite);
+        minComputeEncoder->useResource(radianceTextures[level][0], MTL::ResourceUsageWrite);
 
-        // Set acceleration structures
         for (uint i = 0; i < primitiveAccelerationStructures.size(); i++) {
             minComputeEncoder->setAccelerationStructure(primitiveAccelerationStructures[i], BufferIndexAccelerationStructure);
             minComputeEncoder->useResource(primitiveAccelerationStructures[i], MTL::ResourceUsageRead);
@@ -849,7 +799,7 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
         uint probeGridSizeX = (width + tileSize - 1) / tileSize;
         uint probeGridSizeY = (height + tileSize - 1) / tileSize;
         uint raysPerDim = (1 << (level + 2));
-        uint numRays = (raysPerDim * raysPerDim);
+        uint numRays = raysPerDim * raysPerDim;
         uint totalProbes = probeGridSizeX * probeGridSizeY;
         uint totalThreads = totalProbes * numRays;
 
@@ -858,25 +808,20 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
 
         minComputeEncoder->dispatchThreadgroups(MTL::Size(numThreadGroups, 1, 1), MTL::Size(threadGroupSize, 1, 1));
         minComputeEncoder->endEncoding();
-        
+
         //--------------------------------------------------------
-        // RAYTRACING: Max depth pass - except for highest cascade
+        // RAYTRACING: Max depth pass - skip for highest cascade
         //--------------------------------------------------------
-        MTL::Texture* maxRenderTarget = nil;
-        
         if (!isHighestCascade) {
             MTL::ComputeCommandEncoder* maxComputeEncoder = commandBuffer->computeCommandEncoder();
             maxComputeEncoder->setLabel(NS::String::string(("Ray Tracing Max Cascade " + std::to_string(level)).c_str(), NS::ASCIIStringEncoding));
-            
-            CascadeData *maxCascadeData = reinterpret_cast<CascadeData*>(cascadeDataBuffer[currentFrameIndex][level]->contents());
+
+            CascadeData* maxCascadeData = reinterpret_cast<CascadeData*>(cascadeDataBuffer[currentFrameIndex][level]->contents());
             isMinDepthPass = false;
-            
-            maxRenderTarget = maxRenderTargets[maxPingPongIndex];
-            maxPingPongIndex = 1 - maxPingPongIndex;
-            
+
             maxComputeEncoder->setComputePipelineState(renderPipelines.getComputePipeline(ComputePipelineType::Raytracing));
-            maxComputeEncoder->setTexture(maxRenderTarget, TextureIndexRadiance);
-            
+            maxComputeEncoder->setTexture(radianceTextures[level][1], TextureIndexMaxRadiance);  // Cn max
+
             maxComputeEncoder->setBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
             maxComputeEncoder->setBuffer(cascadeDataBuffer[currentFrameIndex][level], 0, BufferIndexCascadeData);
             maxComputeEncoder->setBuffer(resourceBuffer, 0, BufferIndexResources);
@@ -889,9 +834,8 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
             maxComputeEncoder->useResource(probePosBuffer[currentFrameIndex][level], MTL::ResourceUsageRead);
             maxComputeEncoder->useResource(rayBuffer[currentFrameIndex][level], MTL::ResourceUsageRead);
             maxComputeEncoder->useResource(minMaxDepthTexture, MTL::ResourceUsageRead);
-            maxComputeEncoder->useResource(maxRenderTarget, MTL::ResourceUsageWrite);
+            maxComputeEncoder->useResource(radianceTextures[level][1], MTL::ResourceUsageWrite);
 
-            // Set acceleration structures
             for (uint i = 0; i < primitiveAccelerationStructures.size(); i++) {
                 maxComputeEncoder->setAccelerationStructure(primitiveAccelerationStructures[i], BufferIndexAccelerationStructure);
                 maxComputeEncoder->useResource(primitiveAccelerationStructures[i], MTL::ResourceUsageRead);
@@ -900,59 +844,44 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
             maxComputeEncoder->dispatchThreadgroups(MTL::Size(numThreadGroups, 1, 1), MTL::Size(threadGroupSize, 1, 1));
             maxComputeEncoder->endEncoding();
         }
-        
+
         //--------------------------------------------------------
         // MERGING with upper cascade - skip for highest cascade
         //--------------------------------------------------------
         if (isHighestCascade) {
-            // For highest cascade, just use the min radiance directly
-            lastMergedTexture = minRenderTarget;
+            lastMergedTexture = radianceTextures[level][0];  // Highest cascade uses min directly
         } else {
-            // For all other cascades, merge with the upper cascade
             MTL::ComputeCommandEncoder* mergeEncoder = commandBuffer->computeCommandEncoder();
             mergeEncoder->setLabel(NS::String::string(("Merge Cascade " + std::to_string(level)).c_str(), NS::ASCIIStringEncoding));
-            
-            // Select output texture for merge pass
-            MTL::Texture* mergeOutputTarget = nil;
-            if (level == editor->debug.debugCascadeLevel) {
-                // Final level writes directly to finalGatherTexture
-                mergeOutputTarget = finalGatherTexture;
-            } else {
-                // Intermediate levels write to ping-pong buffer
-                mergeOutputTarget = mergedRenderTargets[mergedPingPongIndex];
-                mergedPingPongIndex = 1 - mergedPingPongIndex;
-            }
-            
+
+            MTL::Texture* mergeOutputTarget = (level == 0 || level == editor->debug.debugCascadeLevel) ?
+                finalGatherTexture : radianceTextures[level][2];  // Cn merged
+
             mergeEncoder->setComputePipelineState(renderPipelines.getComputePipeline(ComputePipelineType::Merging));
-            mergeEncoder->setTexture(minRenderTarget, TextureIndexMinRadiance);
-            
-            // Upper cascade is always available since we're not at the highest level
-            mergeEncoder->setTexture(lastMergedTexture, TextureIndexUpperRadiance);
-            mergeEncoder->useResource(lastMergedTexture, MTL::ResourceUsageRead);
-            
+            mergeEncoder->setTexture(radianceTextures[level][0], TextureIndexMinRadiance);          // Cn min
+            mergeEncoder->setTexture(radianceTextures[level+1][0], TextureIndexUpperRadianceMin);   // Cn+1 min
+            mergeEncoder->setTexture(radianceTextures[level+1][1], TextureIndexUpperRadianceMax);   // Cn+1 max
+            mergeEncoder->setTexture(lastMergedTexture, TextureIndexUpperRadiance);                 // Cn+1 merged
+            mergeEncoder->setTexture(minMaxDepthTexture, TextureIndexMinMaxDepth);
             mergeEncoder->setTexture(mergeOutputTarget, TextureIndexOutput);
-            
+
             mergeEncoder->setBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
             mergeEncoder->setBuffer(cascadeDataBuffer[currentFrameIndex][level], 0, BufferIndexCascadeData);
-            
-            mergeEncoder->useResource(minRenderTarget, MTL::ResourceUsageRead);
+
+            mergeEncoder->useResource(radianceTextures[level][0], MTL::ResourceUsageRead);
+            mergeEncoder->useResource(radianceTextures[level][1], MTL::ResourceUsageRead);
             mergeEncoder->useResource(mergeOutputTarget, MTL::ResourceUsageWrite);
-            
+            mergeEncoder->useResource(minMaxDepthTexture, MTL::ResourceUsageRead);
+            mergeEncoder->useResource(lastMergedTexture, MTL::ResourceUsageRead);
+
             mergeEncoder->dispatchThreadgroups(MTL::Size(numThreadGroups, 1, 1), MTL::Size(threadGroupSize, 1, 1));
             mergeEncoder->endEncoding();
-            
-            // Store reference to the merged texture for next level
-            lastMergedTexture = mergeOutputTarget;
+
+            if (level > 0) {
+                lastMergedTexture = mergeOutputTarget;
+            }
         }
     }
-    
-    desc->release();
-    minRenderTargets[0]->release();
-    minRenderTargets[1]->release();
-    maxRenderTargets[0]->release();
-    maxRenderTargets[1]->release();
-    mergedRenderTargets[0]->release();
-    mergedRenderTargets[1]->release();
 }
 
 void Engine::dispatchTwoPassBlur(MTL::CommandBuffer* commandBuffer) {
@@ -1125,6 +1054,30 @@ void Engine::createViewRenderPassDescriptor() {
     label = NS::String::string("Blurred Color", NS::ASCIIStringEncoding);
     blurredColor = metalDevice->newTexture(desc);
     blurredColor->setLabel(label);
+    
+    radianceTextures.resize(cascadeLevel);
+    for (int cascade = 0; cascade < cascadeLevel; ++cascade) {
+        int tileSize = probeSpacing * (1 << cascade);
+        unsigned long probeGridSizeX = (metalLayer.drawableSize.width + tileSize - 1) / tileSize;
+        unsigned long probeGridSizeY = (metalLayer.drawableSize.height + tileSize - 1) / tileSize;
+
+        MTL::TextureDescriptor* desc = MTL::TextureDescriptor::alloc()->init();
+        desc->setTextureType(MTL::TextureType2D);
+        desc->setPixelFormat(MTL::PixelFormatRGBA16Float);
+        desc->setWidth(probeGridSizeX * tileSize);
+        desc->setHeight(probeGridSizeY * tileSize);
+        desc->setStorageMode(MTL::StorageModePrivate);
+        desc->setUsage(MTL::TextureUsageShaderRead | MTL::TextureUsageShaderWrite);
+
+        radianceTextures[cascade].resize(3);  // 0: min, 1: max, 2: merged
+        for (int level = 0; level < 3; level++) {
+            std::string labelStr = "RC" + std::to_string(cascade) + " | level" + std::to_string(level);
+            NS::String* label = NS::String::string(labelStr.c_str(), NS::ASCIIStringEncoding);
+            radianceTextures[cascade][level] = metalDevice->newTexture(desc);
+            radianceTextures[cascade][level]->setLabel(label);
+        }
+        desc->release();
+    }
 }
 
 void Engine::updateRenderPassDescriptor() {

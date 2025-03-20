@@ -164,10 +164,11 @@ float4 mergeUpperCascade(texture2d<float, access::sample> upperRadianceTexture,
     return accumulatedRadiance;
 }
 
-kernel void mergeCascadesKernel(texture2d<float, access::sample>   radianceTextureMin           [[texture(TextureIndexMinRadiance)]],
+kernel void mergeCascadesKernel(texture2d<float, access::sample>   radianceTextureMin           [[texture(TextureIndexRadianceMin)]],
                                 texture2d<float, access::sample>   upperRadianceTextureMin      [[texture(TextureIndexUpperRadianceMin)]],
                                 texture2d<float, access::sample>   upperRadianceTextureMax      [[texture(TextureIndexUpperRadianceMax)]],
                                 texture2d<float, access::sample>   upperRadianceTexture         [[texture(TextureIndexUpperRadiance)]],
+                                texture2d<float, access::sample>   minMaxTexture                [[texture(TextureIndexMinMaxDepth)]],
                                 texture2d<float, access::write>    outputRadianceTexture        [[texture(TextureIndexOutput)]],
                     constant    FrameData&                         frameData                    [[buffer(BufferIndexFrameData)]],
                     constant    CascadeData&                       cascadeData                  [[buffer(BufferIndexCascadeData)]],
@@ -248,8 +249,8 @@ kernel void mergeCascadesKernel(texture2d<float, access::sample>   radianceTextu
     }
 }
 
-kernel void raytracingKernel(texture2d<float, access::write>    radianceTextureMin      [[texture(TextureIndexRadiance)]],
-                             texture2d<float, access::write>    radianceTextureMax      [[texture(TextureIndexMaxRadiance)]],
+kernel void raytracingKernel(texture2d<float, access::write>    radianceTextureMin      [[texture(TextureIndexRadianceMin)]],
+                             texture2d<float, access::write>    radianceTextureMax      [[texture(TextureIndexRadianceMax)]],
                     constant FrameData&                         frameData               [[buffer(BufferIndexFrameData)]],
                     constant CascadeData&                       cascadeData             [[buffer(BufferIndexCascadeData)]],
                              primitive_acceleration_structure   accelerationStructure   [[buffer(BufferIndexAccelerationStructure)]],

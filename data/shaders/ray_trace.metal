@@ -70,101 +70,110 @@ float3 octDecode(float2 f) {
     return normalize(n);
 }
 
-float4 mergeUpperCascade(texture2d<float, access::sample> upperRadianceTexture,
-                         float2 probeUV,
-                         float3 rayDir,
-                         CascadeData cascadeData,
-                         FrameData frameData) {
+float3x4 mergeUpperCascade(texture2d<float, access::sample> upperRadianceTextureMin,
+                           texture2d<float, access::sample> upperRadianceTextureMax,
+                           texture2d<float, access::sample> upperRadianceTexture,
+                           texture2d<float, access::sample> minMaxTexture,
+                           float2 probeUV,
+                           float2 probeDepth,
+                           float3 rayDir,
+                           CascadeData cascadeData,
+                           FrameData frameData) {
     uint currentCascadeLevel = cascadeData.cascadeLevel;
-    
-    uint upperCascadeLevel  = currentCascadeLevel + 1;
-    uint upperTileSize      = 4 * (1 << upperCascadeLevel);
-    uint upperGridSizeX     = (frameData.framebuffer_width + upperTileSize - 1) / upperTileSize;
-    uint upperGridSizeY     = (frameData.framebuffer_height + upperTileSize - 1) / upperTileSize;
-    uint upperRaysPerDim    = 1 << (upperCascadeLevel + 2);
+    uint upperCascadeLevel = currentCascadeLevel + 1;
+    uint upperTileSize = 4 * (1 << upperCascadeLevel);
+    uint upperGridSizeX = (frameData.framebuffer_width + upperTileSize - 1) / upperTileSize;
+    uint upperGridSizeY = (frameData.framebuffer_height + upperTileSize - 1) / upperTileSize;
+    uint upperRaysPerDim = 1 << (upperCascadeLevel + 2);
 
-    // Bilinear probe interpolation setup
-    float2 upperGridCoord   = probeUV * float2(upperGridSizeX, upperGridSizeY) - 0.5f;
-    int2 upperProbeBase     = int2(floor(upperGridCoord));
-    float2 upperFrac        = fract(upperGridCoord);
+    float2 upperGridCoord = probeUV * float2(upperGridSizeX, upperGridSizeY) - 0.5f;
+    int2 upperProbeBase = int2(floor(upperGridCoord));
+    float2 upperFrac = fract(upperGridCoord);
     
-    float4 bilinearWeights = float4((1.0f - upperFrac.x)    * (1.0f - upperFrac.y),
-                                    upperFrac.x             * (1.0f - upperFrac.y),
-                                    (1.0f - upperFrac.x)    * upperFrac.y,
-                                    upperFrac.x             * upperFrac.y);
-
+    float4 bilinearWeights = float4((1.0f - upperFrac.x) * (1.0f - upperFrac.y),
+                                    upperFrac.x * (1.0f - upperFrac.y),
+                                    (1.0f - upperFrac.x) * upperFrac.y,
+                                    upperFrac.x * upperFrac.y);
     int2 probeOffsets[4] = {int2(0, 0), int2(1, 0), int2(0, 1), int2(1, 1)};
 
     float2 octDir = octEncode(rayDir);
-    
-    // Convert to upper cascade direction grid coordinates
     float2 dirGridCoord = float2(octDir.x * upperRaysPerDim, octDir.y * upperRaysPerDim);
     int2 dirBase = int2(floor(dirGridCoord));
     float2 dirFrac = fract(dirGridCoord);
     
-    // Calculate bilinear weights for direction interpolation
-    float2 dirWeights = dirFrac;
-    float4 dirBilinearWeights = float4((1.0f - dirWeights.x)    * (1.0f - dirWeights.y),  // bottom-left
-                                       dirWeights.x             * (1.0f - dirWeights.y),  // bottom-right
-                                       (1.0f - dirWeights.x)    * dirWeights.y,           // top-left
-                                       dirWeights.x             * dirWeights.y            // top-right
-    );
+    float4 dirBilinearWeights = float4((1.0f - dirFrac.x) * (1.0f - dirFrac.y),
+                                       dirFrac.x * (1.0f - dirFrac.y),
+                                       (1.0f - dirFrac.x) * dirFrac.y,
+                                       dirFrac.x * dirFrac.y);
+    int2 dirOffsets[4] = {int2(0, 0), int2(1, 0), int2(0, 1), int2(1, 1)};
+
+    // Compute depth weights
+    float2 weightedMinMaxDepth = float2(0.0f);
+    for (int i = 0; i < 4; i++) {
+        int2 probeCoord = upperProbeBase + probeOffsets[i];
+        float2 probeUVCenter = (float2(probeCoord) + 0.5f) / float2(upperGridSizeX, upperGridSizeY);
+        float2 minMaxDepth = minMaxTexture.sample(depthSampler, probeUVCenter, level(upperCascadeLevel + 3)).xy;
+        weightedMinMaxDepth += minMaxDepth * bilinearWeights[i];
+    }
+    float depthThickness = max(weightedMinMaxDepth.x - weightedMinMaxDepth.y, 0.0001f);
+    float minProbeWeight = saturate((weightedMinMaxDepth.x - probeDepth.x) / depthThickness);
+    float maxProbeWeight = saturate((weightedMinMaxDepth.x - probeDepth.y) / depthThickness);
+
+    // Sample radiance
+    float4 minRadiance = float4(0.0f);
+    float4 maxRadiance = float4(0.0f);
     
-    // Bilinear interpolation offsets
-    int2 dirOffsets[4] = {
-        int2(0, 0),  // bottom-left
-        int2(1, 0),  // bottom-right
-        int2(0, 1),  // top-left
-        int2(1, 1)   // top-right
-    };
-    
-    float4 accumulatedRadiance = float4(0.0f);
+    float4 mergedRadiance = float4(0.0f);
     float totalWeight = 0.0f;
 
     for (int probeIdx = 0; probeIdx < 4; probeIdx++) {
         int2 probeCoord = upperProbeBase + probeOffsets[probeIdx];
-        
         float probeWeight = bilinearWeights[probeIdx];
-        if (probeWeight <= 0.0f) continue; // Skip probes with no contribution
+        if (probeWeight <= 0.0f) continue;
         
-        float4 probeRadiance = float4(0.0f);
+        float4 probeMinRadiance = float4(0.0f);
+        float4 probeMaxRadiance = float4(0.0f);
+        float4 probeMergedRadiance = float4(0.0f);
         float2 probeUVCenter = (float2(probeCoord) + 0.5f) / float2(upperGridSizeX, upperGridSizeY);
         
         for (int dirIdx = 0; dirIdx < 4; dirIdx++) {
             int dirX = dirBase.x + dirOffsets[dirIdx].x;
             int dirY = dirBase.y + dirOffsets[dirIdx].y;
-            
-            // Handle wrapping at octahedral map boundaries
             dirX = ((dirX % upperRaysPerDim) + upperRaysPerDim) % upperRaysPerDim;
             dirY = ((dirY % upperRaysPerDim) + upperRaysPerDim) % upperRaysPerDim;
             
-            // Calculate sample position in texture
-            // removed offset from dirX and dirY
-            float2 dirUV = float2(
-                (float(dirX)) / float(upperRaysPerDim),
-                (float(dirY)) / float(upperRaysPerDim)
-            );
-            
+            float2 dirUV = float2(float(dirX) / float(upperRaysPerDim), float(dirY) / float(upperRaysPerDim));
             float2 dirOffset = (dirUV - 0.5f) / float2(upperGridSizeX, upperGridSizeY);
             float2 sampleUV = probeUVCenter + dirOffset;
             
-            float4 sample = upperRadianceTexture.sample(samplerLinear, sampleUV);
-            
-            probeRadiance += sample * dirBilinearWeights[dirIdx];
+            probeMinRadiance += upperRadianceTextureMin.sample(samplerLinear, sampleUV) * dirBilinearWeights[dirIdx];
+            probeMaxRadiance += upperRadianceTextureMax.sample(samplerLinear, sampleUV) * dirBilinearWeights[dirIdx];
+            probeMergedRadiance += upperRadianceTexture.sample(samplerLinear, sampleUV) * dirBilinearWeights[dirIdx];
         }
         
-        accumulatedRadiance += probeRadiance * probeWeight;
+        minRadiance += probeMinRadiance * probeWeight;
+        maxRadiance += probeMaxRadiance * probeWeight;
+        mergedRadiance += probeMergedRadiance * probeWeight;
         totalWeight += probeWeight;
     }
     
     if (totalWeight > 0.0f) {
-        accumulatedRadiance /= totalWeight;
+        minRadiance /= totalWeight;
+        maxRadiance /= totalWeight;
+        mergedRadiance /= totalWeight;
     }
     
-    return accumulatedRadiance;
+    // Return min, max, and merged radiance
+    float3x4 upperRadiances;
+    upperRadiances[0] = mix(minRadiance, maxRadiance, minProbeWeight);    // Min radiance
+    upperRadiances[1] = mix(minRadiance, maxRadiance, maxProbeWeight);    // Max radiance
+    upperRadiances[2] = mergedRadiance; // Merged radiance
+    
+    return upperRadiances;
 }
 
 kernel void mergeCascadesKernel(texture2d<float, access::sample>   radianceTextureMin           [[texture(TextureIndexRadianceMin)]],
+                                texture2d<float, access::sample>   radianceTextureMax           [[texture(TextureIndexRadianceMax)]],
                                 texture2d<float, access::sample>   upperRadianceTextureMin      [[texture(TextureIndexUpperRadianceMin)]],
                                 texture2d<float, access::sample>   upperRadianceTextureMax      [[texture(TextureIndexUpperRadianceMax)]],
                                 texture2d<float, access::sample>   upperRadianceTexture         [[texture(TextureIndexUpperRadiance)]],
@@ -197,6 +206,7 @@ kernel void mergeCascadesKernel(texture2d<float, access::sample>   radianceTextu
     uint probeIndexY = probeIndex / probeGridSizeX;
 
     float2 probeUV = (float2(probeIndexX, probeIndexY) + 0.5f) / float2(probeGridSizeX, probeGridSizeY);
+    float2 probeDepth = minMaxTexture.sample(depthSampler, probeUV, level(cascadeLevel+2)).xy;
     
     int rayX = rayIndex % raysPerDim;
     int rayY = rayIndex / raysPerDim;
@@ -218,23 +228,25 @@ kernel void mergeCascadesKernel(texture2d<float, access::sample>   radianceTextu
     
     // Merge with upper cascade
     if (cascadeLevel < cascadeData.maxCascade) {
-        float4 upperRadiance = mergeUpperCascade(upperRadianceTexture, probeUV, rayDir, cascadeData, frameData);
+//        float radianceSectorSize = 0.25f / (1 << cascadeLevel);
+        float3x4 upperRadiances = mergeUpperCascade(upperRadianceTextureMin, upperRadianceTextureMax, upperRadianceTexture, minMaxTexture, probeUV, probeDepth, rayDir, cascadeData, frameData);
         
         float4 sample = radianceTextureMin.sample(samplerLinear, tileUV);
         bool hasHit = sample.a > 0.0f;
         
         if (!hasHit) {
             // If no hit in current cascade, use upper cascade
-            if (cascadeLevel == cascadeData.maxCascade - 1 && upperRadiance.a < 0.9f) {
-                float blendFactor = 1.0f - upperRadiance.a;
-                upperRadiance = mix(upperRadiance, radiance, blendFactor);
-                upperRadiance.a = max(upperRadiance.a, 0.9f);
+            if (cascadeLevel == cascadeData.maxCascade - 1 && upperRadiances[2].a < 0.9f) {
+                float blendFactor = 1.0f - upperRadiances[2].a;
+                upperRadiances[2] = mix(upperRadiances[2], radiance, blendFactor);
+                upperRadiances[2].a = max(upperRadiances[2].a, 0.9f);
             }
-            radiance = upperRadiance;
+            radiance = upperRadiances[2];
         } else {
             // There was a hit, blend with upper cascade
-            radiance.rgb += upperRadiance.rgb * radiance.a;
-            radiance.a *= upperRadiance.a;
+            
+            radiance.rgb += /*upperRadiances[0].rgb + upperRadiances[1].rgb + */upperRadiances[2].rgb * radiance.a;
+            radiance.a *= upperRadiances[2].a;
         }
     }
     
@@ -296,8 +308,8 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTextureM
                                                frameData.inverse_view_matrix);
 
     // Only store probe position data during min depth pass
-    if (rayIndex == 0 && isMinDepthPass) {
-        probeData[probeIndex].position = float4(worldPos, (minMaxDepth.x != minMaxDepth.y ? 1.0f : 0.0f));
+    if (rayIndex == 0) {
+        probeData[isMinDepthPass?probeIndex:probeIndex*2].position = float4(worldPos, (isMinDepthPass ? -1.0f : 1.0f));
     }
 
     int rayX = rayIndex % raysPerDim;
@@ -339,11 +351,8 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTextureM
 
     uint rayDataIndex = probeIndex * numRays + rayIndex;
     
-    // Store ray data only in min pass to avoid overwriting
-    if (isMinDepthPass) {
-        rayData[rayDataIndex].intervalStart = float4(startPoint, 1.0);
-        rayData[rayDataIndex].intervalEnd = float4(endPoint, 1.0);
-    }
+    rayData[rayDataIndex].intervalStart = float4(startPoint, 1.0);
+    rayData[rayDataIndex].intervalEnd = float4(endPoint, 1.0);
 
     // Direct radiance from current cascade
     float4 radiance = float4(0.0);

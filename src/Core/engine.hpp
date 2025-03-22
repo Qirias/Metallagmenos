@@ -155,7 +155,7 @@ private:
     std::vector<std::vector<MTL::Buffer*>>  rayBuffer;
     int                                     debugProbeCount = 0;
     int                                     rayCount = 0;
-    int                                     debugCascadeLevel = 0;
+    int                                     debugCascadeLevel = 1;
     
     void createSphereGrid();
     void createDebugLines();

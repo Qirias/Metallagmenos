@@ -99,10 +99,10 @@ void Debug::drawSpheres(const std::vector<simd::float4>& spherePositions, float 
 
     size_t lineIndex = currentLineCount;
     for (const auto& position : spherePositions) {
-        if (position.w == 1.0)
-            color = float3{0.0, 1.0, 0.0};
+        if (position.w == -1.0)
+            color = float3{1.0, 0.0, 0.0}; // min probes
         else
-            color = float3{0.0, 1.0, 1.0};
+            color = float3{0.0, 0.0, 1.0}; // max probes
         
         addSphereLines(position.xyz, radius, color, slices, stack, lineVertices, lineIndex);
     }
@@ -137,4 +137,11 @@ void Debug::drawLines(const std::vector<simd::float4>& startPoints, const std::v
 
     currentLineCount = lineIndex;
     *lineCount = static_cast<uint32_t>(currentLineCount);
+}
+
+void Debug::clearLines() {
+    currentLineCount = 0;
+    uint32_t* lineCount = reinterpret_cast<uint32_t*>(lineCountBuffer->contents());
+    if (lineCount)
+        *lineCount = 0;
 }

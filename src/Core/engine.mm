@@ -64,7 +64,14 @@ void Engine::cleanup() {
             rayBuffer[frame][cascade]->release();
         }
     }
+    
+    for (int cascade = 0; cascade < cascadeLevel; cascade++) {
+        for (int level = 0; level < 3; level++) {
+            radianceTextures[cascade][level]->release();
+        }
+    }
 	
+    
     finalGatherTexture->release();
     forwardDepthStencilTexture->release();
     rayTracingTexture->release();
@@ -134,6 +141,10 @@ void Engine::resizeFrameBuffer(int width, int height) {
         forwardDescriptor->release();
         forwardDescriptor = nil;
     }
+    
+    for (int cascade = 0; cascade < cascadeLevel; cascade++) {
+        radianceTextures[cascade].clear();
+    }
 
 	// Recreate G-buffer textures and descriptors
 	createViewRenderPassDescriptor();
@@ -193,11 +204,8 @@ void Engine::endFrame(MTL::CommandBuffer* commandBuffer, MTL::Drawable* currentD
         commandBuffer->presentDrawable(metalDrawable);
         commandBuffer->commit();
         
-        if (frameNumber == 100) {
-            commandBuffer->waitUntilCompleted();
-            createSphereGrid();
-            createDebugLines();
-        }
+        createSphereGrid();
+//        createDebugLines();
         
         // Move to next frame
         currentFrameIndex = (currentFrameIndex + 1) % MaxFramesInFlight;
@@ -217,7 +225,7 @@ void Engine::loadSceneFromJSON(const std::string& jsonFilePath) {
 }
 
 void Engine::loadScene() {
-    loadSceneFromJSON(std::string(SCENES_PATH) + "/sponzaHornbug.json");
+    loadSceneFromJSON(std::string(SCENES_PATH) + "/cubeScene.json");
 }
 
 MTL::VertexDescriptor* Engine::createDefaultVertexDescriptor() {
@@ -311,6 +319,7 @@ void Engine::createBuffers() {
             cascadeDataBuffer[frame][cascade]->setLabel(label);
             
             debugProbeCount = floor(metalLayer.drawableSize.width / (probeSpacing * 1 << cascade)) * floor(metalLayer.drawableSize.height / (probeSpacing * 1 << cascade));
+            debugProbeCount *= 2;
             size_t probeBufferSize = debugProbeCount * sizeof(Probe);
             rayCount = debugProbeCount * baseRay * (1 << (2 * cascade));
             size_t rayBufferSize = rayCount * sizeof(ProbeRay);
@@ -703,9 +712,11 @@ void Engine::setupTriangleResources() {
 }
 
 void Engine::createSphereGrid() {
-    debugProbeCount = floor(metalLayer.drawableSize.width / (probeSpacing * 1 << debugCascadeLevel)) * floor(metalLayer.drawableSize.height / (probeSpacing * 1 << debugCascadeLevel));
+    debug->clearLines();
     
-    const float sphereRadius = 0.006f * float(1 << debugCascadeLevel) * probeSpacing;
+    debugProbeCount = floor(metalLayer.drawableSize.width / (probeSpacing * 1 << debugCascadeLevel)) * floor(metalLayer.drawableSize.height / (probeSpacing * 1 << debugCascadeLevel));
+    debugProbeCount *= 2;
+    const float sphereRadius = 0.001f * float(1 << debugCascadeLevel) * probeSpacing;
     simd::float3 sphereColor = {1.0f, 0.0f, 0.0f};
     std::vector<simd::float4> spherePositions;
     
@@ -853,7 +864,7 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
 
     for (int level = cascadeLevel - 1; level >= editor->debug.debugCascadeLevel; --level) {
         bool isHighestCascade = (level == cascadeLevel - 1);
-        
+
         uint tileSize = probeSpacing * (1 << level);
         uint probeGridSizeX = (width + tileSize - 1) / tileSize;
         uint probeGridSizeY = (height + tileSize - 1) / tileSize;
@@ -874,7 +885,7 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
         mergeEncoder->setComputePipelineState(renderPipelines.getComputePipeline(ComputePipelineType::Merging));
         mergeEncoder->setTexture(radianceTextures[level][0], TextureIndexRadianceMin);  // Cn min
         mergeEncoder->setTexture(radianceTextures[level][1], TextureIndexRadianceMax);  // Cn max
-        
+
         if (isHighestCascade) {
             // For highest cascade, there's no upper cascade to merge with
             mergeEncoder->setTexture(nil, TextureIndexUpperRadianceMin);
@@ -886,7 +897,7 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
             mergeEncoder->setTexture(radianceTextures[level+1][1], TextureIndexUpperRadianceMax);  // Cn+1 max
             mergeEncoder->setTexture(lastMergedTexture, TextureIndexUpperRadiance);               // Cn+1 merged
         }
-        
+
         mergeEncoder->setTexture(minMaxDepthTexture, TextureIndexMinMaxDepth);
         mergeEncoder->setTexture(mergeOutputTarget, TextureIndexOutput);
 
@@ -897,7 +908,7 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
         mergeEncoder->useResource(radianceTextures[level][1], MTL::ResourceUsageRead);
         mergeEncoder->useResource(mergeOutputTarget, MTL::ResourceUsageWrite);
         mergeEncoder->useResource(minMaxDepthTexture, MTL::ResourceUsageRead);
-        
+
         if (!isHighestCascade) {
             mergeEncoder->useResource(radianceTextures[level+1][0], MTL::ResourceUsageRead);
             mergeEncoder->useResource(radianceTextures[level+1][1], MTL::ResourceUsageRead);

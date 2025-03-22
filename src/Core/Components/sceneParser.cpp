@@ -16,7 +16,6 @@ SceneParser::~SceneParser() {
 std::vector<Mesh*> SceneParser::loadScene(const std::string& jsonFilePath) {
     std::vector<Mesh*> meshes;
     
-    // Read the JSON file
     std::ifstream file(jsonFilePath);
     if (!file.is_open()) {
         std::cerr << "Failed to open scene file: " << jsonFilePath << std::endl;
@@ -101,12 +100,10 @@ std::vector<Mesh*> SceneParser::loadScene(const std::string& jsonFilePath) {
                     };
                 }
                 
-                // Parse has textures flag
                 if (objDef.contains("hasTextures")) {
                     info.hasTextures = objDef["hasTextures"];
                 }
                 
-                // Parse emissive properties
                 if (objDef.contains("isEmissive")) {
                     info.isEmissive = objDef["isEmissive"];
                     
@@ -179,7 +176,7 @@ std::string SceneParser::processPath(const std::string& originalPath) {
     fileCheck.close();
     
     // If not found, try common alternatives
-    // 1. Try with MODELS_PATH prefix if it's not already there
+    // Try with MODELS_PATH prefix if it's not already there
     if (expandedPath.find(MODELS_PATH) == std::string::npos) {
         std::string modelPath = std::string(MODELS_PATH) + "/" + expandedPath;
         fileCheck.open(modelPath);

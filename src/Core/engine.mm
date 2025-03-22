@@ -72,7 +72,8 @@ void Engine::cleanup() {
     }
 	
     
-    finalGatherTexture->release();
+    finalGatherMinTexture->release();
+    finalGatherMaxTexture->release();
     forwardDepthStencilTexture->release();
     rayTracingTexture->release();
     minMaxDepthTexture->release();
@@ -105,29 +106,31 @@ void Engine::cursorPosCallback(GLFWwindow* window, double xpos, double ypos) {
 void Engine::resizeFrameBuffer(int width, int height) {
     metalLayer.drawableSize = CGSizeMake(width, height);
     // Deallocate the textures if they have been created
-	if (albedoSpecularGBuffer) {
-		albedoSpecularGBuffer->release();
-		albedoSpecularGBuffer = nil;
-	}
-	if (normalMapGBuffer) {
-		normalMapGBuffer->release();
-		normalMapGBuffer = nil;
-	}
-	if (depthGBuffer) {
-		depthGBuffer->release();
-		depthGBuffer = nil;
-	}
-	if (depthStencilTexture) {
-		depthStencilTexture->release();
-		depthStencilTexture = nil;
-	}
+    if (albedoSpecularGBuffer) {
+        albedoSpecularGBuffer->release();
+        albedoSpecularGBuffer = nil;
+    }
+    if (normalMapGBuffer) {
+        normalMapGBuffer->release();
+        normalMapGBuffer = nil;
+    }
+    if (depthGBuffer) {
+        depthGBuffer->release();
+        depthGBuffer = nil;
+    }
+    if (depthStencilTexture) {
+        depthStencilTexture->release();
+        depthStencilTexture = nil;
+    }
     if (rayTracingTexture) {
         rayTracingTexture->release();
         rayTracingTexture = nil;
     }
-    if (finalGatherTexture) {
-        finalGatherTexture->release();
-        finalGatherTexture = nil;
+    if (finalGatherMinTexture) {
+        finalGatherMinTexture->release();
+        finalGatherMinTexture = nil;
+        finalGatherMaxTexture->release();
+        finalGatherMaxTexture = nil;
     }
     if (forwardDepthStencilTexture) {
         forwardDepthStencilTexture->release();
@@ -857,13 +860,36 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
     }
 
     //--------------------------------------------------------
-    // PHASE 2: Merge cascades
+    // PHASE 2: Merge cascades - Top down
     //--------------------------------------------------------
-    // Start with the highest cascade and work down
-    MTL::Texture* lastMergedTexture = nullptr;
-
-    for (int level = cascadeLevel - 1; level >= editor->debug.debugCascadeLevel; --level) {
-        bool isHighestCascade = (level == cascadeLevel - 1);
+    // For highest cascade, copy raytraced results to merged slots
+    {
+        int level = cascadeLevel - 1; // Highest cascade level
+        
+        MTL::BlitCommandEncoder* blitEncoder = commandBuffer->blitCommandEncoder();
+        blitEncoder->setLabel(NS::String::string("Copy Highest Cascade", NS::ASCIIStringEncoding));
+        
+        // Copy min and max raytraced to their merged slots
+        MTL::Size textureSize = MTL::Size(radianceTextures[level][0]->width(),
+                                         radianceTextures[level][0]->height(), 1);
+        
+        blitEncoder->copyFromTexture(radianceTextures[level][0], 0, 0,
+                                   MTL::Origin(0, 0, 0), textureSize,
+                                   radianceTextures[level][2], 0, 0,
+                                   MTL::Origin(0, 0, 0));
+        
+        blitEncoder->copyFromTexture(radianceTextures[level][1], 0, 0,
+                                   MTL::Origin(0, 0, 0), textureSize,
+                                   radianceTextures[level][3], 0, 0,
+                                   MTL::Origin(0, 0, 0));
+        
+        blitEncoder->endEncoding();
+    }
+    
+    // Process all other cascade levels
+    for (int level = cascadeLevel - 2; level >= editor->debug.debugCascadeLevel; --level) {
+        bool isLowestCascade = (level == editor->debug.debugCascadeLevel);
+        bool isLevelZero = (level == 0);
 
         uint tileSize = probeSpacing * (1 << level);
         uint probeGridSizeX = (width + tileSize - 1) / tileSize;
@@ -879,46 +905,49 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
         MTL::ComputeCommandEncoder* mergeEncoder = commandBuffer->computeCommandEncoder();
         mergeEncoder->setLabel(NS::String::string(("Depth-Aware Merge Cascade " + std::to_string(level)).c_str(), NS::ASCIIStringEncoding));
 
-        MTL::Texture* mergeOutputTarget = (level == 0 || level == editor->debug.debugCascadeLevel) ?
-            finalGatherTexture : radianceTextures[level][2];  // Cn merged
-
         mergeEncoder->setComputePipelineState(renderPipelines.getComputePipeline(ComputePipelineType::Merging));
-        mergeEncoder->setTexture(radianceTextures[level][0], TextureIndexRadianceMin);  // Cn min
-        mergeEncoder->setTexture(radianceTextures[level][1], TextureIndexRadianceMax);  // Cn max
-
-        if (isHighestCascade) {
-            // For highest cascade, there's no upper cascade to merge with
-            mergeEncoder->setTexture(nil, TextureIndexUpperRadianceMin);
-            mergeEncoder->setTexture(nil, TextureIndexUpperRadianceMax);
-            mergeEncoder->setTexture(nil, TextureIndexUpperRadiance);
-        } else {
-            // For other cascades, use the upper cascade textures
-            mergeEncoder->setTexture(radianceTextures[level+1][0], TextureIndexUpperRadianceMin);  // Cn+1 min
-            mergeEncoder->setTexture(radianceTextures[level+1][1], TextureIndexUpperRadianceMax);  // Cn+1 max
-            mergeEncoder->setTexture(lastMergedTexture, TextureIndexUpperRadiance);               // Cn+1 merged
-        }
-
+        
+        // Current level raytraced data
+        mergeEncoder->setTexture(radianceTextures[level][0], TextureIndexRadianceMin);  // Current min
+        mergeEncoder->setTexture(radianceTextures[level][1], TextureIndexRadianceMax);  // Current max
+        
+        // Upper level merged data
+        mergeEncoder->setTexture(radianceTextures[level+1][2], TextureIndexUpperRadianceMin);  // Upper MERGED min
+        mergeEncoder->setTexture(radianceTextures[level+1][3], TextureIndexUpperRadianceMax);  // Upper MERGED max
+        
+        // Depth texture
         mergeEncoder->setTexture(minMaxDepthTexture, TextureIndexMinMaxDepth);
-        mergeEncoder->setTexture(mergeOutputTarget, TextureIndexOutput);
-
+        
+        // Output targets
+        if (isLevelZero || isLowestCascade) {
+            // For the lowest level, write to both finalGatherMin and finalGatherMax textures
+            mergeEncoder->setTexture(finalGatherMinTexture, TextureIndexOutputMin);
+            mergeEncoder->setTexture(finalGatherMaxTexture, TextureIndexOutputMax);
+        } else {
+            // For intermediate levels, write to slots 2/3 for next level to use
+            mergeEncoder->setTexture(radianceTextures[level][2], TextureIndexOutputMin);  // Merged min
+            mergeEncoder->setTexture(radianceTextures[level][3], TextureIndexOutputMax);  // Merged max
+        }
+        
         mergeEncoder->setBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
         mergeEncoder->setBuffer(cascadeDataBuffer[currentFrameIndex][level], 0, BufferIndexCascadeData);
-
+        
         mergeEncoder->useResource(radianceTextures[level][0], MTL::ResourceUsageRead);
         mergeEncoder->useResource(radianceTextures[level][1], MTL::ResourceUsageRead);
-        mergeEncoder->useResource(mergeOutputTarget, MTL::ResourceUsageWrite);
+        mergeEncoder->useResource(radianceTextures[level+1][2], MTL::ResourceUsageRead);
+        mergeEncoder->useResource(radianceTextures[level+1][3], MTL::ResourceUsageRead);
         mergeEncoder->useResource(minMaxDepthTexture, MTL::ResourceUsageRead);
-
-        if (!isHighestCascade) {
-            mergeEncoder->useResource(radianceTextures[level+1][0], MTL::ResourceUsageRead);
-            mergeEncoder->useResource(radianceTextures[level+1][1], MTL::ResourceUsageRead);
-            mergeEncoder->useResource(lastMergedTexture, MTL::ResourceUsageRead);
+        
+        if (isLevelZero || isLowestCascade) {
+            mergeEncoder->useResource(finalGatherMinTexture, MTL::ResourceUsageWrite);
+            mergeEncoder->useResource(finalGatherMaxTexture, MTL::ResourceUsageWrite);
+        } else {
+            mergeEncoder->useResource(radianceTextures[level][2], MTL::ResourceUsageWrite);
+            mergeEncoder->useResource(radianceTextures[level][3], MTL::ResourceUsageWrite);
         }
-
+        
         mergeEncoder->dispatchThreadgroups(MTL::Size(numThreadGroups, 1, 1), MTL::Size(threadGroupSize, 1, 1));
         mergeEncoder->endEncoding();
-
-        lastMergedTexture = mergeOutputTarget;
     }
 }
 
@@ -951,10 +980,10 @@ void Engine::dispatchTwoPassBlur(MTL::CommandBuffer* commandBuffer) {
     horizontalEncoder->setComputePipelineState(renderPipelines.getComputePipeline(ComputePipelineType::HorizontalBlur));
     
     horizontalEncoder->setBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
-    horizontalEncoder->setTexture(finalGatherTexture, TextureIndexRadianceUpper);
+    horizontalEncoder->setTexture(finalGatherMinTexture, TextureIndexRadianceUpper);
     horizontalEncoder->setTexture(intermediateBlurTexture, TextureIndexRadiance);
     
-    horizontalEncoder->useResource(finalGatherTexture, MTL::ResourceUsageRead);
+    horizontalEncoder->useResource(finalGatherMinTexture, MTL::ResourceUsageRead);
     horizontalEncoder->useResource(intermediateBlurTexture, MTL::ResourceUsageWrite);
     
     horizontalEncoder->dispatchThreadgroups(threadgroups, threadGroupSize);
@@ -1085,9 +1114,13 @@ void Engine::createViewRenderPassDescriptor() {
     desc->setStorageMode(MTL::StorageModeShared);
     desc->setUsage(MTL::TextureUsageShaderRead | MTL::TextureUsageShaderWrite);
     
-    NS::String* label = NS::String::string("Final Gather", NS::ASCIIStringEncoding);
-    finalGatherTexture = metalDevice->newTexture(desc);
-    finalGatherTexture->setLabel(label);
+    NS::String* label = NS::String::string("Final Gather Min", NS::ASCIIStringEncoding);
+    finalGatherMinTexture = metalDevice->newTexture(desc);
+    finalGatherMinTexture->setLabel(label);
+    
+    label = NS::String::string("Final Gather Max", NS::ASCIIStringEncoding);
+    finalGatherMaxTexture = metalDevice->newTexture(desc);
+    finalGatherMaxTexture->setLabel(label);
     
     label = NS::String::string("Blurred Color", NS::ASCIIStringEncoding);
     blurredColor = metalDevice->newTexture(desc);
@@ -1107,9 +1140,9 @@ void Engine::createViewRenderPassDescriptor() {
         desc->setStorageMode(MTL::StorageModePrivate);
         desc->setUsage(MTL::TextureUsageShaderRead | MTL::TextureUsageShaderWrite);
 
-        radianceTextures[cascade].resize(3);  // 0: min, 1: max, 2: merged
-        for (int level = 0; level < 3; level++) {
-            std::string labelStr = "RC" + std::to_string(cascade) + " | level" + std::to_string(level);
+        radianceTextures[cascade].resize(4);  // 0: min, 1: max, 2: mergedMin, 3 mergedMax
+        for (int level = 0; level < 4; level++) {
+            std::string labelStr = "RC:" + std::to_string(cascade) + " | tex:" + std::to_string(level);
             NS::String* label = NS::String::string(labelStr.c_str(), NS::ASCIIStringEncoding);
             radianceTextures[cascade][level] = metalDevice->newTexture(desc);
             radianceTextures[cascade][level]->setLabel(label);
@@ -1187,7 +1220,7 @@ void Engine::drawFinalGathering(MTL::RenderCommandEncoder* renderCommandEncoder)
 	renderCommandEncoder->setDepthStencilState(renderPipelines.getDepthStencilState(DepthStencilType::FinalGather));
 	renderCommandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
 	renderCommandEncoder->setFragmentBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
-    renderCommandEncoder->setFragmentTexture(finalGatherTexture, TextureIndexRadiance);
+    renderCommandEncoder->setFragmentTexture(finalGatherMinTexture, TextureIndexRadiance);
 
 	renderCommandEncoder->drawPrimitives(MTL::PrimitiveTypeTriangle, (NS::UInteger)0, (NS::UInteger)3);
 }
@@ -1278,7 +1311,6 @@ void Engine::draw() {
     
     dispatchMinMaxDepthMipmaps(commandBuffer);
     dispatchRaytracing(commandBuffer);
-//    dispatchTwoPassBlur(commandBuffer);
     
     // G-Buffer pass
     MTL::RenderCommandEncoder* gBufferEncoder = commandBuffer->renderCommandEncoder(viewRenderPassDescriptor);

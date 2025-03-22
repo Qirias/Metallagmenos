@@ -8,6 +8,8 @@ using namespace raytracing;
 #include "shaderTypes.hpp"
 #include "shaderCommon.hpp"
 
+constant int DEPTH_LEVEL_OFFSET = 2;
+
 struct TriangleResources {
     struct TriangleData {
         float4 normals[3];
@@ -70,15 +72,14 @@ float3 octDecode(float2 f) {
     return normalize(n);
 }
 
-float3x4 mergeUpperCascade(texture2d<float, access::sample> upperRadianceTextureMin,
+float2x4 mergeUpperCascade(texture2d<float, access::sample> upperRadianceTextureMin,
                            texture2d<float, access::sample> upperRadianceTextureMax,
-                           texture2d<float, access::sample> upperRadianceTexture,
                            texture2d<float, access::sample> minMaxTexture,
-                           float2 probeUV,
-                           float2 probeDepth,
-                           float3 rayDir,
-                           CascadeData cascadeData,
-                           FrameData frameData) {
+                           float2                           probeUV,
+                           float2                           probeDepth,
+                           float3                           rayDir,
+                           CascadeData                      cascadeData,
+                           FrameData                        frameData) {
     uint currentCascadeLevel = cascadeData.cascadeLevel;
     uint upperCascadeLevel = currentCascadeLevel + 1;
     uint upperTileSize = 4 * (1 << upperCascadeLevel);
@@ -112,7 +113,7 @@ float3x4 mergeUpperCascade(texture2d<float, access::sample> upperRadianceTexture
     for (int i = 0; i < 4; i++) {
         int2 probeCoord = upperProbeBase + probeOffsets[i];
         float2 probeUVCenter = (float2(probeCoord) + 0.5f) / float2(upperGridSizeX, upperGridSizeY);
-        float2 minMaxDepth = minMaxTexture.sample(depthSampler, probeUVCenter, level(upperCascadeLevel + 3)).xy;
+        float2 minMaxDepth = minMaxTexture.sample(depthSampler, probeUVCenter, level(upperCascadeLevel+DEPTH_LEVEL_OFFSET)).xy;
         weightedMinMaxDepth += minMaxDepth * bilinearWeights[i];
     }
     float depthThickness = max(weightedMinMaxDepth.x - weightedMinMaxDepth.y, 0.0001f);
@@ -122,8 +123,6 @@ float3x4 mergeUpperCascade(texture2d<float, access::sample> upperRadianceTexture
     // Sample radiance
     float4 minRadiance = float4(0.0f);
     float4 maxRadiance = float4(0.0f);
-    
-    float4 mergedRadiance = float4(0.0f);
     float totalWeight = 0.0f;
 
     for (int probeIdx = 0; probeIdx < 4; probeIdx++) {
@@ -133,7 +132,6 @@ float3x4 mergeUpperCascade(texture2d<float, access::sample> upperRadianceTexture
         
         float4 probeMinRadiance = float4(0.0f);
         float4 probeMaxRadiance = float4(0.0f);
-        float4 probeMergedRadiance = float4(0.0f);
         float2 probeUVCenter = (float2(probeCoord) + 0.5f) / float2(upperGridSizeX, upperGridSizeY);
         
         for (int dirIdx = 0; dirIdx < 4; dirIdx++) {
@@ -148,40 +146,35 @@ float3x4 mergeUpperCascade(texture2d<float, access::sample> upperRadianceTexture
             
             probeMinRadiance += upperRadianceTextureMin.sample(samplerLinear, sampleUV) * dirBilinearWeights[dirIdx];
             probeMaxRadiance += upperRadianceTextureMax.sample(samplerLinear, sampleUV) * dirBilinearWeights[dirIdx];
-            probeMergedRadiance += upperRadianceTexture.sample(samplerLinear, sampleUV) * dirBilinearWeights[dirIdx];
         }
         
         minRadiance += probeMinRadiance * probeWeight;
         maxRadiance += probeMaxRadiance * probeWeight;
-        mergedRadiance += probeMergedRadiance * probeWeight;
         totalWeight += probeWeight;
     }
     
     if (totalWeight > 0.0f) {
         minRadiance /= totalWeight;
         maxRadiance /= totalWeight;
-        mergedRadiance /= totalWeight;
     }
     
-    // Return min, max, and merged radiance
-    float3x4 upperRadiances;
+    float2x4 upperRadiances;
     upperRadiances[0] = mix(minRadiance, maxRadiance, minProbeWeight);    // Min radiance
     upperRadiances[1] = mix(minRadiance, maxRadiance, maxProbeWeight);    // Max radiance
-    upperRadiances[2] = mergedRadiance; // Merged radiance
     
     return upperRadiances;
 }
 
-kernel void mergeCascadesKernel(texture2d<float, access::sample>   radianceTextureMin           [[texture(TextureIndexRadianceMin)]],
-                                texture2d<float, access::sample>   radianceTextureMax           [[texture(TextureIndexRadianceMax)]],
-                                texture2d<float, access::sample>   upperRadianceTextureMin      [[texture(TextureIndexUpperRadianceMin)]],
-                                texture2d<float, access::sample>   upperRadianceTextureMax      [[texture(TextureIndexUpperRadianceMax)]],
-                                texture2d<float, access::sample>   upperRadianceTexture         [[texture(TextureIndexUpperRadiance)]],
-                                texture2d<float, access::sample>   minMaxTexture                [[texture(TextureIndexMinMaxDepth)]],
-                                texture2d<float, access::write>    outputRadianceTexture        [[texture(TextureIndexOutput)]],
-                    constant    FrameData&                         frameData                    [[buffer(BufferIndexFrameData)]],
-                    constant    CascadeData&                       cascadeData                  [[buffer(BufferIndexCascadeData)]],
-                                uint                               tid                          [[thread_position_in_grid]]) {
+kernel void mergeCascadesKernel(texture2d<float, access::sample>    radianceTextureMin              [[texture(TextureIndexRadianceMin)]],
+                                texture2d<float, access::sample>    radianceTextureMax              [[texture(TextureIndexRadianceMax)]],
+                                texture2d<float, access::sample>    upperRadianceTextureMin         [[texture(TextureIndexUpperRadianceMin)]],
+                                texture2d<float, access::sample>    upperRadianceTextureMax         [[texture(TextureIndexUpperRadianceMax)]],
+                                texture2d<float, access::sample>    minMaxTexture                   [[texture(TextureIndexMinMaxDepth)]],
+                                texture2d<float, access::write>     outputRadianceTextureMin        [[texture(TextureIndexOutputMin)]],
+                                texture2d<float, access::write>     outputRadianceTextureMax        [[texture(TextureIndexOutputMax)]],
+                    constant    FrameData&                          frameData                       [[buffer(BufferIndexFrameData)]],
+                    constant    CascadeData&                        cascadeData                     [[buffer(BufferIndexCascadeData)]],
+                                uint                                tid                             [[thread_position_in_grid]]) {
     
     const uint probeSpacing = cascadeData.probeSpacing;
     uint cascadeLevel = cascadeData.cascadeLevel;
@@ -206,12 +199,11 @@ kernel void mergeCascadesKernel(texture2d<float, access::sample>   radianceTextu
     uint probeIndexY = probeIndex / probeGridSizeX;
 
     float2 probeUV = (float2(probeIndexX, probeIndexY) + 0.5f) / float2(probeGridSizeX, probeGridSizeY);
-    float2 probeDepth = minMaxTexture.sample(depthSampler, probeUV, level(cascadeLevel+2)).xy;
+    float2 probeDepth = minMaxTexture.sample(depthSampler, probeUV, level(cascadeLevel+DEPTH_LEVEL_OFFSET)).xy;
     
     int rayX = rayIndex % raysPerDim;
     int rayY = rayIndex / raysPerDim;
 
-    // Same ray mapping as in raytracing kernel
     float2 rayUV = float2(
         (rayX+0.5f) / float(raysPerDim),
         (rayY+0.5f) / float(raysPerDim)
@@ -224,40 +216,36 @@ kernel void mergeCascadesKernel(texture2d<float, access::sample>   radianceTextu
         probeUV.y + (rayUV.y - 0.5f) * (float(tileSize) / float(frameData.framebuffer_height))
     );
     
-    float4 radiance = radianceTextureMin.sample(samplerLinear, tileUV);
-    
-    // Merge with upper cascade
+    float4 minRadiance = radianceTextureMin.sample(samplerLinear, tileUV);
+    float4 maxRadiance = radianceTextureMax.sample(samplerLinear, tileUV);
+
+    float4 outputMinRadiance = minRadiance;
+    float4 outputMaxRadiance = maxRadiance;
+        
     if (cascadeLevel < cascadeData.maxCascade) {
-//        float radianceSectorSize = 0.25f / (1 << cascadeLevel);
-        float3x4 upperRadiances = mergeUpperCascade(upperRadianceTextureMin, upperRadianceTextureMax, upperRadianceTexture, minMaxTexture, probeUV, probeDepth, rayDir, cascadeData, frameData);
+        float2x4 upperRadiances = mergeUpperCascade(upperRadianceTextureMin, upperRadianceTextureMax,
+                                                    minMaxTexture, probeUV, probeDepth, rayDir,
+                                                    cascadeData, frameData);
+
+        outputMinRadiance.rgb += upperRadiances[0].rgb * minRadiance.a;
+        outputMinRadiance.a *= saturate(upperRadiances[0].a);
         
-        float4 sample = radianceTextureMin.sample(samplerLinear, tileUV);
-        bool hasHit = sample.a > 0.0f;
-        
-        if (!hasHit) {
-            // If no hit in current cascade, use upper cascade
-            if (cascadeLevel == cascadeData.maxCascade - 1 && upperRadiances[2].a < 0.9f) {
-                float blendFactor = 1.0f - upperRadiances[2].a;
-                upperRadiances[2] = mix(upperRadiances[2], radiance, blendFactor);
-                upperRadiances[2].a = max(upperRadiances[2].a, 0.9f);
-            }
-            radiance = upperRadiances[2];
-        } else {
-            // There was a hit, blend with upper cascade
-            
-            radiance.rgb += /*upperRadiances[0].rgb + upperRadiances[1].rgb + */upperRadiances[2].rgb * radiance.a;
-            radiance.a *= upperRadiances[2].a;
-        }
+        outputMaxRadiance.rgb += upperRadiances[1].rgb * maxRadiance.a;
+        outputMaxRadiance.a *= saturate(upperRadiances[1].a);
     }
-    
+
     uint texX = uint(tileUV.x * frameData.framebuffer_width);
     uint texY = uint(tileUV.y * frameData.framebuffer_height);
 
     if (cascadeLevel == 0) {
-        float3 processed = postProcessColor(radiance.rgb, 2.5f);
-        outputRadianceTexture.write(float4(processed, radiance.a), uint2(texX, texY));
+        float3 processedMin = postProcessColor(outputMinRadiance.rgb, 2.5f);
+        float3 processedMax = postProcessColor(outputMaxRadiance.rgb, 2.5f);
+
+        outputRadianceTextureMin.write(float4(processedMin, outputMinRadiance.a), uint2(texX, texY));
+        outputRadianceTextureMax.write(float4(processedMax, outputMaxRadiance.a), uint2(texX, texY));
     } else {
-        outputRadianceTexture.write(radiance, uint2(texX, texY));
+        outputRadianceTextureMin.write(outputMinRadiance, uint2(texX, texY));
+        outputRadianceTextureMax.write(outputMaxRadiance, uint2(texX, texY));
     }
 }
 
@@ -298,9 +286,8 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTextureM
     float2 probeUV = (float2(probeIndexX, probeIndexY) + 0.5f) / float2(probeGridSizeX, probeGridSizeY);
     float2 probeNDC = probeUV * 2.0f - 1.0f;
     probeNDC.y = -probeNDC.y;
-    float2 minMaxDepth = minMaxTexture.sample(depthSampler, probeUV, level(cascadeLevel+2)).xy;
+    float2 minMaxDepth = minMaxTexture.sample(depthSampler, probeUV, level(cascadeLevel+DEPTH_LEVEL_OFFSET)).xy;
     
-    // Choose min or max depth based on pass type
     float probeDepth = isMinDepthPass ? minMaxDepth.x : minMaxDepth.y;
     
     float3 worldPos = reconstructWorldPosition(probeNDC, probeDepth,
@@ -315,7 +302,7 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTextureM
     int rayX = rayIndex % raysPerDim;
     int rayY = rayIndex / raysPerDim;
 
-    // octahedral gives a more uniform ray distribution with that offset
+    // Octahedral gives a more uniform ray distribution with that offset
     float2 rayUV = float2(
         (rayX+0.5f) / float(raysPerDim),
         (rayY+0.5f) / float(raysPerDim)
@@ -378,7 +365,7 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTextureM
         }
     } else {
         // No intersection - Apply sky for higher cascades
-        if (cascadeLevel >= cascadeData.maxCascade - 1 && sampleSun) {
+        if (cascadeLevel == cascadeData.maxCascade && sampleSun) {
             radiance = sun(rayDir, frameData);
         } else {
             radiance = float4(0.0, 0.0, 0.0, 1.0);

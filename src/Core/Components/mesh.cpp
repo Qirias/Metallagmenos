@@ -17,9 +17,7 @@ Mesh::Mesh(std::string filePath, MTL::Device* metalDevice, MTL::VertexDescriptor
 // For tinyGLTF
 Mesh::Mesh(MTL::Device* device, const Vertex* vertexData, size_t vertexCount, const uint32_t* indexData, size_t indexCount, const MeshInfo info)
 : device(device) {
-    meshInfo.scale = info.scale;
-    meshInfo.position = info.position;
-    meshInfo.hasTextures = info.hasTextures;
+    meshInfo = info;
     
     // Create vertex buffer with proper alignment
     size_t vertexBufferSize = vertexCount * sizeof(Vertex);

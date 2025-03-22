@@ -81,7 +81,8 @@ typedef enum TextureIndex {
     TextureIndexUpperRadianceMin    = 9,
     TextureIndexUpperRadianceMax    = 10,
     TextureIndexUpperRadiance       = 11,
-    TextureIndexOutput              = 12,
+    TextureIndexOutputMin           = 12,
+    TextureIndexOutputMax           = 13,
 
 	NumMeshTextures = TextureIndexNormal + 1
 

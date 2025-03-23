@@ -116,9 +116,9 @@ float2x4 mergeUpperCascade(texture2d<float, access::sample> upperRadianceTexture
         float2 minMaxDepth = minMaxTexture.sample(depthSampler, probeUVCenter, level(upperCascadeLevel+DEPTH_LEVEL_OFFSET)).xy;
         weightedMinMaxDepth += minMaxDepth * bilinearWeights[i];
     }
-    float depthThickness = max(weightedMinMaxDepth.x - weightedMinMaxDepth.y, 0.0001f);
-    float minProbeWeight = saturate((weightedMinMaxDepth.x - probeDepth.x) / depthThickness);
-    float maxProbeWeight = saturate((weightedMinMaxDepth.x - probeDepth.y) / depthThickness);
+    float depthThickness = max(weightedMinMaxDepth.y - weightedMinMaxDepth.x, 0.0001f);
+    float minProbeWeight = saturate((probeDepth.x - weightedMinMaxDepth.x) / depthThickness);
+    float maxProbeWeight = saturate((probeDepth.y - weightedMinMaxDepth.x) / depthThickness);
 
     // Sample radiance
     float4 minRadiance = float4(0.0f);

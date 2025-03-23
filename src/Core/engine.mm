@@ -228,7 +228,7 @@ void Engine::loadSceneFromJSON(const std::string& jsonFilePath) {
 }
 
 void Engine::loadScene() {
-    loadSceneFromJSON(std::string(SCENES_PATH) + "/cubeScene.json");
+    loadSceneFromJSON(std::string(SCENES_PATH) + "/sponzaHornbug.json");
 }
 
 MTL::VertexDescriptor* Engine::createDefaultVertexDescriptor() {
@@ -1220,7 +1220,9 @@ void Engine::drawFinalGathering(MTL::RenderCommandEncoder* renderCommandEncoder)
 	renderCommandEncoder->setDepthStencilState(renderPipelines.getDepthStencilState(DepthStencilType::FinalGather));
 	renderCommandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
 	renderCommandEncoder->setFragmentBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
-    renderCommandEncoder->setFragmentTexture(finalGatherMinTexture, TextureIndexRadiance);
+    renderCommandEncoder->setFragmentTexture(finalGatherMinTexture, TextureIndexRadianceMin);
+    renderCommandEncoder->setFragmentTexture(finalGatherMaxTexture, TextureIndexRadianceMax);
+    renderCommandEncoder->setFragmentTexture(minMaxDepthTexture, TextureIndexMinMaxDepth);
 
 	renderCommandEncoder->drawPrimitives(MTL::PrimitiveTypeTriangle, (NS::UInteger)0, (NS::UInteger)3);
 }

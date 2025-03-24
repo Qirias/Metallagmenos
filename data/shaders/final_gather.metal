@@ -153,6 +153,7 @@ fragment AccumLightBuffer final_gather_fragment(VertexOut           in          
     
     // For debugging
 //     finalColor = half3(depthWeight, depthWeight, depthWeight); // Shows grayscale depth weight
+//    finalColor = half3(depthThickness, depthThickness, depthThickness);
     // finalColor = half3(depthWeight, 0.0, 1.0-depthWeight);     // Shows blend factor as color (red=max, blue=min)
     
     output.lighting = half4(finalColor, 1.0h);

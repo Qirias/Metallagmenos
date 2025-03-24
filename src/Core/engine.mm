@@ -864,7 +864,7 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
     //--------------------------------------------------------
     // For highest cascade, copy raytraced results to merged slots
     {
-        int level = cascadeLevel - 1; // Highest cascade level
+        int level = cascadeLevel - 1;
         
         MTL::BlitCommandEncoder* blitEncoder = commandBuffer->blitCommandEncoder();
         blitEncoder->setLabel(NS::String::string("Copy Highest Cascade", NS::ASCIIStringEncoding));

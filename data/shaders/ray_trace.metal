@@ -238,8 +238,8 @@ kernel void mergeCascadesKernel(texture2d<float, access::sample>    radianceText
     uint texY = uint(tileUV.y * frameData.framebuffer_height);
 
     if (cascadeLevel == 0) {
-        float3 processedMin = postProcessColor(outputMinRadiance.rgb, 2.5f);
-        float3 processedMax = postProcessColor(outputMaxRadiance.rgb, 2.5f);
+        float3 processedMin = postProcessColor(outputMinRadiance.rgb, 4.5f);
+        float3 processedMax = postProcessColor(outputMaxRadiance.rgb, 4.5f);
 
         outputRadianceTextureMin.write(float4(processedMin, outputMinRadiance.a), uint2(texX, texY));
         outputRadianceTextureMax.write(float4(processedMax, outputMaxRadiance.a), uint2(texX, texY));
@@ -293,6 +293,9 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTextureM
     float3 worldPos = reconstructWorldPosition(probeNDC, probeDepth,
                                                frameData.projection_matrix_inverse,
                                                frameData.inverse_view_matrix);
+    
+    float3 toCamera = normalize(frameData.cameraPosition.xyz - worldPos);
+    worldPos += toCamera * 0.3f;
 
     // Only store probe position data during min depth pass
     if (rayIndex == 0) {
@@ -325,7 +328,7 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTextureM
     float intervalEnd = cascadeEndRange * intervalLength;
 
     ray ray;
-    ray.origin = worldPos /*+ rayDir * 0.1*/;
+    ray.origin = worldPos + rayDir * 0.1;
     ray.direction = rayDir;
     ray.min_distance = intervalStart;
     ray.max_distance = intervalEnd;
@@ -349,12 +352,16 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTextureM
     if (result.type != intersection_type::none) {
         unsigned int primitiveIndex = result.primitive_id;
         const device TriangleResources::TriangleData& triangle = resources[primitiveIndex];
-        radiance = (triangle.colors[0].a == -1.0f) ? float4(triangle.colors[0].rgb, 1.0) : float4(0.0, 0.0, 0.0, 1.0);
+        radiance = (triangle.colors[0].a == -1.0f) ? float4(triangle.colors[0].rgb, 0.0) : float4(0.0, 0.0, 0.0, 0.0);
+
+//        float depthFade = saturate((intervalEnd - result.distance) / 4.0);
+//        float depthFade = saturate(pow((intervalEnd - result.distance) / intervalEnd, 2.0));
+//        radiance.rgb *= depthFade;
         
         float2 barycentrics = result.triangle_barycentric_coord;
         surfaceNormal = normalize(triangle.normals[0].xyz * (1.0 - barycentrics.x - barycentrics.y) +
-                                          triangle.normals[1].xyz * barycentrics.x +
-                                          triangle.normals[2].xyz * barycentrics.y);
+                                  triangle.normals[1].xyz * barycentrics.x +
+                                  triangle.normals[2].xyz * barycentrics.y);
         
         // Only update ray data in min pass
         if (isMinDepthPass) {

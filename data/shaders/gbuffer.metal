@@ -129,10 +129,10 @@ fragment GBufferData gbuffer_fragment(ColorInOut            in                  
 
 	gBuffer.normal_map.a = (isEmissive) ? -1 : 1; // Store emissive flag in the alpha channel
 
-//    float P22 = frameData.projection_matrix[2][2];
-//    float P23 = frameData.projection_matrix[2][3];
-//    float near = P23 / (P22 - 1.0);
-//    float far = P23 / (P22 + 1.0);
+    float P22 = frameData.projection_matrix[2][2];
+    float P23 = frameData.projection_matrix[2][3];
+    float near = P23 / (P22 - 1.0);
+    float far = P23 / (P22 + 1.0);
     
 #if USE_EYE_DEPTH
 	gBuffer.depth = in.eye_position.z;

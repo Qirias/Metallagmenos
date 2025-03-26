@@ -1,7 +1,7 @@
 #include "engine.hpp"
 
 Engine::Engine()
-: camera(simd::float3{2.2f, 1.5f, 0.0f}, 0.1f, 1000.0f)
+: camera(simd::float3{7.0f, 5.0f, 0.0f}, 0.1f, 100.0f)
 , lastFrame(0.0f)
 , frameNumber(0)
 , currentFrameIndex(0)
@@ -193,10 +193,8 @@ void Engine::endFrame(MTL::CommandBuffer* commandBuffer, MTL::Drawable* currentD
         commandBuffer->presentDrawable(metalDrawable);
         commandBuffer->commit();
         
-        if (frameNumber == 100) {
-            createSphereGrid();
-//            createDebugLines();
-        }
+        createSphereGrid();
+//        createDebugLines();
         
         // Move to next frame
         currentFrameIndex = (currentFrameIndex + 1) % MaxFramesInFlight;
@@ -805,12 +803,12 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
         computeEncoder->setBuffer(resourceBuffer, 0, BufferIndexResources);
         computeEncoder->setBuffer(probePosBuffer[currentFrameIndex][level], 0, BufferIndexProbeData);
         computeEncoder->setBuffer(rayBuffer[currentFrameIndex][level], 0, BufferIndexProbeRayData);
-        computeEncoder->setTexture(minMaxDepthTexture, TextureIndexMinMaxDepth);
+        computeEncoder->setTexture(depthStencilTexture, TextureIndexDepthTexture);
 
         computeEncoder->useResource(resourceBuffer, MTL::ResourceUsageRead);
         computeEncoder->useResource(probePosBuffer[currentFrameIndex][level], MTL::ResourceUsageWrite);
         computeEncoder->useResource(rayBuffer[currentFrameIndex][level], MTL::ResourceUsageWrite);
-        computeEncoder->useResource(minMaxDepthTexture, MTL::ResourceUsageRead);
+        computeEncoder->useResource(depthStencilTexture, MTL::ResourceUsageRead);
         computeEncoder->useResource(currentRenderTarget, MTL::ResourceUsageWrite);
 
         // Set acceleration structures
@@ -1087,6 +1085,7 @@ void Engine::drawFinalGathering(MTL::RenderCommandEncoder* renderCommandEncoder)
     renderCommandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
     renderCommandEncoder->setFragmentBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
     renderCommandEncoder->setFragmentTexture(finalGatherTexture, TextureIndexRadiance);
+    renderCommandEncoder->setFragmentTexture(depthStencilTexture, TextureIndexDepthTexture);
 
     renderCommandEncoder->drawPrimitives(MTL::PrimitiveTypeTriangle, (NS::UInteger)0, (NS::UInteger)3);
 }
@@ -1172,7 +1171,7 @@ void Engine::draw() {
     viewRenderPassDescriptor->stencilAttachment()->setClearStencil(0); // Clear stencil
     
     
-    dispatchMinMaxDepthMipmaps(commandBuffer);
+//    dispatchMinMaxDepthMipmaps(commandBuffer);
     dispatchRaytracing(commandBuffer);
     
     // G-Buffer pass

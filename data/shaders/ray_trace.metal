@@ -71,8 +71,10 @@ float3 octDecode(float2 f) {
 }
 
 float4 mergeUpperCascade(texture2d<float, access::sample> upperRadianceTexture,
+                         texture2d<float, access::sample> depthTexture,
                          float2 probeUV,
                          float3 rayDir,
+                         float currentDepth,
                          CascadeData cascadeData,
                          FrameData frameData) {
     uint currentCascadeLevel = cascadeData.cascadeLevel;
@@ -111,6 +113,38 @@ float4 mergeUpperCascade(texture2d<float, access::sample> upperRadianceTexture,
                                        dirWeights.x             * dirWeights.y            // top-right
     );
     
+    float4 upperProbeDepths;
+    int2 probeCoord0 = upperProbeBase + probeOffsets[0];
+    int2 probeCoord1 = upperProbeBase + probeOffsets[1];
+    int2 probeCoord2 = upperProbeBase + probeOffsets[2];
+    int2 probeCoord3 = upperProbeBase + probeOffsets[3];
+
+    float2 probeUVCenter0 = (float2(probeCoord0) + 0.5f) / float2(upperGridSizeX, upperGridSizeY);
+    float2 probeUVCenter1 = (float2(probeCoord1) + 0.5f) / float2(upperGridSizeX, upperGridSizeY);
+    float2 probeUVCenter2 = (float2(probeCoord2) + 0.5f) / float2(upperGridSizeX, upperGridSizeY);
+    float2 probeUVCenter3 = (float2(probeCoord3) + 0.5f) / float2(upperGridSizeX, upperGridSizeY);
+        
+    upperProbeDepths.x = depthTexture.sample(depthSampler, probeUVCenter0).x;
+    upperProbeDepths.y = depthTexture.sample(depthSampler, probeUVCenter1).x;
+    upperProbeDepths.z = depthTexture.sample(depthSampler, probeUVCenter2).x;
+    upperProbeDepths.w = depthTexture.sample(depthSampler, probeUVCenter3).x;
+
+    // https://gist.github.com/pixelmager/a4364ea18305ed5ca707d89ddc5f8743
+    float mind = min(min(upperProbeDepths.x, upperProbeDepths.y), min(upperProbeDepths.z, upperProbeDepths.w));
+    float maxd = max(max(upperProbeDepths.x, upperProbeDepths.y), max(upperProbeDepths.z, upperProbeDepths.w));
+    float diffd = maxd - mind;
+    float avg = dot(upperProbeDepths, float4(0.25f));
+    bool d_edge = (diffd / avg) > 0.2;
+    
+    float4 w = bilinearWeights;
+    if (d_edge) {
+        float4 dd = abs(upperProbeDepths - float4(currentDepth));
+        w *= float4(1.0) / (dd + float4(0.0001));
+    }
+    
+    float wsum = w.x + w.y + w.z + w.w;
+    w /= wsum;
+    
     // Bilinear interpolation offsets
     int2 dirOffsets[4] = {
         int2(0, 0),  // bottom-left
@@ -120,13 +154,12 @@ float4 mergeUpperCascade(texture2d<float, access::sample> upperRadianceTexture,
     };
     
     float4 accumulatedRadiance = float4(0.0f);
-    float totalWeight = 0.0f;
 
     // For each nearby probe
     for (int probeIdx = 0; probeIdx < 4; probeIdx++) {
         int2 probeCoord = upperProbeBase + probeOffsets[probeIdx];
         
-        float probeWeight = bilinearWeights[probeIdx];
+        float probeWeight = w[probeIdx];
         if (probeWeight <= 0.0f) continue; // Skip probes with no contribution
         
         float4 probeRadiance = float4(0.0f);
@@ -141,7 +174,6 @@ float4 mergeUpperCascade(texture2d<float, access::sample> upperRadianceTexture,
             dirY = ((dirY % upperRaysPerDim) + upperRaysPerDim) % upperRaysPerDim;
             
             // Calculate sample position in texture
-            // removed offset from dirX and dirY
             float2 dirUV = float2(
                 (float(dirX)) / float(upperRaysPerDim),
                 (float(dirY)) / float(upperRaysPerDim)
@@ -156,11 +188,6 @@ float4 mergeUpperCascade(texture2d<float, access::sample> upperRadianceTexture,
         }
         
         accumulatedRadiance += probeRadiance * probeWeight;
-        totalWeight += probeWeight;
-    }
-    
-    if (totalWeight > 0.0f) {
-        accumulatedRadiance /= totalWeight;
     }
     
     return accumulatedRadiance;
@@ -174,7 +201,7 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
                 const device TriangleResources::TriangleData*   resources               [[buffer(BufferIndexResources)]],
                       device Probe*                             probeData               [[buffer(BufferIndexProbeData)]],
                       device ProbeRay*                          rayData                 [[buffer(BufferIndexProbeRayData)]],
-                             texture2d<float, access::sample>   minMaxTexture           [[texture(TextureIndexMinMaxDepth)]],
+                             texture2d<float, access::sample>   depthTexture            [[texture(TextureIndexDepthTexture)]],
                              uint                               tid                     [[thread_position_in_grid]]) {
     const uint probeSpacing = cascadeData.probeSpacing;
     uint cascadeLevel = cascadeData.cascadeLevel;
@@ -203,14 +230,13 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
     float2 probeUV = (float2(probeIndexX, probeIndexY) + 0.5f) / float2(probeGridSizeX, probeGridSizeY);
     float2 probeNDC = probeUV * 2.0f - 1.0f;
     probeNDC.y = -probeNDC.y;
-    float2 minMaxDepth = minMaxTexture.sample(depthSampler, probeUV, level(cascadeLevel)).xy;
-    float probeDepth = minMaxDepth.x;
+    float probeDepth = depthTexture.sample(depthSampler, probeUV).x;
     float3 worldPos = reconstructWorldPosition(probeNDC, probeDepth,
                                                frameData.projection_matrix_inverse,
                                                frameData.inverse_view_matrix);
 
     if (rayIndex == 0) {
-        probeData[probeIndex].position = float4(worldPos, (minMaxDepth.x != minMaxDepth.y ? 1.0f : 0.0f));
+        probeData[probeIndex].position = float4(worldPos, 0.0f);
     }
 
     int rayX = rayIndex % raysPerDim;
@@ -288,13 +314,13 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
     // Merge with upper cascade
     float4 upperRadiance = float4(0.0);
     if (cascadeLevel < cascadeData.maxCascade) {
-        upperRadiance = mergeUpperCascade(
-             upperRadianceTexture,
-             probeUV,
-             rayDir,
-             cascadeData,
-             frameData
-         );
+        upperRadiance = mergeUpperCascade(upperRadianceTexture,
+                                          depthTexture,
+                                          probeUV,
+                                          rayDir,
+                                          probeDepth,
+                                          cascadeData,
+                                          frameData);
 
         if (result.type == intersection_type::none) {
             rayData[rayDataIndex].color = float4(1.0, 0.0, 1.0, 1.0);

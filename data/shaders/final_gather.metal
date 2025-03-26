@@ -117,7 +117,7 @@ fragment AccumLightBuffer final_gather_fragment(VertexOut           in          
 
 // No bilinear
 /*
- fragment AccumLightBuffer final_gather_fragment(VertexOut           in              [[stage_in]],
+ fragment AccumLightBuffer final_gather_fragment(VertexOut            in              [[stage_in]],
                                          constant FrameData&          frameData       [[buffer(BufferIndexFrameData)]],
                                                   texture2d<float>    radianceTexture [[texture(TextureIndexRadiance)]],
                                                   GBufferData         GBuffer) {

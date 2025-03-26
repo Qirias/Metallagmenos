@@ -4,7 +4,7 @@
 // depth is written to the g-buffer depth component and an extra inverse
 // transform from screen space to eye space is necessary to calculate lighting
 // contributions in the deferred pass.
-#define USE_EYE_DEPTH              1
+//#define USE_EYE_DEPTH              1
 //#define USE_REVERSE_Z              1
 
 // When enabled, uses the stencil buffer to avoid execution of lighting

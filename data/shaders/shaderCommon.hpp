@@ -32,7 +32,5 @@ constexpr sampler samplerNearest(s_address::clamp_to_zero,
                                  mag_filter::nearest,
                                  min_filter::nearest);
 
-constexpr sampler samplerPoint(mip_filter::none, filter::nearest);
-
 constant float TWO_PI = 6.28318530718f;
 constant float PI = 3.14159265359f;

@@ -76,13 +76,7 @@ typedef enum TextureIndex {
     TextureIndexRadiance 			= 4,
     TextureIndexRadianceUpper       = 5,
     TextureIndexMinMaxDepth 		= 6,
-    TextureIndexRadianceMin         = 7,
-    TextureIndexRadianceMax         = 8,
-    TextureIndexUpperRadianceMin    = 9,
-    TextureIndexUpperRadianceMax    = 10,
-    TextureIndexUpperRadiance       = 11,
-    TextureIndexOutputMin           = 12,
-    TextureIndexOutputMax           = 13,
+    TextureIndexUpperRadiance       = 7,
 
 	NumMeshTextures = TextureIndexNormal + 1
 
@@ -101,5 +95,4 @@ typedef enum BufferIndex {
     BufferIndexCascadeData              = 9,
 	BufferIndexEmissiveColor			= 10,
 	BufferIndexIsEmissive				= 11,
-    BufferIndexIsMinDepthPass           = 12
 } BufferIndex;

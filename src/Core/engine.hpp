@@ -155,7 +155,7 @@ private:
     std::vector<std::vector<MTL::Buffer*>>  rayBuffer;
     int                                     debugProbeCount = 0;
     int                                     rayCount = 0;
-    int                                     debugCascadeLevel = 1;
+    int                                     debugCascadeLevel = 2;
     
     void createSphereGrid();
     void createDebugLines();
@@ -173,8 +173,6 @@ private:
     int                                         cascadeLevel = 6;
     int                                         probeSpacing = 4;
     int                                         baseRay = 16;
-    MTL::Texture*                               finalGatherMinTexture;
-    MTL::Texture*                               finalGatherMaxTexture;
+    MTL::Texture*                               finalGatherTexture;
     std::vector<std::vector<MTL::Buffer*>>      cascadeDataBuffer;
-    std::vector<std::vector<MTL::Texture*>>     radianceTextures;
 };

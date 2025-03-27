@@ -1,7 +1,7 @@
 #include "engine.hpp"
 
 Engine::Engine()
-: camera(simd::float3{7.0f, 5.0f, 0.0f}, 0.1f, 100.0f)
+: camera(simd::float3{7.0f, 5.0f, 0.0f}, NEAR_PLANE, FAR_PLANE)
 , lastFrame(0.0f)
 , frameNumber(0)
 , currentFrameIndex(0)
@@ -65,6 +65,9 @@ void Engine::cleanup() {
         }
     }
     
+
+    linearDepthTexture->release();    
+    depthPrepassDescriptor->release();
     finalGatherTexture->release();
     forwardDepthStencilTexture->release();
     rayTracingTexture->release();
@@ -134,6 +137,14 @@ void Engine::resizeFrameBuffer(int width, int height) {
         forwardDescriptor->release();
         forwardDescriptor = nil;
     }
+    if (depthPrepassDescriptor) {
+        depthPrepassDescriptor->release();
+        depthPrepassDescriptor = nil;
+    }
+    if (linearDepthTexture) {
+        linearDepthTexture->release();
+        linearDepthTexture = nil;
+    }
 
 	// Recreate G-buffer textures and descriptors
 	createViewRenderPassDescriptor();
@@ -193,6 +204,7 @@ void Engine::endFrame(MTL::CommandBuffer* commandBuffer, MTL::Drawable* currentD
         commandBuffer->presentDrawable(metalDrawable);
         commandBuffer->commit();
         
+        if (frameNumber == 100)
         createSphereGrid();
 //        createDebugLines();
         
@@ -343,7 +355,7 @@ void Engine::updateWorldState(bool isPaused) {
 
 	float aspectRatio = metalDrawable->layer()->drawableSize().width / metalDrawable->layer()->drawableSize().height;
 	
-	camera.setProjectionMatrix(45, aspectRatio, 0.1f, 100.0f);
+	camera.setProjectionMatrix(45, aspectRatio, NEAR_PLANE, FAR_PLANE);
 	frameData->projection_matrix = camera.getProjectionMatrix();
 	frameData->projection_matrix_inverse = matrix_invert(frameData->projection_matrix);
 	frameData->view_matrix = camera.getViewMatrix();
@@ -357,6 +369,8 @@ void Engine::updateWorldState(bool isPaused) {
 	// Set screen dimensions
 	frameData->framebuffer_width = (uint)metalLayer.drawableSize.width;
 	frameData->framebuffer_height = (uint)metalLayer.drawableSize.height;
+    frameData->near_plane = NEAR_PLANE;
+    frameData->far_plane = FAR_PLANE;
 
 	// Define the sun color
 	frameData->sun_color = simd_make_float4(0.95, 0.95, 0.9, 1.0);
@@ -382,8 +396,6 @@ void Engine::updateWorldState(bool isPaused) {
 	frameData->scene_model_matrix = matrix4x4_translation(0.0f, 0.0f, 0.0f); // Sponza at origin
 	frameData->scene_modelview_matrix = frameData->view_matrix * frameData->scene_model_matrix;
 	frameData->scene_normal_matrix = matrix3x3_upper_left(frameData->scene_model_matrix);
-    
-    frameData->cascadeLevel = cascadeLevel;
 }
 
 void Engine::createCommandQueue() {
@@ -431,6 +443,26 @@ void Engine::createRenderPipelines() {
             RenderPipelineConfig gbufferNonTexturedConfig = gbufferConfig;
             gbufferNonTexturedConfig.functionConstants = hasTexturesFalse;
             renderPipelines.createRenderPipeline(RenderPipelineType::GBufferNonTextured, gbufferNonTexturedConfig);
+            
+            RenderPipelineConfig depthPrepassConfig{
+                .label = "Depth Prepass",
+                .vertexFunctionName = "depth_prepass_vertex",
+                .fragmentFunctionName = "depth_prepass_fragment",
+                .colorPixelFormat = MTL::PixelFormatR32Float, // single-channel float
+                .depthPixelFormat = MTL::PixelFormatDepth32Float_Stencil8,
+                .stencilPixelFormat = MTL::PixelFormatDepth32Float_Stencil8,
+                .vertexDescriptor = defaultVertexDescriptor,
+                .functionConstants = hasTexturesFalse  // Start with non-textured version
+            };
+            renderPipelines.createRenderPipeline(RenderPipelineType::DepthPrepass, depthPrepassConfig);
+            
+            // Create depth stencil state for depth prepass
+            DepthStencilConfig depthPrepassDepthConfig{
+                .label = "Depth Prepass Depth State",
+                .depthCompareFunction = MTL::CompareFunctionLess,
+                .depthWriteEnabled = true
+            };
+            renderPipelines.createDepthStencilState(DepthStencilType::DepthPrepass, depthPrepassDepthConfig);
 		}
 		
 		#pragma mark GBuffer depth state setup
@@ -803,12 +835,12 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
         computeEncoder->setBuffer(resourceBuffer, 0, BufferIndexResources);
         computeEncoder->setBuffer(probePosBuffer[currentFrameIndex][level], 0, BufferIndexProbeData);
         computeEncoder->setBuffer(rayBuffer[currentFrameIndex][level], 0, BufferIndexProbeRayData);
-        computeEncoder->setTexture(depthStencilTexture, TextureIndexDepthTexture);
+        computeEncoder->setTexture(linearDepthTexture, TextureIndexDepthTexture);
 
         computeEncoder->useResource(resourceBuffer, MTL::ResourceUsageRead);
         computeEncoder->useResource(probePosBuffer[currentFrameIndex][level], MTL::ResourceUsageWrite);
         computeEncoder->useResource(rayBuffer[currentFrameIndex][level], MTL::ResourceUsageWrite);
-        computeEncoder->useResource(depthStencilTexture, MTL::ResourceUsageRead);
+        computeEncoder->useResource(linearDepthTexture, MTL::ResourceUsageRead);
         computeEncoder->useResource(currentRenderTarget, MTL::ResourceUsageWrite);
 
         // Set acceleration structures
@@ -983,6 +1015,36 @@ void Engine::createViewRenderPassDescriptor() {
     depthStencilDesc->release();
     
     forwardDescriptor = MTL::RenderPassDescriptor::alloc()->init();
+
+    // Create linear depth texture for prepass
+    MTL::TextureDescriptor* linearDepthTextureDesc = MTL::TextureDescriptor::alloc()->init();
+    linearDepthTextureDesc->setPixelFormat(MTL::PixelFormatR32Float); // single-channel float
+    linearDepthTextureDesc->setWidth(metalLayer.drawableSize.width);
+    linearDepthTextureDesc->setHeight(metalLayer.drawableSize.height);
+    linearDepthTextureDesc->setStorageMode(MTL::StorageModeShared);
+    linearDepthTextureDesc->setUsage(MTL::TextureUsageRenderTarget | MTL::TextureUsageShaderRead);
+    linearDepthTexture = metalDevice->newTexture(linearDepthTextureDesc);
+    linearDepthTexture->setLabel(NS::String::string("Linear Depth Texture", NS::ASCIIStringEncoding));
+    linearDepthTextureDesc->release();
+
+    // Create depth prepass descriptor
+    depthPrepassDescriptor = MTL::RenderPassDescriptor::alloc()->init();
+    depthPrepassDescriptor->colorAttachments()->object(0)->setTexture(linearDepthTexture);
+    depthPrepassDescriptor->colorAttachments()->object(0)->setLoadAction(MTL::LoadActionClear);
+    depthPrepassDescriptor->colorAttachments()->object(0)->setStoreAction(MTL::StoreActionStore);
+    depthPrepassDescriptor->colorAttachments()->object(0)->setClearColor(MTL::ClearColor(1.0, 1.0, 1.0, 1.0)); // Far depth
+
+    // Set up the depth/stencil attachment for z-buffer
+    depthPrepassDescriptor->depthAttachment()->setTexture(depthStencilTexture);
+    depthPrepassDescriptor->depthAttachment()->setLoadAction(MTL::LoadActionClear);
+    depthPrepassDescriptor->depthAttachment()->setStoreAction(MTL::StoreActionStore);
+    depthPrepassDescriptor->depthAttachment()->setClearDepth(1.0);
+
+    // Also set up the stencil attachment since we're using a combined depth/stencil texture
+    depthPrepassDescriptor->stencilAttachment()->setTexture(depthStencilTexture);
+    depthPrepassDescriptor->stencilAttachment()->setLoadAction(MTL::LoadActionClear);
+    depthPrepassDescriptor->stencilAttachment()->setStoreAction(MTL::StoreActionStore);
+    depthPrepassDescriptor->stencilAttachment()->setClearStencil(0);
     
     // Min Max Depth Buffer
     MTL::TextureDescriptor* descriptor = MTL::TextureDescriptor::alloc()->init();
@@ -1028,6 +1090,38 @@ void Engine::updateRenderPassDescriptor() {
     forwardDescriptor->colorAttachments()->object(0)->setTexture(metalDrawable->texture()); 
     forwardDescriptor->depthAttachment()->setTexture(forwardDepthStencilTexture);
     forwardDescriptor->stencilAttachment()->setTexture(forwardDepthStencilTexture);
+
+    depthPrepassDescriptor->colorAttachments()->object(0)->setTexture(linearDepthTexture);
+    depthPrepassDescriptor->depthAttachment()->setTexture(depthStencilTexture);
+    depthPrepassDescriptor->stencilAttachment()->setTexture(depthStencilTexture);
+}
+
+void Engine::renderDepthPrepass(MTL::CommandBuffer* commandBuffer) {
+    MTL::RenderCommandEncoder* depthPrepassEncoder = commandBuffer->renderCommandEncoder(depthPrepassDescriptor);
+    depthPrepassEncoder->setFrontFacingWinding(MTL::WindingCounterClockwise);
+    depthPrepassEncoder->setLabel(NS::String::string("Depth Prepass", NS::ASCIIStringEncoding));
+    
+    depthPrepassEncoder->setCullMode(MTL::CullModeBack);
+    depthPrepassEncoder->setDepthStencilState(renderPipelines.getDepthStencilState(DepthStencilType::DepthPrepass));
+    depthPrepassEncoder->setRenderPipelineState(renderPipelines.getRenderPipeline(RenderPipelineType::DepthPrepass));
+    depthPrepassEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
+    depthPrepassEncoder->setFragmentBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
+    
+    // Render all meshes to depth buffer
+    for (int i = 0; i < meshes.size(); i++) {
+        depthPrepassEncoder->setVertexBuffer(meshes[i]->vertexBuffer, 0, BufferIndexVertexData);
+        
+        matrix_float4x4 modelMatrix = meshes[i]->getTransformMatrix();
+        depthPrepassEncoder->setVertexBytes(&modelMatrix, sizeof(modelMatrix), BufferIndexVertexBytes);
+        
+        depthPrepassEncoder->drawIndexedPrimitives(MTL::PrimitiveTypeTriangle, 
+                                                 meshes[i]->indexCount, 
+                                                 MTL::IndexTypeUInt32, 
+                                                 meshes[i]->indexBuffer, 
+                                                 0);
+    }
+    
+    depthPrepassEncoder->endEncoding();
 }
 
 void Engine::drawMeshes(MTL::RenderCommandEncoder* renderCommandEncoder) {
@@ -1085,7 +1179,6 @@ void Engine::drawFinalGathering(MTL::RenderCommandEncoder* renderCommandEncoder)
     renderCommandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
     renderCommandEncoder->setFragmentBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
     renderCommandEncoder->setFragmentTexture(finalGatherTexture, TextureIndexRadiance);
-    renderCommandEncoder->setFragmentTexture(depthStencilTexture, TextureIndexDepthTexture);
 
     renderCommandEncoder->drawPrimitives(MTL::PrimitiveTypeTriangle, (NS::UInteger)0, (NS::UInteger)3);
 }
@@ -1158,6 +1251,8 @@ void Engine::draw() {
     MTL::CommandBuffer* commandBuffer = beginFrame(false);
     editor->beginFrame(forwardDescriptor);
     camera.position = editor->debug.cameraPosition;
+
+    renderDepthPrepass(commandBuffer);
     
     // G-Buffer render pass descriptor setup
     viewRenderPassDescriptor->colorAttachments()->object(RenderTargetLighting)->setTexture(metalDrawable->texture());

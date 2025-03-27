@@ -33,6 +33,9 @@
 #include <filesystem>
 
 constexpr uint8_t MaxFramesInFlight = 1;
+constexpr float NEAR_PLANE = 0.1f;
+constexpr float FAR_PLANE = 100.0f;
+
 
 class Engine {
     struct TriangleData {
@@ -155,11 +158,16 @@ private:
     std::vector<std::vector<MTL::Buffer*>>  rayBuffer;
     int                                     debugProbeCount = 0;
     int                                     rayCount = 0;
-    int                                     debugCascadeLevel = 2;
+    int                                     debugCascadeLevel = 0;
     
     void createSphereGrid();
     void createDebugLines();
     void drawDebug(MTL::RenderCommandEncoder* commandEncoder, MTL::CommandBuffer* commandBuffer);
+
+    MTL::Texture*               linearDepthTexture;
+    MTL::RenderPassDescriptor*  depthPrepassDescriptor;
+    
+    void renderDepthPrepass(MTL::CommandBuffer* commandBuffer);
 
     // Min Max Depth Buffer
     void dispatchMinMaxDepthMipmaps(MTL::CommandBuffer* commandBuffer);
@@ -168,7 +176,6 @@ private:
     void dispatchTwoPassBlur(MTL::CommandBuffer* commandBuffer);
     MTL::Texture*                           intermediateBlurTexture;
     MTL::Texture*                           blurredColor;
-    
     
     int                                         cascadeLevel = 6;
     int                                         probeSpacing = 4;

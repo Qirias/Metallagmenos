@@ -41,13 +41,28 @@ float4 sun(float3 rayDir, FrameData frameData) {
     return float4(1.0);
 }
 
-float3 reconstructWorldPosition(float2 ndc, float depth,
-                                simd::float4x4 projectionMatrixInverse,
-                                simd::float4x4 viewMatrixInverse) {
-    float4 clipPos  = float4(ndc, depth, 1.0f);
-    float4 viewPos  = projectionMatrixInverse * clipPos;
-    viewPos         = viewPos / viewPos.w;
-    float4 worldPos = viewMatrixInverse * viewPos;
+//float3 reconstructWorldPositionFromDepth(float2 ndc, float depth,
+//                                         simd::float4x4 projectionMatrixInverse,
+//                                         simd::float4x4 viewMatrixInverse) {
+//    float4 clipPos  = float4(ndc, depth, 1.0f);
+//    float4 viewPos  = projectionMatrixInverse * clipPos;
+//    viewPos         = viewPos / viewPos.w;
+//    float4 worldPos = viewMatrixInverse * viewPos;
+//    
+//    return worldPos.xyz;
+//}
+
+float3 reconstructWorldPositionFromLinearDepth(float2 ndc, float linearDepth,
+                                          float near, float far,
+                                          simd::float4x4 projectionMatrixInverse,
+                                          simd::float4x4 viewMatrixInverse) {
+    float4 clipPos = float4(ndc.x, ndc.y, -1.0, 1.0);
+    float4 viewPos = projectionMatrixInverse * clipPos;
+    viewPos /= viewPos.w;
+    
+    float3 viewRay = normalize(viewPos.xyz);
+    float3 viewPosAtDepth = viewRay * linearDepth;
+    float4 worldPos = viewMatrixInverse * float4(viewPosAtDepth, 1.0);
     
     return worldPos.xyz;
 }
@@ -134,7 +149,7 @@ float4 mergeUpperCascade(texture2d<float, access::sample> upperRadianceTexture,
     float maxd = max(max(upperProbeDepths.x, upperProbeDepths.y), max(upperProbeDepths.z, upperProbeDepths.w));
     float diffd = maxd - mind;
     float avg = dot(upperProbeDepths, float4(0.25f));
-    bool d_edge = (diffd / avg) > 0.2;
+    bool d_edge = (diffd / avg) > 0.1;
     
     float4 w = bilinearWeights;
     if (d_edge) {
@@ -225,15 +240,15 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
     uint probeIndex = tid / numRays;
     uint probeIndexX = probeIndex % probeGridSizeX;
     uint probeIndexY = probeIndex / probeGridSizeX;
-
+    
     // Map probe to screen UV
     float2 probeUV = (float2(probeIndexX, probeIndexY) + 0.5f) / float2(probeGridSizeX, probeGridSizeY);
     float2 probeNDC = probeUV * 2.0f - 1.0f;
     probeNDC.y = -probeNDC.y;
     float probeDepth = depthTexture.sample(depthSampler, probeUV).x;
-    float3 worldPos = reconstructWorldPosition(probeNDC, probeDepth,
-                                               frameData.projection_matrix_inverse,
-                                               frameData.inverse_view_matrix);
+    float3 worldPos = reconstructWorldPositionFromLinearDepth(probeNDC, probeDepth, frameData.near_plane, frameData.far_plane,
+                                                              frameData.projection_matrix_inverse,
+                                                              frameData.inverse_view_matrix);
 
     if (rayIndex == 0) {
         probeData[probeIndex].position = float4(worldPos, 0.0f);
@@ -289,7 +304,7 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
     if (result.type != intersection_type::none) {
         unsigned int primitiveIndex = result.primitive_id;
         const device TriangleResources::TriangleData& triangle = resources[primitiveIndex];
-        radiance = (triangle.colors[0].a == -1.0f) ? float4(triangle.colors[0].rgb, 1.0) : float4(0.0, 0.0, 0.0, 1.0);
+        radiance = (triangle.colors[0].a == -1.0f) ? float4(triangle.colors[0].rgb, 1.0) : float4(0.0, 0.0, 0.0, 0.0);
         
         
         float2 barycentrics = result.triangle_barycentric_coord;

@@ -70,7 +70,6 @@ void Engine::cleanup() {
     depthPrepassDescriptor->release();
     finalGatherTexture->release();
     forwardDepthStencilTexture->release();
-    rayTracingTexture->release();
     minMaxDepthTexture->release();
     resourceBuffer->release();
 	defaultVertexDescriptor->release();
@@ -116,10 +115,6 @@ void Engine::resizeFrameBuffer(int width, int height) {
     if (depthStencilTexture) {
         depthStencilTexture->release();
         depthStencilTexture = nil;
-    }
-    if (rayTracingTexture) {
-        rayTracingTexture->release();
-        rayTracingTexture = nil;
     }
     if (finalGatherTexture) {
         finalGatherTexture->release();
@@ -226,7 +221,7 @@ void Engine::loadSceneFromJSON(const std::string& jsonFilePath) {
 }
 
 void Engine::loadScene() {
-    loadSceneFromJSON(std::string(SCENES_PATH) + "/cubeScene.json");
+    loadSceneFromJSON(std::string(SCENES_PATH) + "/sponzaHornbug.json");
 }
 
 MTL::VertexDescriptor* Engine::createDefaultVertexDescriptor() {
@@ -990,18 +985,6 @@ void Engine::createViewRenderPassDescriptor() {
     viewRenderPassDescriptor->stencilAttachment()->setStoreAction(MTL::StoreActionDontCare);
     viewRenderPassDescriptor->stencilAttachment()->setClearStencil(0);
     
-    // Ray tracing texture
-    MTL::TextureDescriptor* raytracingTextureDescriptor = MTL::TextureDescriptor::alloc()->init();
-    raytracingTextureDescriptor->setPixelFormat(MTL::PixelFormatBGRA8Unorm);
-    raytracingTextureDescriptor->setWidth(metalLayer.drawableSize.width);
-    raytracingTextureDescriptor->setHeight(metalLayer.drawableSize.height);
-    raytracingTextureDescriptor->setUsage(MTL::TextureUsageShaderRead | MTL::TextureUsageShaderWrite);
-    raytracingTextureDescriptor->setSampleCount(1);
-    
-    rayTracingTexture = metalDevice->newTexture(raytracingTextureDescriptor);
-    
-    raytracingTextureDescriptor->release();
-    
     // Forward Debug
     MTL::TextureDescriptor* depthStencilDesc = MTL::TextureDescriptor::alloc()->init();
     depthStencilDesc->setTextureType(MTL::TextureType2D);
@@ -1179,6 +1162,7 @@ void Engine::drawFinalGathering(MTL::RenderCommandEncoder* renderCommandEncoder)
     renderCommandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
     renderCommandEncoder->setFragmentBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
     renderCommandEncoder->setFragmentTexture(finalGatherTexture, TextureIndexRadiance);
+    renderCommandEncoder->setFragmentTexture(linearDepthTexture, TextureIndexDepthTexture);
 
     renderCommandEncoder->drawPrimitives(MTL::PrimitiveTypeTriangle, (NS::UInteger)0, (NS::UInteger)3);
 }

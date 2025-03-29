@@ -8,6 +8,11 @@ using namespace raytracing;
 #include "shaderTypes.hpp"
 #include "shaderCommon.hpp"
 
+constant float PI4 = 12.56637; // Surface area of unit sphere
+constant uint ANGULAR_FACTOR = 4;
+constant uint C0_INTERVAL_COUNT = 16;
+constant float MAX_SOLID_ANGLE = 0.005;
+
 struct TriangleResources {
     struct TriangleData {
         float4 normals[3];
@@ -41,31 +46,23 @@ float4 sun(float3 rayDir, FrameData frameData) {
     return float4(1.0);
 }
 
-//float3 reconstructWorldPositionFromDepth(float2 ndc, float depth,
-//                                         simd::float4x4 projectionMatrixInverse,
-//                                         simd::float4x4 viewMatrixInverse) {
-//    float4 clipPos  = float4(ndc, depth, 1.0f);
-//    float4 viewPos  = projectionMatrixInverse * clipPos;
-//    viewPos         = viewPos / viewPos.w;
-//    float4 worldPos = viewMatrixInverse * viewPos;
-//    
-//    return worldPos.xyz;
-//}
-
 float3 reconstructWorldPositionFromLinearDepth(float2 ndc, float linearDepth,
-                                          float near, float far,
-                                          simd::float4x4 projectionMatrixInverse,
-                                          simd::float4x4 viewMatrixInverse) {
+                                             float near, float far,
+                                             float4x4 invProjection,
+                                             float4x4 invView) {
     float4 clipPos = float4(ndc.x, ndc.y, -1.0, 1.0);
-    float4 viewPos = projectionMatrixInverse * clipPos;
+    float4 viewPos = invProjection * clipPos;
     viewPos /= viewPos.w;
     
-    float3 viewRay = normalize(viewPos.xyz);
-    float3 viewPosAtDepth = viewRay * linearDepth;
-    float4 worldPos = viewMatrixInverse * float4(viewPosAtDepth, 1.0);
+    float scale = linearDepth / fabs(viewPos.z);
+    float depthBias = 0.99;
     
+    float3 viewPosAtDepth = viewPos.xyz * (scale * depthBias);
+    
+    float4 worldPos = invView * float4(viewPosAtDepth, 1.0);
     return worldPos.xyz;
 }
+
 
 float2 signNotZero(float2 v) {
     return float2((v.x >= 0.0) ? +1.0 : -1.0, (v.y >= 0.0) ? +1.0 : -1.0);
@@ -257,7 +254,6 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
     int rayX = rayIndex % raysPerDim;
     int rayY = rayIndex / raysPerDim;
 
-    // octahedral gived a more uniform ray distribution with that offset
     float2 rayUV = float2(
         (rayX+0.5f) / float(raysPerDim),
         (rayY+0.5f) / float(raysPerDim)
@@ -270,15 +266,23 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
         probeUV.y + (rayUV.y - 0.5f) * (float(tileSize) / float(frameData.framebuffer_height))
     );
 
-    const float baseCascadeRange = 0.016f;
-    const float cascadeRangeMultiplier = 4.0f;
-    float cascadeStartRange = (cascadeLevel == 0) ? 0.0f : (baseCascadeRange * pow(cascadeRangeMultiplier, float(cascadeLevel - 1)));
-    float cascadeEndRange = baseCascadeRange * pow(cascadeRangeMultiplier, float(cascadeLevel));
-    
-    // intervalLength for debugging
-    float intervalStart = cascadeStartRange * intervalLength;
-    float intervalEnd = cascadeEndRange * intervalLength;
+    // https://github.com/mxcop/src-dgi/blob/main/assets/shaders/surfels/cascade.slang
+    float baseIntervalLength = MAX_SOLID_ANGLE * C0_INTERVAL_COUNT / PI4;
 
+    // Scale intervals with angular resolution
+    float intervalStart, intervalEnd;
+    if (cascadeLevel == 0) {
+        intervalStart = 0.0f;
+        intervalEnd = baseIntervalLength * float(ANGULAR_FACTOR);
+    } else {
+        float start_scale = pow(float(ANGULAR_FACTOR), float(cascadeLevel));
+        intervalStart = baseIntervalLength * start_scale;
+        intervalEnd = baseIntervalLength * start_scale * float(ANGULAR_FACTOR);
+    }
+
+    intervalStart *= intervalLength;
+    intervalEnd *= intervalLength;
+    
     ray ray;
     ray.origin = worldPos;
     ray.direction = rayDir;
@@ -340,13 +344,6 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
         if (result.type == intersection_type::none) {
             rayData[rayDataIndex].color = float4(1.0, 0.0, 1.0, 1.0);
             // If no hit in current cascade, use upper cascade
-            if (cascadeLevel == cascadeData.maxCascade - 1 && sampleSun) {
-                if (upperRadiance.a < 0.9f) {
-                    float blendFactor = 1.0f - upperRadiance.a;
-                    upperRadiance = mix(upperRadiance, radiance, blendFactor);
-                    upperRadiance.a = max(upperRadiance.a, 0.9f);
-                }
-            }
             radiance = upperRadiance;
         } else {
             // There was a hit, blend with upper cascade
@@ -355,7 +352,6 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
         }
     }
     
-    // Write to radiance texture
     uint texX = uint(tileUV.x * frameData.framebuffer_width);
     uint texY = uint(tileUV.y * frameData.framebuffer_height);
 

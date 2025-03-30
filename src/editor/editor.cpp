@@ -65,7 +65,7 @@ void Editor::debugWindow() {
     
     ImGui::InputFloat("Interval Length", &debug.intervalLength, 0.1f, 1.0f, "%.2f");
     
-    ImGui::SliderInt("Cascade Level", &debug.debugCascadeLevel, 0, 5);
+    ImGui::SliderInt("Cascade Level", &debug.debugCascadeLevel, -1, 5);
     
     // Create a collapsible header for Camera Position (closed by default)
     if (ImGui::CollapsingHeader("Camera Position", !ImGuiTreeNodeFlags_DefaultOpen)) {

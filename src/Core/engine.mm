@@ -221,7 +221,7 @@ void Engine::loadSceneFromJSON(const std::string& jsonFilePath) {
 }
 
 void Engine::loadScene() {
-    loadSceneFromJSON(std::string(SCENES_PATH) + "/sponzaHornbug.json");
+    loadSceneFromJSON(std::string(SCENES_PATH) + "/cubeScene.json");
 }
 
 MTL::VertexDescriptor* Engine::createDefaultVertexDescriptor() {
@@ -793,7 +793,7 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
     MTL::Texture* lastMergedTexture = nil;
     int pingPongIndex = 0;
     
-    for (int level = cascadeLevel - 1; level >= editor->debug.debugCascadeLevel; --level) {
+    for (int level = cascadeLevel - 1; level >= (editor->debug.debugCascadeLevel == -1 ? 0 : editor->debug.debugCascadeLevel); --level) {
         MTL::ComputeCommandEncoder* computeEncoder = commandBuffer->computeCommandEncoder();
         computeEncoder->setLabel(NS::String::string(("Ray Tracing Cascade " + std::to_string(level)).c_str(), NS::ASCIIStringEncoding));
         
@@ -806,11 +806,11 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
         
         MTL::Texture* currentRenderTarget = nil;
         
-        if (level == cascadeLevel - 1 && editor->debug.debugCascadeLevel != cascadeLevel - 1) {
+        if (level == cascadeLevel - 1 && (editor->debug.debugCascadeLevel == -1 ? 0 : editor->debug.debugCascadeLevel) != cascadeLevel - 1) {
             currentRenderTarget = rcRenderTargets[pingPongIndex];
             pingPongIndex = 1 - pingPongIndex;
             lastMergedTexture = nil;
-        } else if (level > editor->debug.debugCascadeLevel) {
+        } else if (level > (editor->debug.debugCascadeLevel == -1 ? 0 : editor->debug.debugCascadeLevel)) {
             currentRenderTarget = rcRenderTargets[pingPongIndex];
             pingPongIndex = 1 - pingPongIndex;
         } else {
@@ -1154,6 +1154,8 @@ void Engine::drawGBuffer(MTL::RenderCommandEncoder* renderCommandEncoder)
 /// of the shader to only those pixels that should be lit
 void Engine::drawFinalGathering(MTL::RenderCommandEncoder* renderCommandEncoder)
 {
+    bool doBilinear = editor->debug.debugCascadeLevel == -1;
+    
     renderCommandEncoder->setCullMode(MTL::CullModeBack);
     renderCommandEncoder->setStencilReferenceValue(128);
 
@@ -1162,7 +1164,7 @@ void Engine::drawFinalGathering(MTL::RenderCommandEncoder* renderCommandEncoder)
     renderCommandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
     renderCommandEncoder->setFragmentBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
     renderCommandEncoder->setFragmentTexture(finalGatherTexture, TextureIndexRadiance);
-    renderCommandEncoder->setFragmentTexture(linearDepthTexture, TextureIndexDepthTexture);
+    renderCommandEncoder->setFragmentBytes(&doBilinear, sizeof(bool), 3);
 
     renderCommandEncoder->drawPrimitives(MTL::PrimitiveTypeTriangle, (NS::UInteger)0, (NS::UInteger)3);
 }

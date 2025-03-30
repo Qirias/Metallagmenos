@@ -13,8 +13,8 @@ struct VertexOut {
 #endif
 };
 
-vertex VertexOut final_gather_vertex(uint       vertexID [[vertex_id]],
-                             constant FrameData& frameData [[buffer(BufferIndexFrameData)]]) {
+vertex VertexOut final_gather_vertex(uint       vertexID    [[vertex_id]],
+                            constant FrameData& frameData   [[buffer(BufferIndexFrameData)]]) {
     VertexOut out;
     
     float2 position = float2((vertexID << 1) & 2, vertexID & 2);
@@ -50,7 +50,8 @@ float3 oct_decode(float2 f) {
 fragment AccumLightBuffer final_gather_fragment(VertexOut           in              [[stage_in]],
                                     constant    FrameData&          frameData       [[buffer(BufferIndexFrameData)]],
                                                 texture2d<float>    radianceTexture [[texture(TextureIndexRadiance)]],
-                                                GBufferData         GBuffer) {
+                                                GBufferData         GBuffer,
+                                    constant    bool&               doBilinear      [[buffer(3)]]) {
     half4 albedoSpecular = GBuffer.albedo_specular;
     half3 albedo = albedoSpecular.rgb;
     half3 normal = normalize(GBuffer.normal_map.xyz);
@@ -60,6 +61,21 @@ fragment AccumLightBuffer final_gather_fragment(VertexOut           in          
     
     float2 texCoords = float2(in.texCoords.x, 1.0 - in.texCoords.y);
     float2 probeGridSize = float2(frameData.framebuffer_width * 0.25, frameData.framebuffer_height * 0.25);
+    
+    if (!doBilinear) {
+        float4 radiance = radianceTexture.sample(samplerLinear, texCoords);
+        
+        float3 upVector = float3(0.0, 1.0, 0.0);
+        float normalFactor = max(0.0, dot(float3(normal), upVector) * 0.5 + 0.5);
+        
+        float3 normalModulatedRadiance = radiance.rgb * normalFactor;
+        half3 finalColor = albedo * half3(normalModulatedRadiance);
+        
+        AccumLightBuffer output;
+        output.lighting = half4(finalColor, 1.0h);
+        
+        return output;
+    }
 
     float2 probeCoord = texCoords * probeGridSize;
     float2 probeBase = floor(probeCoord);

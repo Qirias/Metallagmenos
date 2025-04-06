@@ -29,6 +29,26 @@ vertex VertexOut final_gather_vertex(uint       vertexID    [[vertex_id]],
     return out;
 }
 
+half3 gammaCorrect(half3 linear) {
+    return pow(linear, 1.0f / 2.2f);
+}
+
+half3 acesTonemap(half3 color) {
+    half3 a = 2.51h;
+    half3 b = 0.03h;
+    half3 c = 2.43h;
+    half3 d = 0.59h;
+    half3 e = 0.14h;
+    return saturate((color * (a * color + b)) / (color * (c * color + d) + e));
+}
+
+half3 postProcessColor(half3 color) {
+//    color = acesTonemap(color);
+    color = gammaCorrect(color);
+    
+    return color;
+}
+
 float2 sign_NotZero(float2 v) {
     return float2((v.x >= 0.0) ? +1.0 : -1.0, (v.y >= 0.0) ? +1.0 : -1.0);
 }
@@ -47,34 +67,36 @@ float3 oct_decode(float2 f) {
     return normalize(n);
 }
 
-fragment AccumLightBuffer final_gather_fragment(VertexOut           in              [[stage_in]],
-                                    constant    FrameData&          frameData       [[buffer(BufferIndexFrameData)]],
-                                                texture2d<float>    radianceTexture [[texture(TextureIndexRadiance)]],
-                                                GBufferData         GBuffer,
-                                    constant    bool&               doBilinear      [[buffer(3)]]) {
-    half4 albedoSpecular = GBuffer.albedo_specular;
-    half3 albedo = albedoSpecular.rgb;
-    half3 normal = normalize(GBuffer.normal_map.xyz);
-    bool isEmissive = (GBuffer.normal_map.a == -1);
-    AccumLightBuffer output;
-    half3 finalColor;
-    
+fragment half4 final_gather_fragment(VertexOut           in              [[stage_in]],
+                         constant    FrameData&          frameData       [[buffer(BufferIndexFrameData)]],
+                                     texture2d<float>    radianceTexture [[texture(TextureIndexRadiance)]],
+                                     texture2d<half>     albedoTexture   [[texture(TextureIndexBaseColor)]],
+                                     texture2d<half>     normalTexture   [[texture(TextureIndexNormal)]],
+                                     texture2d<float>    depthTexture    [[texture(TextureIndexDepthTexture)]],
+                         constant    bool&               doBilinear      [[buffer(3)]]) {
     float2 texCoords = float2(in.texCoords.x, 1.0 - in.texCoords.y);
+    // Sample G-Buffer textures
+    half4 albedoSpecular = half4(albedoTexture.sample(samplerLinear, texCoords));
+    half3 albedo = albedoSpecular.rgb;
+    half4 normalRaw = half4(normalTexture.sample(samplerLinear, texCoords));
+    half3 normal = normalize(normalRaw.xyz);
+
+    bool isEmissive = (normalRaw.a == -1);
+    
+    half3 finalColor;
+
     float2 probeGridSize = float2(frameData.framebuffer_width * 0.25, frameData.framebuffer_height * 0.25);
     
     if (!doBilinear) {
         float4 radiance = radianceTexture.sample(samplerLinear, texCoords);
         
-        float3 upVector = float3(0.0, 1.0, 0.0);
-        float normalFactor = max(0.0, dot(float3(normal), upVector) * 0.5 + 0.5);
+        half3 upVector = half3(0.0, 1.0, 0.0);
+        half normalFactor = max(0.0h, dot(half3(normal), upVector) * 0.5h + 0.5h);
         
-        float3 normalModulatedRadiance = radiance.rgb * normalFactor;
-        half3 finalColor = albedo * half3(normalModulatedRadiance);
+        half3 normalModulatedRadiance = half3(radiance.rgb) * normalFactor;
+        finalColor = albedo * normalModulatedRadiance;
         
-        AccumLightBuffer output;
-        output.lighting = half4(finalColor, 1.0h);
-        
-        return output;
+        return half4(finalColor, 1.0);
     }
 
     float2 probeCoord = texCoords * probeGridSize;
@@ -97,11 +119,10 @@ fragment AccumLightBuffer final_gather_fragment(VertexOut           in          
 
         float4 radianceSum = float4(0.0);
         if (isEmissive) {
-            float3 lightDir = normalize(float3(0.0, 1.0, 0.0));
-            half shading = max(0.0h, dot(normal, half3(lightDir))) * 0.5h + 0.5h;
+            half3 lightDir = normalize(half3(0.0, 1.0, 0.0));
+            float shading = max(0.0h, dot(normal, half3(lightDir))) * 0.5h + 0.5h;
             finalColor = albedo * shading;
-            output.lighting = half4(finalColor*2.0, 1.0h);
-            return output;
+            return half4(finalColor*2.0h, 1.0h);
         } else {
             // Non-emissive: Weight by cosine law
             float totalWeight = 0.0;
@@ -127,33 +148,57 @@ fragment AccumLightBuffer final_gather_fragment(VertexOut           in          
 
     finalColor = albedo * half3(radiance.rgb);
     
-    output.lighting = half4(finalColor, 1.0h);
-    return output;
+    return half4(postProcessColor(finalColor), 1.0h);
 }
 
 // No bilinear
-/*
- fragment AccumLightBuffer final_gather_fragment(VertexOut            in              [[stage_in]],
-                                         constant FrameData&          frameData       [[buffer(BufferIndexFrameData)]],
-                                                  texture2d<float>    radianceTexture [[texture(TextureIndexRadiance)]],
-                                                  GBufferData         GBuffer) {
-     // Get albedo and normal from G-Buffer
-     half3 albedo = GBuffer.albedo_specular.rgb;
-     half3 normal = normalize(GBuffer.normal_map.xyz);
-     
-     float2 texCoords = float2(in.texCoords.x, 1.0 - in.texCoords.y);
-     float4 radiance = radianceTexture.sample(samplerLinear, texCoords);
-     
-     float3 upVector = float3(0.0, 1.0, 0.0);
-     float normalFactor = max(0.0, dot(float3(normal), upVector) * 0.5 + 0.5);
-     
-     float3 normalModulatedRadiance = radiance.rgb * normalFactor;
-     half3 finalColor = albedo * half3(normalModulatedRadiance);
-     
-     AccumLightBuffer output;
-     output.lighting = half4(finalColor, 1.0h);
-     
-     return output;
- }
 
- */
+// fragment AccumLightBuffer final_gather_fragment(VertexOut            in              [[stage_in]],
+//                                         constant FrameData&          frameData       [[buffer(BufferIndexFrameData)]],
+//                                                  texture2d<float>    radianceTexture [[texture(TextureIndexRadiance)]],
+//                                         constant bool&               doBilinear      [[buffer(3)]],
+//                                                  GBufferData         GBuffer) {
+//     // Get albedo and normal from G-Buffer
+//     half3 albedo = GBuffer.albedo_specular.rgb;
+//     half3 normal = normalize(GBuffer.normal_map.xyz);
+//     
+//     float2 texCoords = float2(in.texCoords.x, 1.0 - in.texCoords.y);
+//     float4 radiance = radianceTexture.sample(samplerLinear, texCoords);
+//     bool isEmissive = (GBuffer.normal_map.a == -1);
+//     AccumLightBuffer output;
+//     half3 finalColor;
+//     
+//     if (!doBilinear) {
+//         float4 radiance = radianceTexture.sample(samplerLinear, texCoords);
+// 
+//         float3 upVector = float3(0.0, 1.0, 0.0);
+//         float normalFactor = max(0.0, dot(float3(normal), upVector) * 0.5 + 0.5);
+// 
+//         float3 normalModulatedRadiance = radiance.rgb * normalFactor;
+//         half3 finalColor = albedo * half3(normalModulatedRadiance);
+// 
+//         AccumLightBuffer output;
+//         output.lighting = half4(finalColor, 1.0h);
+// 
+//         return output;
+//     }
+//     
+//     if (isEmissive) {
+//         float3 lightDir = normalize(float3(0.0, 1.0, 0.0));
+//         half shading = max(0.0h, dot(normal, half3(lightDir))) * 0.5h + 0.5h;
+//         finalColor = albedo * shading;
+//         output.lighting = half4(finalColor*2.0, 1.0h);
+//         return output;
+//     }
+//     
+//     float3 upVector = float3(0.0, 1.0, 0.0);
+//     float normalFactor = max(0.0, dot(float3(normal), upVector) * 0.5 + 0.5);
+//     
+//     float3 normalModulatedRadiance = radiance.rgb * normalFactor;
+//     finalColor = albedo * half3(normalModulatedRadiance);
+//     
+//     output.lighting = half4(finalColor, 1.0h);
+//     
+//     return output;
+// }
+

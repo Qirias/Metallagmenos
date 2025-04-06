@@ -21,27 +21,6 @@ struct TriangleResources {
     device TriangleData* triangles;
 };
 
-float3 gammaCorrect(float3 linear) {
-    return pow(linear, 1.0f / 2.2f);
-}
-
-float3 acesTonemap(float3 color) {
-    float a = 2.51f;
-    float b = 0.03f;
-    float c = 2.43f;
-    float d = 0.59f;
-    float e = 0.14f;
-    return saturate((color * (a * color + b)) / (color * (c * color + d) + e));
-}
-
-float3 postProcessColor(float3 color, float exposure) {
-    color *= exposure;
-    color = acesTonemap(color);
-    color = gammaCorrect(color);
-    
-    return color;
-}
-
 float4 sun(float3 rayDir, FrameData frameData) {
     return float4(1.0);
 }
@@ -55,14 +34,13 @@ float3 reconstructWorldPositionFromLinearDepth(float2 ndc, float linearDepth,
     viewPos /= viewPos.w;
     
     float scale = linearDepth / fabs(viewPos.z);
-    float depthBias = 0.99;
+    float depthBias = 0.999;
     
     float3 viewPosAtDepth = viewPos.xyz * (scale * depthBias);
     
     float4 worldPos = invView * float4(viewPosAtDepth, 1.0);
     return worldPos.xyz;
 }
-
 
 float2 signNotZero(float2 v) {
     return float2((v.x >= 0.0) ? +1.0 : -1.0, (v.y >= 0.0) ? +1.0 : -1.0);
@@ -146,7 +124,7 @@ float4 mergeUpperCascade(texture2d<float, access::sample> upperRadianceTexture,
     float maxd = max(max(upperProbeDepths.x, upperProbeDepths.y), max(upperProbeDepths.z, upperProbeDepths.w));
     float diffd = maxd - mind;
     float avg = dot(upperProbeDepths, float4(0.25f));
-    bool d_edge = (diffd / avg) > 0.1;
+    bool d_edge = (diffd / avg) > 0.2;
     
     float4 w = bilinearWeights;
     if (d_edge) {
@@ -214,6 +192,7 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
                       device Probe*                             probeData               [[buffer(BufferIndexProbeData)]],
                       device ProbeRay*                          rayData                 [[buffer(BufferIndexProbeRayData)]],
                              texture2d<float, access::sample>   depthTexture            [[texture(TextureIndexDepthTexture)]],
+                             texture2d<float, access::sample>   normalTexture           [[texture(TextureIndexNormal)]],
                              uint                               tid                     [[thread_position_in_grid]]) {
     const uint probeSpacing = cascadeData.probeSpacing;
     uint cascadeLevel = cascadeData.cascadeLevel;
@@ -245,7 +224,7 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
     float probeDepth = depthTexture.sample(depthSampler, probeUV).x;
     float3 worldPos = reconstructWorldPositionFromLinearDepth(probeNDC, probeDepth, frameData.near_plane, frameData.far_plane,
                                                               frameData.projection_matrix_inverse,
-                                                              frameData.inverse_view_matrix);
+                                                              frameData.view_matrix_inverse);
 
     if (rayIndex == 0) {
         probeData[probeIndex].position = float4(worldPos, 0.0f);
@@ -354,11 +333,6 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
     
     uint texX = uint(tileUV.x * frameData.framebuffer_width);
     uint texY = uint(tileUV.y * frameData.framebuffer_height);
-
-    if (cascadeLevel == 0) {
-        float3 gammaCorrected = gammaCorrect(radiance.rgb);
-        radianceTexture.write(float4(gammaCorrected, radiance.a), uint2(texX, texY));
-    } else {
-        radianceTexture.write(radiance, uint2(texX, texY));
-    }
+    
+    radianceTexture.write(radiance, uint2(texX, texY));
 }

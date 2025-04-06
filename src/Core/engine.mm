@@ -74,6 +74,7 @@ void Engine::cleanup() {
     resourceBuffer->release();
 	defaultVertexDescriptor->release();
 	viewRenderPassDescriptor->release();
+    finalGatherDescriptor->release();
     forwardDescriptor->release();
     metalDevice->release();
 }
@@ -127,6 +128,10 @@ void Engine::resizeFrameBuffer(int width, int height) {
     if (viewRenderPassDescriptor) {
         viewRenderPassDescriptor->release();
         viewRenderPassDescriptor = nil;
+    }
+    if (finalGatherDescriptor) {
+        finalGatherDescriptor->release();
+        finalGatherDescriptor = nil;
     }
     if (forwardDescriptor) {
         forwardDescriptor->release();
@@ -194,14 +199,15 @@ MTL::CommandBuffer* Engine::beginFrame(bool isPaused) {
 	return commandBuffer;
 }
 
-void Engine::endFrame(MTL::CommandBuffer* commandBuffer, MTL::Drawable* currentDrawable) {
+void Engine::endFrame(MTL::CommandBuffer* commandBuffer) {
     if(commandBuffer) {
         commandBuffer->presentDrawable(metalDrawable);
         commandBuffer->commit();
         
-        if (frameNumber == 100)
-        createSphereGrid();
-//        createDebugLines();
+        if (frameNumber == 100) {
+            createSphereGrid();
+            createDebugLines();
+        }
         
         // Move to next frame
         currentFrameIndex = (currentFrameIndex + 1) % MaxFramesInFlight;
@@ -354,7 +360,7 @@ void Engine::updateWorldState(bool isPaused) {
 	frameData->projection_matrix = camera.getProjectionMatrix();
 	frameData->projection_matrix_inverse = matrix_invert(frameData->projection_matrix);
 	frameData->view_matrix = camera.getViewMatrix();
-    frameData->inverse_view_matrix = camera.getInverseViewMatrix();
+    frameData->view_matrix_inverse = camera.getInverseViewMatrix();
     
     frameData->cameraUp         = float4{camera.up.x,       camera.up.y,        camera.up.z, 1.0f};
     frameData->cameraRight      = float4{camera.right.x,    camera.right.y,     camera.right.z, 1.0f};
@@ -414,7 +420,6 @@ void Engine::createRenderPipelines() {
                 .vertexDescriptor = defaultVertexDescriptor
             };
             gbufferConfig.colorAttachments = {
-                {RenderTargetLighting, MTL::PixelFormatBGRA8Unorm},
                 {RenderTargetAlbedo, albedoSpecularGBufferFormat},
                 {RenderTargetNormal, normalMapGBufferFormat},
                 {RenderTargetDepth, depthGBufferFormat}
@@ -443,11 +448,11 @@ void Engine::createRenderPipelines() {
                 .label = "Depth Prepass",
                 .vertexFunctionName = "depth_prepass_vertex",
                 .fragmentFunctionName = "depth_prepass_fragment",
-                .colorPixelFormat = MTL::PixelFormatR32Float, // single-channel float
+                .colorPixelFormat = MTL::PixelFormatR32Float,
                 .depthPixelFormat = MTL::PixelFormatDepth32Float_Stencil8,
                 .stencilPixelFormat = MTL::PixelFormatDepth32Float_Stencil8,
                 .vertexDescriptor = defaultVertexDescriptor,
-                .functionConstants = hasTexturesFalse  // Start with non-textured version
+                .functionConstants = hasTexturesFalse
             };
             renderPipelines.createRenderPipeline(RenderPipelineType::DepthPrepass, depthPrepassConfig);
             
@@ -492,44 +497,13 @@ void Engine::createRenderPipelines() {
                     .label = "Final Gathering",
                     .vertexFunctionName = "final_gather_vertex",
                     .fragmentFunctionName = "final_gather_fragment",
-                    .colorPixelFormat = MTL::PixelFormatBGRA8Unorm,
-                    .depthPixelFormat = MTL::PixelFormatDepth32Float_Stencil8,
-                    .stencilPixelFormat = MTL::PixelFormatDepth32Float_Stencil8,
+                    .colorPixelFormat = metalDrawable->texture()->pixelFormat(),
+                    .depthPixelFormat = MTL::PixelFormatInvalid,
+                    .stencilPixelFormat = MTL::PixelFormatInvalid,
                     .vertexDescriptor = nullptr
-                };
-
-                // Add additional color attachments for GBuffer
-                finalGatherConfig.colorAttachments = {
-                    {RenderTargetLighting, MTL::PixelFormatBGRA8Unorm},
-                    {RenderTargetAlbedo, albedoSpecularGBufferFormat},
-                    {RenderTargetNormal, normalMapGBufferFormat},
-                    {RenderTargetDepth, depthGBufferFormat}
                 };
                 renderPipelines.createRenderPipeline(RenderPipelineType::FinalGather, finalGatherConfig);
             }
-
-			#pragma mark Final gather mask depth stencil state setup
-			{
-				StencilConfig finalGatherStencil{
-                #if LIGHT_STENCIL_CULLING
-                    .stencilCompareFunction = MTL::CompareFunctionEqual,
-                    .stencilFailureOperation = MTL::StencilOperationKeep,
-                    .depthFailureOperation = MTL::StencilOperationKeep,
-                    .depthStencilPassOperation = MTL::StencilOperationKeep,
-                    .readMask = 0xFF,
-                    .writeMask = 0x0
-                #endif
-                };
-
-                DepthStencilConfig finalGatherDepthConfig{
-                    .label = "Final Gathering",
-                    .depthCompareFunction = MTL::CompareFunctionAlways,
-                    .depthWriteEnabled = false,
-                    .frontStencil = finalGatherStencil,
-                    .backStencil = finalGatherStencil
-                };
-                renderPipelines.createDepthStencilState(DepthStencilType::FinalGather, finalGatherDepthConfig);
-			}
 		}
     }
     
@@ -831,11 +805,13 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
         computeEncoder->setBuffer(probePosBuffer[currentFrameIndex][level], 0, BufferIndexProbeData);
         computeEncoder->setBuffer(rayBuffer[currentFrameIndex][level], 0, BufferIndexProbeRayData);
         computeEncoder->setTexture(linearDepthTexture, TextureIndexDepthTexture);
+        computeEncoder->setTexture(normalMapGBuffer, TextureIndexNormal);
 
         computeEncoder->useResource(resourceBuffer, MTL::ResourceUsageRead);
         computeEncoder->useResource(probePosBuffer[currentFrameIndex][level], MTL::ResourceUsageWrite);
         computeEncoder->useResource(rayBuffer[currentFrameIndex][level], MTL::ResourceUsageWrite);
         computeEncoder->useResource(linearDepthTexture, MTL::ResourceUsageRead);
+        computeEncoder->useResource(normalMapGBuffer, MTL::ResourceUsageRead);
         computeEncoder->useResource(currentRenderTarget, MTL::ResourceUsageWrite);
 
         // Set acceleration structures
@@ -933,9 +909,9 @@ void Engine::createViewRenderPassDescriptor() {
     gbufferTextureDesc->setMipmapLevelCount(1);
     gbufferTextureDesc->setTextureType(MTL::TextureType2D);
     
-    // StorageModeMemoryLess
+    // StorageModeShared
     gbufferTextureDesc->setUsage(MTL::TextureUsageRenderTarget | MTL::TextureUsageShaderRead);
-    gbufferTextureDesc->setStorageMode(MTL::StorageModeMemoryless);
+    gbufferTextureDesc->setStorageMode(MTL::StorageModeShared);
     gbufferTextureDesc->setPixelFormat(albedoSpecularGBufferFormat);
     albedoSpecularGBuffer = metalDevice->newTexture(gbufferTextureDesc);
     gbufferTextureDesc->setPixelFormat(normalMapGBufferFormat);
@@ -944,7 +920,6 @@ void Engine::createViewRenderPassDescriptor() {
     depthGBuffer = metalDevice->newTexture(gbufferTextureDesc);
     
     // Create depth/stencil texture
-    gbufferTextureDesc->setStorageMode(MTL::StorageModeShared); // shared for min max depth buffer
     gbufferTextureDesc->setPixelFormat(MTL::PixelFormatDepth32Float_Stencil8);
     depthStencilTexture = metalDevice->newTexture(gbufferTextureDesc);
     
@@ -965,16 +940,16 @@ void Engine::createViewRenderPassDescriptor() {
     viewRenderPassDescriptor->stencilAttachment()->setTexture(depthStencilTexture);
     
     // Configure load/store actions
-    viewRenderPassDescriptor->colorAttachments()->object(RenderTargetAlbedo)->setLoadAction(MTL::LoadActionDontCare);
-    viewRenderPassDescriptor->colorAttachments()->object(RenderTargetAlbedo)->setStoreAction(MTL::StoreActionDontCare);
+    viewRenderPassDescriptor->colorAttachments()->object(RenderTargetAlbedo)->setLoadAction(MTL::LoadActionClear);
+    viewRenderPassDescriptor->colorAttachments()->object(RenderTargetAlbedo)->setStoreAction(MTL::StoreActionStore);
     viewRenderPassDescriptor->colorAttachments()->object(RenderTargetAlbedo)->setClearColor(MTL::ClearColor(0.0, 0.0, 0.0, 1.0));
     
-    viewRenderPassDescriptor->colorAttachments()->object(RenderTargetNormal)->setLoadAction(MTL::LoadActionDontCare);
-    viewRenderPassDescriptor->colorAttachments()->object(RenderTargetNormal)->setStoreAction(MTL::StoreActionDontCare);
+    viewRenderPassDescriptor->colorAttachments()->object(RenderTargetNormal)->setLoadAction(MTL::LoadActionClear);
+    viewRenderPassDescriptor->colorAttachments()->object(RenderTargetNormal)->setStoreAction(MTL::StoreActionStore);
     viewRenderPassDescriptor->colorAttachments()->object(RenderTargetNormal)->setClearColor(MTL::ClearColor(0.0, 0.0, 0.0, 1.0));
     
-    viewRenderPassDescriptor->colorAttachments()->object(RenderTargetDepth)->setLoadAction(MTL::LoadActionDontCare);
-    viewRenderPassDescriptor->colorAttachments()->object(RenderTargetDepth)->setStoreAction(MTL::StoreActionDontCare);
+    viewRenderPassDescriptor->colorAttachments()->object(RenderTargetDepth)->setLoadAction(MTL::LoadActionClear);
+    viewRenderPassDescriptor->colorAttachments()->object(RenderTargetDepth)->setStoreAction(MTL::StoreActionStore);
     viewRenderPassDescriptor->colorAttachments()->object(RenderTargetDepth)->setClearColor(MTL::ClearColor(1.0, 1.0, 1.0, 1.0));
     
     viewRenderPassDescriptor->depthAttachment()->setLoadAction(MTL::LoadActionDontCare);
@@ -999,9 +974,13 @@ void Engine::createViewRenderPassDescriptor() {
     
     forwardDescriptor = MTL::RenderPassDescriptor::alloc()->init();
 
+    // Final Gathering
+    finalGatherDescriptor = MTL::RenderPassDescriptor::alloc()->init();
+    
+
     // Create linear depth texture for prepass
     MTL::TextureDescriptor* linearDepthTextureDesc = MTL::TextureDescriptor::alloc()->init();
-    linearDepthTextureDesc->setPixelFormat(MTL::PixelFormatR32Float); // single-channel float
+    linearDepthTextureDesc->setPixelFormat(MTL::PixelFormatR32Float);
     linearDepthTextureDesc->setWidth(metalLayer.drawableSize.width);
     linearDepthTextureDesc->setHeight(metalLayer.drawableSize.height);
     linearDepthTextureDesc->setStorageMode(MTL::StorageModeShared);
@@ -1051,7 +1030,7 @@ void Engine::createViewRenderPassDescriptor() {
     desc->setStorageMode(MTL::StorageModeShared);
     desc->setUsage(MTL::TextureUsageShaderRead | MTL::TextureUsageShaderWrite);
     
-    NS::String* label = NS::String::string("Final Gather Min", NS::ASCIIStringEncoding);
+    NS::String* label = NS::String::string("Final Gather", NS::ASCIIStringEncoding);
     finalGatherTexture = metalDevice->newTexture(desc);
     finalGatherTexture->setLabel(label);
     
@@ -1068,11 +1047,25 @@ void Engine::updateRenderPassDescriptor() {
 
 	// Update depth/stencil attachment
 	viewRenderPassDescriptor->depthAttachment()->setTexture(depthStencilTexture);
-	viewRenderPassDescriptor->stencilAttachment()->setTexture(depthStencilTexture);
-
-    forwardDescriptor->colorAttachments()->object(0)->setTexture(metalDrawable->texture()); 
+    viewRenderPassDescriptor->depthAttachment()->setLoadAction(MTL::LoadActionClear);
+    viewRenderPassDescriptor->depthAttachment()->setStoreAction(MTL::StoreActionStore);
+    viewRenderPassDescriptor->depthAttachment()->setClearDepth(1.0); // Clear depth to furthest
+    viewRenderPassDescriptor->stencilAttachment()->setTexture(depthStencilTexture);
+    viewRenderPassDescriptor->stencilAttachment()->setClearStencil(0); // Clear stencil
+    
+    finalGatherDescriptor->colorAttachments()->object(0)->setTexture(metalDrawable->texture());
+    finalGatherDescriptor->colorAttachments()->object(0)->setLoadAction(MTL::LoadActionClear);
+    finalGatherDescriptor->colorAttachments()->object(0)->setStoreAction(MTL::StoreActionStore);
+    finalGatherDescriptor->colorAttachments()->object(0)->setClearColor(MTL::ClearColor(41.0f / 255.0f, 42.0f / 255.0f, 48.0f / 255.0f, 1.0));
+    
+    forwardDescriptor->colorAttachments()->object(0)->setTexture(metalDrawable->texture());
+    forwardDescriptor->colorAttachments()->object(0)->setLoadAction(MTL::LoadActionLoad); // Preserve Final Gathering results
     forwardDescriptor->depthAttachment()->setTexture(forwardDepthStencilTexture);
+    forwardDescriptor->depthAttachment()->setLoadAction(MTL::LoadActionLoad);
+    forwardDescriptor->depthAttachment()->setClearDepth(1.0);
     forwardDescriptor->stencilAttachment()->setTexture(forwardDepthStencilTexture);
+    forwardDescriptor->stencilAttachment()->setLoadAction(MTL::LoadActionLoad);
+    forwardDescriptor->stencilAttachment()->setClearStencil(0);
 
     depthPrepassDescriptor->colorAttachments()->object(0)->setTexture(linearDepthTexture);
     depthPrepassDescriptor->depthAttachment()->setTexture(depthStencilTexture);
@@ -1097,11 +1090,7 @@ void Engine::renderDepthPrepass(MTL::CommandBuffer* commandBuffer) {
         matrix_float4x4 modelMatrix = meshes[i]->getTransformMatrix();
         depthPrepassEncoder->setVertexBytes(&modelMatrix, sizeof(modelMatrix), BufferIndexVertexBytes);
         
-        depthPrepassEncoder->drawIndexedPrimitives(MTL::PrimitiveTypeTriangle, 
-                                                 meshes[i]->indexCount, 
-                                                 MTL::IndexTypeUInt32, 
-                                                 meshes[i]->indexBuffer, 
-                                                 0);
+        depthPrepassEncoder->drawIndexedPrimitives(MTL::PrimitiveTypeTriangle,  meshes[i]->indexCount, MTL::IndexTypeUInt32, meshes[i]->indexBuffer, 0);
     }
     
     depthPrepassEncoder->endEncoding();
@@ -1150,23 +1139,22 @@ void Engine::drawGBuffer(MTL::RenderCommandEncoder* renderCommandEncoder)
 	renderCommandEncoder->popDebugGroup();
 }
 
-/// Use stencil buffer to limit execution
-/// of the shader to only those pixels that should be lit
 void Engine::drawFinalGathering(MTL::RenderCommandEncoder* renderCommandEncoder)
 {
     bool doBilinear = editor->debug.debugCascadeLevel == -1;
-    
-    renderCommandEncoder->setCullMode(MTL::CullModeBack);
-    renderCommandEncoder->setStencilReferenceValue(128);
+    renderCommandEncoder->setCullMode(MTL::CullModeNone);
 
     renderCommandEncoder->setRenderPipelineState(renderPipelines.getRenderPipeline(RenderPipelineType::FinalGather));
-    renderCommandEncoder->setDepthStencilState(renderPipelines.getDepthStencilState(DepthStencilType::FinalGather));
     renderCommandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
     renderCommandEncoder->setFragmentBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
+    
     renderCommandEncoder->setFragmentTexture(finalGatherTexture, TextureIndexRadiance);
+    renderCommandEncoder->setFragmentTexture(linearDepthTexture, TextureIndexDepthTexture);
+    renderCommandEncoder->setFragmentTexture(normalMapGBuffer, TextureIndexNormal);
+    renderCommandEncoder->setFragmentTexture(albedoSpecularGBuffer, TextureIndexBaseColor);
     renderCommandEncoder->setFragmentBytes(&doBilinear, sizeof(bool), 3);
 
-    renderCommandEncoder->drawPrimitives(MTL::PrimitiveTypeTriangle, (NS::UInteger)0, (NS::UInteger)3);
+    renderCommandEncoder->drawPrimitives(MTL::PrimitiveTypeTriangle, 0, 3, 1);
 }
 
 void Engine::dispatchMinMaxDepthMipmaps(MTL::CommandBuffer* commandBuffer) {
@@ -1233,54 +1221,34 @@ void Engine::dispatchMinMaxDepthMipmaps(MTL::CommandBuffer* commandBuffer) {
 }
 
 void Engine::draw() {
-    // First command buffer for raytracing pass
+    updateRenderPassDescriptor();
     MTL::CommandBuffer* commandBuffer = beginFrame(false);
     editor->beginFrame(forwardDescriptor);
     camera.position = editor->debug.cameraPosition;
 
     renderDepthPrepass(commandBuffer);
     
-    // G-Buffer render pass descriptor setup
-    viewRenderPassDescriptor->colorAttachments()->object(RenderTargetLighting)->setTexture(metalDrawable->texture());
-    viewRenderPassDescriptor->colorAttachments()->object(RenderTargetLighting)->setLoadAction(MTL::LoadActionClear);
-    viewRenderPassDescriptor->colorAttachments()->object(RenderTargetLighting)->setClearColor(MTL::ClearColor(41.0f / 255.0f, 42.0f / 255.0f, 48.0f / 255.0f, 1.0));
-
-    viewRenderPassDescriptor->depthAttachment()->setTexture(depthStencilTexture);
-    viewRenderPassDescriptor->depthAttachment()->setLoadAction(MTL::LoadActionClear);
-    viewRenderPassDescriptor->depthAttachment()->setStoreAction(MTL::StoreActionStore);
-    viewRenderPassDescriptor->depthAttachment()->setClearDepth(1.0); // Clear depth to farthest
-    viewRenderPassDescriptor->stencilAttachment()->setClearStencil(0); // Clear stencil
-    
-    
-//    dispatchMinMaxDepthMipmaps(commandBuffer);
-    dispatchRaytracing(commandBuffer);
-    
     // G-Buffer pass
     MTL::RenderCommandEncoder* gBufferEncoder = commandBuffer->renderCommandEncoder(viewRenderPassDescriptor);
     gBufferEncoder->setLabel(NS::String::string("GBuffer", NS::ASCIIStringEncoding));
     if (gBufferEncoder) {
         drawGBuffer(gBufferEncoder);
-        drawFinalGathering(gBufferEncoder);
-
         gBufferEncoder->endEncoding();
     }
     
-    // Forward/debug render pass descriptor setup
-    forwardDescriptor->colorAttachments()->object(0)->setTexture(metalDrawable->texture());
-    forwardDescriptor->colorAttachments()->object(0)->setLoadAction(MTL::LoadActionLoad); // Preserve G-Buffer results
-    forwardDescriptor->colorAttachments()->object(0)->setClearColor(MTL::ClearColor(41.0f / 255.0f, 42.0f / 255.0f, 48.0f / 255.0f, 1.0));
+    dispatchRaytracing(commandBuffer);
 
-    forwardDescriptor->depthAttachment()->setTexture(forwardDepthStencilTexture);
-    forwardDescriptor->depthAttachment()->setLoadAction(MTL::LoadActionLoad);
-    forwardDescriptor->depthAttachment()->setClearDepth(1.0);
-    forwardDescriptor->stencilAttachment()->setTexture(forwardDepthStencilTexture);
-    forwardDescriptor->stencilAttachment()->setLoadAction(MTL::LoadActionLoad);
-    forwardDescriptor->stencilAttachment()->setClearStencil(0);
+    MTL::RenderCommandEncoder* finalGatherEncoder = commandBuffer->renderCommandEncoder(finalGatherDescriptor);
+    finalGatherEncoder->setLabel(NS::String::string("Final Gather", NS::ASCIIStringEncoding));
+    if (finalGatherEncoder) {
+        drawFinalGathering(finalGatherEncoder);
+        finalGatherEncoder->endEncoding();
+    }
 
     MTL::RenderCommandEncoder* debugEncoder = commandBuffer->renderCommandEncoder(forwardDescriptor);
     debugEncoder->setLabel(NS::String::string("Debug and ImGui", NS::ASCIIStringEncoding));
     drawDebug(debugEncoder, commandBuffer);
     debugEncoder->endEncoding();
 
-    endFrame(commandBuffer, metalDrawable);
+    endFrame(commandBuffer);
 }

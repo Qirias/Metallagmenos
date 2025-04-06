@@ -60,7 +60,7 @@ private:
 	
 	MTL::CommandBuffer* beginFrame(bool isPaused);
 	MTL::CommandBuffer* beginDrawableCommands();
-	void endFrame(MTL::CommandBuffer* commandBuffer, MTL::Drawable* currentDrawable);
+	void endFrame(MTL::CommandBuffer* commandBuffer);
     void updateWorldState(bool isPaused);
 	
 	void draw();
@@ -182,4 +182,5 @@ private:
     int                                         baseRay = 16;
     MTL::Texture*                               finalGatherTexture;
     std::vector<std::vector<MTL::Buffer*>>      cascadeDataBuffer;
+    MTL::RenderPassDescriptor*                  finalGatherDescriptor;
 };

@@ -27,7 +27,7 @@ struct FrameData {
 	// Matrix group
 	simd::float4x4 _pad2;
 	simd::float4x4 _pad3;
-    simd::float4x4 inverse_view_matrix;
+    simd::float4x4 view_matrix_inverse;
 	simd::float4x4 scene_model_matrix;
 	simd::float4x4 scene_modelview_matrix;
 	
@@ -53,7 +53,6 @@ struct ProbeRay {
 };
 
 typedef enum RenderTargetIndex {
-	RenderTargetLighting,
 	RenderTargetAlbedo,
 	RenderTargetNormal,
 	RenderTargetDepth,

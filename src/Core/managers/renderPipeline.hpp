@@ -24,7 +24,7 @@ enum class ComputePipelineType {
 enum class DepthStencilType {
     GBuffer,
     FinalGather,
-    DepthPrepass 
+    DepthPrepass
 };
 
 struct RenderPipelineConfig {

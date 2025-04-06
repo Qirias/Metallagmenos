@@ -10,13 +10,6 @@ struct DebugLineVertex {
     float4 color;
 };
 
-struct IndirectCommand {
-    uint vertexCountPerInstance;
-    uint instanceCount;
-    uint vertexStart;
-    uint baseInstance;
-};
-
 vertex DebugLineVertex forwardVertex(uint                vertexID        [[vertex_id]],
                          constant    DebugLineVertex*    lineVertices    [[buffer(0)]],
                          constant    FrameData&          frameData       [[buffer(BufferIndexFrameData)]]) {

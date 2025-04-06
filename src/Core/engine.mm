@@ -204,9 +204,9 @@ void Engine::endFrame(MTL::CommandBuffer* commandBuffer) {
         commandBuffer->presentDrawable(metalDrawable);
         commandBuffer->commit();
         
-        if (frameNumber == 100) {
+        if (/*frameNumber == 100*/editor->debug.enableDebugFeature) {
             createSphereGrid();
-            createDebugLines();
+//            createDebugLines();
         }
         
         // Move to next frame
@@ -378,8 +378,8 @@ void Engine::updateWorldState(bool isPaused) {
 	frameData->sun_specular_intensity = 1.0;
 
 	// Calculate the sun's X position oscillating over time
-	float oscillationSpeed = 0.01f;
-	float oscillationAmplitude = 12.0f;
+	float oscillationSpeed = 0.02f;
+	float oscillationAmplitude = 9.0f;
 	float sunZ = sin(frameNumber * oscillationSpeed) * oscillationAmplitude;
 
 	float sunY = 10.0f;
@@ -805,13 +805,11 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
         computeEncoder->setBuffer(probePosBuffer[currentFrameIndex][level], 0, BufferIndexProbeData);
         computeEncoder->setBuffer(rayBuffer[currentFrameIndex][level], 0, BufferIndexProbeRayData);
         computeEncoder->setTexture(linearDepthTexture, TextureIndexDepthTexture);
-        computeEncoder->setTexture(normalMapGBuffer, TextureIndexNormal);
 
         computeEncoder->useResource(resourceBuffer, MTL::ResourceUsageRead);
         computeEncoder->useResource(probePosBuffer[currentFrameIndex][level], MTL::ResourceUsageWrite);
         computeEncoder->useResource(rayBuffer[currentFrameIndex][level], MTL::ResourceUsageWrite);
         computeEncoder->useResource(linearDepthTexture, MTL::ResourceUsageRead);
-        computeEncoder->useResource(normalMapGBuffer, MTL::ResourceUsageRead);
         computeEncoder->useResource(currentRenderTarget, MTL::ResourceUsageWrite);
 
         // Set acceleration structures
@@ -942,11 +940,11 @@ void Engine::createViewRenderPassDescriptor() {
     // Configure load/store actions
     viewRenderPassDescriptor->colorAttachments()->object(RenderTargetAlbedo)->setLoadAction(MTL::LoadActionClear);
     viewRenderPassDescriptor->colorAttachments()->object(RenderTargetAlbedo)->setStoreAction(MTL::StoreActionStore);
-    viewRenderPassDescriptor->colorAttachments()->object(RenderTargetAlbedo)->setClearColor(MTL::ClearColor(0.0, 0.0, 0.0, 1.0));
+    viewRenderPassDescriptor->colorAttachments()->object(RenderTargetAlbedo)->setClearColor(MTL::ClearColor(0.0, 0.4, 0.8, 1.0));
     
     viewRenderPassDescriptor->colorAttachments()->object(RenderTargetNormal)->setLoadAction(MTL::LoadActionClear);
     viewRenderPassDescriptor->colorAttachments()->object(RenderTargetNormal)->setStoreAction(MTL::StoreActionStore);
-    viewRenderPassDescriptor->colorAttachments()->object(RenderTargetNormal)->setClearColor(MTL::ClearColor(0.0, 0.0, 0.0, 1.0));
+    viewRenderPassDescriptor->colorAttachments()->object(RenderTargetNormal)->setClearColor(MTL::ClearColor(0.0, 0.4, 0.8, 1.0));
     
     viewRenderPassDescriptor->colorAttachments()->object(RenderTargetDepth)->setLoadAction(MTL::LoadActionClear);
     viewRenderPassDescriptor->colorAttachments()->object(RenderTargetDepth)->setStoreAction(MTL::StoreActionStore);
@@ -1056,7 +1054,7 @@ void Engine::updateRenderPassDescriptor() {
     finalGatherDescriptor->colorAttachments()->object(0)->setTexture(metalDrawable->texture());
     finalGatherDescriptor->colorAttachments()->object(0)->setLoadAction(MTL::LoadActionClear);
     finalGatherDescriptor->colorAttachments()->object(0)->setStoreAction(MTL::StoreActionStore);
-    finalGatherDescriptor->colorAttachments()->object(0)->setClearColor(MTL::ClearColor(41.0f / 255.0f, 42.0f / 255.0f, 48.0f / 255.0f, 1.0));
+    finalGatherDescriptor->colorAttachments()->object(0)->setClearColor(MTL::ClearColor(0.0, 0.4, 0.8, 1.0));
     
     forwardDescriptor->colorAttachments()->object(0)->setTexture(metalDrawable->texture());
     forwardDescriptor->colorAttachments()->object(0)->setLoadAction(MTL::LoadActionLoad); // Preserve Final Gathering results

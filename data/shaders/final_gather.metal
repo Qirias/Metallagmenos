@@ -43,7 +43,7 @@ half3 acesTonemap(half3 color) {
 }
 
 half3 postProcessColor(half3 color) {
-//    color = acesTonemap(color);
+    color = acesTonemap(color);
     color = gammaCorrect(color);
     
     return color;

@@ -17,165 +17,12 @@
             },
             {
                 "mesh": "cube",
-                "pos": [-4.5, 0.0, -4.0],
-                "scale": [0.5, 0.5, 0.5],
-                "color": [1.0, 0.0, 0.0],
-                "hasTextures": false,
-                "isEmissive": true,
-                "emissiveColor": [1.0, 0.0, 0.0]
-            },
-            {
-                "mesh": "cube",
-                "pos": [-3.0, 0.0, -2.5],
-                "scale": [0.5, 0.5, 0.5],
-                "color": [0.0, 1.0, 0.0],
-                "hasTextures": false,
-                "isEmissive": false,
-                "emissiveColor": [0.0, 1.0, 0.0]
-            },
-            {
-                "mesh": "cube",
-                "pos": [-1.5, 0.0, -4.5],
-                "scale": [0.5, 0.5, 0.5],
-                "color": [0.0, 0.0, 1.0],
-                "hasTextures": false,
-                "isEmissive": true,
-                "emissiveColor": [0.0, 0.0, 1.0]
-            },
-            {
-                "mesh": "cube",
-                "pos": [0.0, 0.0, -3.0],
-                "scale": [0.5, 0.5, 0.5],
-                "color": [1.0, 1.0, 0.0],
-                "hasTextures": false,
-                "isEmissive": false,
-                "emissiveColor": [1.0, 1.0, 0.0]
-            },
-            {
-                "mesh": "cube",
-                "pos": [2.0, 0.0, -4.0],
-                "scale": [0.5, 0.5, 0.5],
-                "color": [1.0, 0.0, 1.0],
-                "hasTextures": false,
-                "isEmissive": true,
-                "emissiveColor": [1.0, 0.0, 1.0]
-            },
-            {
-                "mesh": "cube",
-                "pos": [4.0, 0.0, -2.0],
-                "scale": [0.5, 0.5, 0.5],
-                "color": [0.0, 1.0, 1.0],
-                "hasTextures": false,
-                "isEmissive": false,
-                "emissiveColor": [0.0, 1.0, 1.0]
-            },
-            {
-                "mesh": "cube",
-                "pos": [-4.0, 0.0, 0.0],
-                "scale": [0.5, 0.5, 0.5],
-                "color": [1.0, 0.5, 0.0],
-                "hasTextures": false,
-                "isEmissive": true,
-                "emissiveColor": [1.0, 0.5, 0.0]
-            },
-            {
-                "mesh": "cube",
-                "pos": [-2.5, 0.0, 1.5],
-                "scale": [0.5, 0.5, 0.5],
-                "color": [0.5, 0.0, 1.0],
-                "hasTextures": false,
-                "isEmissive": false,
-                "emissiveColor": [0.5, 0.0, 1.0]
-            },
-            {
-                "mesh": "cube",
-                "pos": [-1.0, 0.0, 3.5],
-                "scale": [0.5, 0.5, 0.5],
-                "color": [0.0, 0.5, 1.0],
-                "hasTextures": false,
-                "isEmissive": true,
-                "emissiveColor": [0.0, 0.5, 1.0]
-            },
-            {
-                "mesh": "cube",
-                "pos": [1.5, 0.0, 2.0],
-                "scale": [0.5, 0.5, 0.5],
-                "color": [1.0, 0.5, 0.5],
-                "hasTextures": false,
-                "isEmissive": true,
-                "emissiveColor": [1.0, 0.5, 0.5]
-            },
-            {
-                "mesh": "cube",
-                "pos": [3.5, 0.0, 0.5],
-                "scale": [0.5, 0.5, 0.5],
-                "color": [0.5, 1.0, 0.0],
-                "hasTextures": false,
-                "isEmissive": false,
-                "emissiveColor": [0.5, 1.0, 0.0]
-            },
-            {
-                "mesh": "cube",
-                "pos": [-3.5, 0.0, 4.0],
-                "scale": [0.5, 0.5, 0.5],
-                "color": [0.0, 1.0, 0.5],
-                "hasTextures": false,
-                "isEmissive": true,
-                "emissiveColor": [0.0, 1.0, 0.5]
-            },
-            {
-                "mesh": "cube",
-                "pos": [-0.5, 0.0, -1.0],
-                "scale": [0.5, 0.5, 0.5],
-                "color": [1.0, 0.0, 0.5],
-                "hasTextures": false,
-                "isEmissive": false,
-                "emissiveColor": [1.0, 0.0, 0.5]
-            },
-            {
-                "mesh": "cube",
-                "pos": [2.5, 0.0, -1.5],
-                "scale": [0.5, 0.5, 0.5],
-                "color": [0.5, 0.5, 1.0],
-                "hasTextures": false,
-                "isEmissive": true,
-                "emissiveColor": [0.5, 0.5, 1.0]
-            },
-            {
-                "mesh": "cube",
-                "pos": [4.5, 0.0, 3.0],
-                "scale": [0.5, 0.5, 0.5],
-                "color": [1.0, 1.0, 0.5],
-                "hasTextures": false,
-                "isEmissive": false,
-                "emissiveColor": [1.0, 1.0, 0.5]
-            },
-            {
-                "mesh": "cube",
-                "pos": [-2.0, 0.0, -3.5],
-                "scale": [0.5, 0.5, 0.5],
-                "color": [0.5, 1.0, 1.0],
-                "hasTextures": false,
-                "isEmissive": true,
-                "emissiveColor": [0.5, 1.0, 1.0]
-            },
-            {
-                "mesh": "cube",
                 "pos": [0.5, 0.0, 4.5],
                 "scale": [0.5, 0.5, 0.5],
                 "color": [1.0, 0.5, 1.0],
                 "hasTextures": false,
                 "isEmissive": false,
                 "emissiveColor": [1.0, 0.5, 1.0]
-            },
-            {
-                "mesh": "cube",
-                "pos": [3.0, 0.0, -2.5],
-                "scale": [0.5, 0.5, 0.5],
-                "color": [0.5, 0.0, 0.5],
-                "hasTextures": false,
-                "isEmissive": true,
-                "emissiveColor": [0.5, 0.0, 0.5]
             },
             {
                 "mesh": "cube",
@@ -188,12 +35,39 @@
             },
             {
                 "mesh": "cube",
+                "pos": [3.0, 0.0, -1.0],
+                "scale": [0.5, 0.5, 0.5],
+                "color": [0.5, 0.0, 0.5],
+                "hasTextures": false,
+                "isEmissive": true,
+                "emissiveColor": [0.0, 1.0, 0.0]
+            },
+            {
+                "mesh": "cube",
                 "pos": [1.0, 0.0, 1.0],
                 "scale": [0.5, 0.5, 0.5],
                 "color": [0.8, 0.8, 0.0],
                 "hasTextures": false,
                 "isEmissive": true,
                 "emissiveColor": [0.8, 0.8, 0.0]
+            },
+            {
+                "mesh": "cube",
+                "pos": [3.0, 0.0, 1.0],
+                "scale": [0.5, 0.5, 0.5],
+                "color": [1.0, 0.0, 0.0],
+                "hasTextures": false,
+                "isEmissive": true,
+                "emissiveColor": [1.0, 0.0, 0.0]
+            },
+            {
+                "mesh": "cube",
+                "pos": [1.0, 0.0, -1.0],
+                "scale": [0.5, 0.5, 0.5],
+                "color": [1.0, 0.0, 0.0],
+                "hasTextures": false,
+                "isEmissive": true,
+                "emissiveColor": [0.0, 0.0, 1.0]
             }
         ]
     }

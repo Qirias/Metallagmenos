@@ -61,20 +61,23 @@ void Editor::debugWindow() {
     float halfWidth = ImGui::GetContentRegionAvail().x * 0.5f;
     ImGui::PushItemWidth(halfWidth);
 
-    ImGui::Checkbox("Enable Debug Mode", &debug.enableDebugFeature);
+    ImGui::Checkbox("Debug", &debug.enableDebugFeature);
+    ImGui::Checkbox("Sun", &debug.sun);
+    ImGui::Checkbox("Sky", &debug.sky);
     
     ImGui::InputFloat("Interval Length", &debug.intervalLength, 0.1f, 1.0f, "%.2f");
-    
     ImGui::SliderInt("Cascade Level", &debug.debugCascadeLevel, -1, 5);
     
-    // Create a collapsible header for Camera Position (closed by default)
+    // Create a collapsible header for Camera Position with half width
+    ImGui::PushItemWidth(halfWidth * 0.5f); // Half the normal width for the collapsing header
+    
     if (ImGui::CollapsingHeader("Camera Position", !ImGuiTreeNodeFlags_DefaultOpen)) {
         float camX = debug.cameraPosition.x;
         float camY = debug.cameraPosition.y;
         float camZ = debug.cameraPosition.z;
 
         // Quarter width for camera inputs (even smaller)
-        float quarterWidth = ImGui::GetContentRegionAvail().x * 0.25f;
+        float quarterWidth = halfWidth * 0.5f;
         ImGui::PushItemWidth(quarterWidth);
         
         // Stack the X, Y, Z inputs vertically
@@ -90,15 +93,18 @@ void Editor::debugWindow() {
             debug.cameraPosition.z = camZ;
         }
         
-        ImGui::PopItemWidth(); // Pop camera position item width
+        ImGui::PopItemWidth();
     }
     
+    ImGui::PopItemWidth();
+    
     // Restore original settings
-    ImGui::PopItemWidth(); // Pop general item width
-    ImGui::PopStyleVar(2); // Pop both style vars
+    ImGui::PopItemWidth();
+    ImGui::PopStyleVar(2);
     
     ImGui::End();
 }
+
 void Editor::createDockSpace() {
     static bool dockspaceOpen = true;
     static bool opt_fullscreen = true;

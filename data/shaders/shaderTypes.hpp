@@ -40,6 +40,9 @@ struct CascadeData {
     uint maxCascade;
     uint probeSpacing;
     float intervalLength;
+    float enableSky;
+    float enableSun;
+    uint _pad[2];
 };
 
 struct Probe {

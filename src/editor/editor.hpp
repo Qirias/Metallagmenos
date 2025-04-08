@@ -12,6 +12,8 @@ public:
 
     struct DebugWindowOptions {
         bool enableDebugFeature = false;
+        bool sky = false;
+        bool sun = false;
         int debugCascadeLevel = -1;
         float intervalLength = 1.0f;
         simd::float3 cameraPosition = simd::float3{7.0f, 5.0f, 0.0f};

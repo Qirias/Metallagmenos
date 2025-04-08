@@ -159,6 +159,7 @@ private:
     int                                     debugProbeCount = 0;
     int                                     rayCount = 0;
     int                                     debugCascadeLevel = 0;
+    bool                                    createDebugData = false;
     
     void createSphereGrid();
     void createDebugLines();

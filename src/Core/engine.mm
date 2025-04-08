@@ -155,7 +155,7 @@ void Engine::resizeFrameBuffer(int width, int height) {
 void Engine::initWindow() {
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindow = glfwCreateWindow(512, 512, "Metalλαγμένος", NULL, NULL);
+    glfwWindow = glfwCreateWindow(768, 768, "Metalλαγμένος", NULL, NULL);
     if (!glfwWindow) {
         glfwTerminate();
         exit(EXIT_FAILURE);
@@ -204,9 +204,9 @@ void Engine::endFrame(MTL::CommandBuffer* commandBuffer) {
         commandBuffer->presentDrawable(metalDrawable);
         commandBuffer->commit();
         
-        if (/*frameNumber == 100*/editor->debug.enableDebugFeature) {
+        if (frameNumber == 100 && createDebugData) {
             createSphereGrid();
-//            createDebugLines();
+            createDebugLines();
         }
         
         // Move to next frame
@@ -319,21 +319,23 @@ void Engine::createBuffers() {
             NS::String* label = NS::String::string(labelStr.c_str(), NS::ASCIIStringEncoding);
             cascadeDataBuffer[frame][cascade] = metalDevice->newBuffer(sizeof(CascadeData), MTL::ResourceStorageModeShared);
             cascadeDataBuffer[frame][cascade]->setLabel(label);
-            
-            debugProbeCount = floor(metalLayer.drawableSize.width / (probeSpacing * 1 << cascade)) * floor(metalLayer.drawableSize.height / (probeSpacing * 1 << cascade));
-            size_t probeBufferSize = debugProbeCount * sizeof(Probe);
-            rayCount = debugProbeCount * baseRay * (1 << (2 * cascade));
-            size_t rayBufferSize = rayCount * sizeof(ProbeRay);
-            
-            labelStr = "Frame: " + std::to_string(frame) + "|CascadeProbes: " + std::to_string(cascade);
-            label = NS::String::string(labelStr.c_str(), NS::ASCIIStringEncoding);
-            probePosBuffer[frame][cascade] = metalDevice->newBuffer(probeBufferSize, MTL::ResourceStorageModeShared);
-            probePosBuffer[frame][cascade]->setLabel(NS::String::string("probePosBuffer", NS::ASCIIStringEncoding));
-            
-            labelStr = "Frame: " + std::to_string(frame) + "|CascadeRays: " + std::to_string(cascade);
-            label = NS::String::string(labelStr.c_str(), NS::ASCIIStringEncoding);
-            rayBuffer[frame][cascade] = metalDevice->newBuffer(rayBufferSize, MTL::ResourceStorageModeShared);
-            rayBuffer[frame][cascade]->setLabel(NS::String::string("rayBuffer", NS::ASCIIStringEncoding));
+//
+            if (createDebugData) {
+                debugProbeCount = floor(metalLayer.drawableSize.width / (probeSpacing * 1 << cascade)) * floor(metalLayer.drawableSize.height / (probeSpacing * 1 << cascade));
+                size_t probeBufferSize = debugProbeCount * sizeof(Probe);
+                rayCount = debugProbeCount * baseRay * (1 << (2 * cascade));
+                size_t rayBufferSize = rayCount * sizeof(ProbeRay);
+                
+                labelStr = "Frame: " + std::to_string(frame) + "|CascadeProbes: " + std::to_string(cascade);
+                label = NS::String::string(labelStr.c_str(), NS::ASCIIStringEncoding);
+                probePosBuffer[frame][cascade] = metalDevice->newBuffer(probeBufferSize, MTL::ResourceStorageModeShared);
+                probePosBuffer[frame][cascade]->setLabel(NS::String::string("probePosBuffer", NS::ASCIIStringEncoding));
+                
+                labelStr = "Frame: " + std::to_string(frame) + "|CascadeRays: " + std::to_string(cascade);
+                label = NS::String::string(labelStr.c_str(), NS::ASCIIStringEncoding);
+                rayBuffer[frame][cascade] = metalDevice->newBuffer(rayBufferSize, MTL::ResourceStorageModeShared);
+                rayBuffer[frame][cascade]->setLabel(NS::String::string("rayBuffer", NS::ASCIIStringEncoding));
+            }
         }
     }
 }
@@ -777,6 +779,8 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
         cascadeData->probeSpacing = probeSpacing;
         cascadeData->intervalLength = editor->debug.intervalLength;
         cascadeData->maxCascade = cascadeLevel-1;
+        cascadeData->enableSky = editor->debug.sky ? 1.0 : 0.0;
+        cascadeData->enableSun = editor->debug.sun ? 1.0 : 0.0;
         
         MTL::Texture* currentRenderTarget = nil;
         
@@ -802,13 +806,18 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
         computeEncoder->setBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
         computeEncoder->setBuffer(cascadeDataBuffer[currentFrameIndex][level], 0, BufferIndexCascadeData);
         computeEncoder->setBuffer(resourceBuffer, 0, BufferIndexResources);
-        computeEncoder->setBuffer(probePosBuffer[currentFrameIndex][level], 0, BufferIndexProbeData);
-        computeEncoder->setBuffer(rayBuffer[currentFrameIndex][level], 0, BufferIndexProbeRayData);
+        if (createDebugData) {
+            computeEncoder->setBuffer(probePosBuffer[currentFrameIndex][level], 0, BufferIndexProbeData);
+            computeEncoder->setBuffer(rayBuffer[currentFrameIndex][level], 0, BufferIndexProbeRayData);
+        }
+        
         computeEncoder->setTexture(linearDepthTexture, TextureIndexDepthTexture);
 
         computeEncoder->useResource(resourceBuffer, MTL::ResourceUsageRead);
-        computeEncoder->useResource(probePosBuffer[currentFrameIndex][level], MTL::ResourceUsageWrite);
-        computeEncoder->useResource(rayBuffer[currentFrameIndex][level], MTL::ResourceUsageWrite);
+        if (createDebugData) {
+            computeEncoder->useResource(probePosBuffer[currentFrameIndex][level], MTL::ResourceUsageWrite);
+            computeEncoder->useResource(rayBuffer[currentFrameIndex][level], MTL::ResourceUsageWrite);
+        }
         computeEncoder->useResource(linearDepthTexture, MTL::ResourceUsageRead);
         computeEncoder->useResource(currentRenderTarget, MTL::ResourceUsageWrite);
 

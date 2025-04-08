@@ -161,7 +161,7 @@ float4 mergeUpperCascade(texture2d<float, access::sample> upperRadianceTexture,
     float maxd = max(max(upperProbeDepths.x, upperProbeDepths.y), max(upperProbeDepths.z, upperProbeDepths.w));
     float diffd = maxd - mind;
     float avg = dot(upperProbeDepths, float4(0.25f));
-    bool d_edge = (diffd / avg) > 0.2;
+    bool d_edge = (diffd / avg) > 0.1;
     
     float4 w = bilinearWeights;
     if (d_edge) {

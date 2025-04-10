@@ -227,7 +227,7 @@ void Engine::loadSceneFromJSON(const std::string& jsonFilePath) {
 }
 
 void Engine::loadScene() {
-    loadSceneFromJSON(std::string(SCENES_PATH) + "/cubesScene.json");
+    loadSceneFromJSON(std::string(SCENES_PATH) + "/sponzaHornbug.json");
 }
 
 MTL::VertexDescriptor* Engine::createDefaultVertexDescriptor() {

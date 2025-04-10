@@ -71,12 +71,9 @@ float4 skyAndSun(float3 rayDir, FrameData frameData, CascadeData cascadeData) {
     return result;
 }
 
-float3 reconstructWorldPositionFromLinearDepth(float2 ndc, float linearDepth,
-                                             float near, float far,
-                                             float4x4 invProjection,
-                                             float4x4 invView) {
+float3 reconstructWorldPositionFromLinearDepth(float2 ndc, float linearDepth, FrameData frameData) {
     float4 clipPos = float4(ndc.x, ndc.y, -1.0, 1.0);
-    float4 viewPos = invProjection * clipPos;
+    float4 viewPos = frameData.projection_matrix_inverse * clipPos;
     viewPos /= viewPos.w;
     
     float scale = linearDepth / fabs(viewPos.z);
@@ -84,7 +81,7 @@ float3 reconstructWorldPositionFromLinearDepth(float2 ndc, float linearDepth,
     
     float3 viewPosAtDepth = viewPos.xyz * (scale * depthBias);
     
-    float4 worldPos = invView * float4(viewPosAtDepth, 1.0);
+    float4 worldPos = frameData.view_matrix_inverse * float4(viewPosAtDepth, 1.0);
     return worldPos.xyz;
 }
 
@@ -106,11 +103,40 @@ float3 octDecode(float2 f) {
     return normalize(n);
 }
 
+// https://www.shadertoy.com/view/4XXSWS
+// Project a point onto a line and return the parametric distance
+float projectLinePerpendicular(float3 lineStart, float3 lineEnd, float3 point) {
+    float3 line = lineEnd - lineStart;
+    float lineLength2 = dot(line, line);
+    
+    return saturate(dot(point - lineStart, line) / lineLength2);
+}
+
+// Calculate 3D-aware bilinear ratios using iterative approach
+float2 getBilinear3dRatioIter(float3 srcPoints[4], float3 dstPoint, float2 initRatio, int iterCount) {
+    float2 ratio = initRatio;
+    
+    for (int i = 0; i < iterCount; i++) {
+        // Interpolate along Y and find X ratio
+        float3 mixedY1 = mix(srcPoints[0], srcPoints[2], ratio.y);
+        float3 mixedY2 = mix(srcPoints[1], srcPoints[3], ratio.y);
+        ratio.x = projectLinePerpendicular(mixedY1, mixedY2, dstPoint);
+        
+        // Interpolate along X and find Y ratio
+        float3 mixedX1 = mix(srcPoints[0], srcPoints[1], ratio.x);
+        float3 mixedX2 = mix(srcPoints[2], srcPoints[3], ratio.x);
+        ratio.y = projectLinePerpendicular(mixedX1, mixedX2, dstPoint);
+    }
+    
+    return ratio;
+}
+
 float4 mergeUpperCascade(texture2d<float, access::sample> upperRadianceTexture,
                          texture2d<float, access::sample> depthTexture,
                          float2 probeUV,
                          float3 rayDir,
                          float currentDepth,
+                         float3 currentWorldPos,
                          CascadeData cascadeData,
                          FrameData frameData) {
     uint currentCascadeLevel = cascadeData.cascadeLevel;
@@ -125,11 +151,6 @@ float4 mergeUpperCascade(texture2d<float, access::sample> upperRadianceTexture,
     float2 upperGridCoord   = probeUV * float2(upperGridSizeX, upperGridSizeY) - 0.5f;
     int2 upperProbeBase     = int2(floor(upperGridCoord));
     float2 upperFrac        = fract(upperGridCoord);
-    
-    float4 bilinearWeights = float4((1.0f - upperFrac.x)    * (1.0f - upperFrac.y),
-                                    upperFrac.x             * (1.0f - upperFrac.y),
-                                    (1.0f - upperFrac.x)    * upperFrac.y,
-                                    upperFrac.x             * upperFrac.y);
 
     int2 probeOffsets[4] = {int2(0, 0), int2(1, 0), int2(0, 1), int2(1, 1)};
 
@@ -141,43 +162,39 @@ float4 mergeUpperCascade(texture2d<float, access::sample> upperRadianceTexture,
     int2 dirBase = int2(floor(dirGridCoord));
     float2 dirFrac = fract(dirGridCoord);
     
-    float4 dirBilinearWeights = float4((1.0f - dirFrac.x)    * (1.0f - dirFrac.y),
-                                       dirFrac.x             * (1.0f - dirFrac.y),
-                                       (1.0f - dirFrac.x)    * dirFrac.y,
-                                       dirFrac.x             * dirFrac.y);
+    float4 dirBilinearWeights = float4((1.0f - dirFrac.x)   * (1.0f - dirFrac.y),
+                                       dirFrac.x            * (1.0f - dirFrac.y),
+                                       (1.0f - dirFrac.x)   * dirFrac.y,
+                                       dirFrac.x            * dirFrac.y);
     
     float4 upperProbeDepths;
     int2 probeCoord[4];
     float2 probeUVCenter[4];
+    float3 probeWorldPos[4];
     
+    // Gather probe data
     for (int i = 0; i < 4; i++) {
         probeCoord[i] = upperProbeBase + probeOffsets[i];
         probeUVCenter[i] = (float2(probeCoord[i]) + 0.5f) / float2(upperGridSizeX, upperGridSizeY);
         upperProbeDepths[i] = depthTexture.sample(depthSampler, probeUVCenter[i]).x;
-    }
-
-    // Edge detection
-    float mind = min(min(upperProbeDepths.x, upperProbeDepths.y), min(upperProbeDepths.z, upperProbeDepths.w));
-    float maxd = max(max(upperProbeDepths.x, upperProbeDepths.y), max(upperProbeDepths.z, upperProbeDepths.w));
-    float diffd = maxd - mind;
-    float avg = dot(upperProbeDepths, float4(0.25f));
-    bool d_edge = (diffd / avg) > 0.1;
-    
-    float4 w = bilinearWeights;
-    if (d_edge) {
-        float4 dd = abs(upperProbeDepths - float4(currentDepth));
-        w *= float4(1.0f) / (dd + float4(0.0001f));
+        
+        float2 probeNDC = probeUVCenter[i] * 2.0f - 1.0f;
+        probeNDC.y = -probeNDC.y;
+        probeWorldPos[i] = reconstructWorldPositionFromLinearDepth(probeNDC, upperProbeDepths[i], frameData);
     }
     
-    float wsum = w.x + w.y + w.z + w.w;
-    w /= wsum;
-    
-    // Bilinear interpolation offsets
+    float2 ratio3d = getBilinear3dRatioIter(probeWorldPos, currentWorldPos, upperFrac, 2);
+    float4 bilinearWeights = float4((1.0f - ratio3d.x)   * (1.0f - ratio3d.y),
+                                     ratio3d.x           * (1.0f - ratio3d.y),
+                                    (1.0f - ratio3d.x)   * ratio3d.y,
+                                     ratio3d.x           * ratio3d.y);
+  
+    // Bilinear interpolation offsets for direction sampling
     int2 dirOffsets[4] = {int2(0, 0), int2(1, 0), int2(0, 1), int2(1, 1)};
     
     float4 accumulatedRadiance = float4(0.0f);
     for (int probeIdx = 0; probeIdx < 4; probeIdx++) {
-        float probeWeight = w[probeIdx];
+        float probeWeight = bilinearWeights[probeIdx];
         if (probeWeight <= 0.0f) continue;
         
         float4 probeRadiance = float4(0.0f);
@@ -244,9 +261,7 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
     float2 probeNDC = probeUV * 2.0f - 1.0f;
     probeNDC.y = -probeNDC.y;
     float probeDepth = depthTexture.sample(depthSampler, probeUV).x;
-    float3 worldPos = reconstructWorldPositionFromLinearDepth(probeNDC, probeDepth, frameData.near_plane, frameData.far_plane,
-                                                              frameData.projection_matrix_inverse,
-                                                              frameData.view_matrix_inverse);
+    float3 worldPos = reconstructWorldPositionFromLinearDepth(probeNDC, probeDepth, frameData);
 
 //    if (rayIndex == 0) {
 //        probeData[probeIndex].position = float4(worldPos, 0.0f);
@@ -329,6 +344,7 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
                                           probeUV,
                                           rayDir,
                                           probeDepth,
+                                          worldPos,
                                           cascadeData,
                                           frameData);
 

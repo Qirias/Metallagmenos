@@ -133,7 +133,7 @@ fragment half4 final_gather_fragment(VertexOut           in              [[stage
     float maxd = max(max(probeDepths.x, probeDepths.y), max(probeDepths.z, probeDepths.w));
     float diffd = maxd - mind;
     float avg = dot(probeDepths, float4(0.25f));
-    bool d_edge = (diffd / avg) > 0.1;
+    bool d_edge = (diffd / avg) > 0.05;
 
     float4 w = bilinearWeights;
     if (d_edge) {

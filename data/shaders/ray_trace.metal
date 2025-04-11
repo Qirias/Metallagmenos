@@ -35,24 +35,16 @@ float4 sun(float3 rayDir, FrameData frameData) {
 }
 
 float4 sky(float3 rayDir, FrameData frameData) {
-    float3 sunDirection = normalize(-frameData.sun_eye_direction.xyz);
-    float3 sunColor = frameData.sun_color.rgb;
-
     const float3 skyZenithColor = float3(0.0, 0.4, 0.8);
     const float3 skyHorizonColor = float3(0.3, 0.6, 0.8);
-    const float sunScatteringFactor = 0.8f;
     
     float upDot = max(0.0f, rayDir.y);
-    
-    float sunDot = max(0.0f, dot(rayDir, sunDirection));
     float3 skyGradient = mix(skyHorizonColor, skyZenithColor, pow(upDot, 0.5f));
-    
-    float scattering = pow(sunDot, 8.0f) * sunScatteringFactor;
     
     float skyIntensity = frameData.sun_specular_intensity * 0.5f;
     float skyMask = (rayDir.y > 0.0f) ? 1.0f : 0.0f;
 
-    float3 finalSkyColor = (skyGradient + scattering * sunColor) * skyIntensity;
+    float3 finalSkyColor = skyGradient * skyIntensity;
     
     return float4(finalSkyColor * skyMask, 1.0f);
 }
@@ -174,7 +166,8 @@ float4 mergeUpperCascade(texture2d<float, access::sample> upperRadianceTexture,
     
     // Gather probe data
     for (int i = 0; i < 4; i++) {
-        probeCoord[i] = upperProbeBase + probeOffsets[i];
+        // Clamp to handle edge cases
+        probeCoord[i] = clamp(upperProbeBase + probeOffsets[i], int2(0), int2(upperGridSizeX - 1, upperGridSizeY - 1));
         probeUVCenter[i] = (float2(probeCoord[i]) + 0.5f) / float2(upperGridSizeX, upperGridSizeY);
         upperProbeDepths[i] = depthTexture.sample(depthSampler, probeUVCenter[i]).x;
         
@@ -229,8 +222,8 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
                     constant CascadeData&                       cascadeData             [[buffer(BufferIndexCascadeData)]],
                              primitive_acceleration_structure   accelerationStructure   [[buffer(BufferIndexAccelerationStructure)]],
                 const device TriangleResources::TriangleData*   resources               [[buffer(BufferIndexResources)]],
-//                      device Probe*                             probeData               [[buffer(BufferIndexProbeData)]],
-//                      device ProbeRay*                          rayData                 [[buffer(BufferIndexProbeRayData)]],
+                      device Probe*                             probeData               [[buffer(BufferIndexProbeData)]],
+                      device ProbeRay*                          rayData                 [[buffer(BufferIndexProbeRayData)]],
                              texture2d<float, access::sample>   depthTexture            [[texture(TextureIndexDepthTexture)]],
                              uint                               tid                     [[thread_position_in_grid]]) {
     const uint probeSpacing = cascadeData.probeSpacing;
@@ -263,9 +256,9 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
     float probeDepth = depthTexture.sample(depthSampler, probeUV).x;
     float3 worldPos = reconstructWorldPositionFromLinearDepth(probeNDC, probeDepth, frameData);
 
-//    if (rayIndex == 0) {
-//        probeData[probeIndex].position = float4(worldPos, 0.0f);
-//    }
+    if (rayIndex == 0) {
+        probeData[probeIndex].position = float4(worldPos, 0.0f);
+    }
 
     int rayX = rayIndex % raysPerDim;
     int rayY = rayIndex / raysPerDim;
@@ -308,12 +301,12 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
     intersector<triangle_data> intersector;
     intersection_result<triangle_data> result = intersector.intersect(ray, accelerationStructure);
 
-//    float3 startPoint = worldPos + rayDir * intervalStart;
-//    float3 endPoint = worldPos + rayDir * intervalEnd;
+    float3 startPoint = worldPos + rayDir * intervalStart;
+    float3 endPoint = worldPos + rayDir * intervalEnd;
 
-//    uint rayDataIndex = probeIndex * numRays + rayIndex;
-//    rayData[rayDataIndex].intervalStart = float4(startPoint, 1.0);
-//    rayData[rayDataIndex].intervalEnd = float4(endPoint, 1.0);
+    uint rayDataIndex = probeIndex * numRays + rayIndex;
+    rayData[rayDataIndex].intervalStart = float4(startPoint, 1.0);
+    rayData[rayDataIndex].intervalEnd = float4(endPoint, 1.0);
 
     // Direct radiance from current cascade
     bool sampleSunOrSky = cascadeData.enableSky || cascadeData.enableSun;
@@ -326,10 +319,14 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
         radiance = (triangle.colors[0].a == -1.0f) ? float4(triangle.colors[0].rgb, 1.0) : float4(0.0, 0.0, 0.0, 1.0);
         occlusion = 0.0;
         
+        if (triangle.colors[0].a == -1.0f)
+            rayData[rayDataIndex].color = float4(1.0, 0.0, 0.0, 1.0);
+        else
+            rayData[rayDataIndex].color = float4(0.0, 0.0, 1.0, 1.0);
     } else {
         occlusion = 1.0f;
         // No intersection - Apply sky for higher cascades
-        if (cascadeLevel == cascadeData.maxCascade  && sampleSunOrSky) {
+        if ((cascadeLevel == cascadeData.maxCascade) && sampleSunOrSky) {
             radiance = skyAndSun(rayDir, frameData, cascadeData);
         } else {
             radiance = float4(0.0, 0.0, 0.0, 1.0);
@@ -349,6 +346,7 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
                                           frameData);
 
         if (result.type == intersection_type::none) {
+            rayData[rayDataIndex].color = float4(0.4, 0.4, 0.4, 1.0);
             // If no hit in current cascade, use upper cascade
             radiance = upperRadiance;
         } else {

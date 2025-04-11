@@ -155,7 +155,7 @@ void Engine::resizeFrameBuffer(int width, int height) {
 void Engine::initWindow() {
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindow = glfwCreateWindow(768, 768, "Metalλαγμένος", NULL, NULL);
+    glfwWindow = glfwCreateWindow(1024, 1024, "Metalλαγμένος", NULL, NULL);
     if (!glfwWindow) {
         glfwTerminate();
         exit(EXIT_FAILURE);
@@ -227,7 +227,7 @@ void Engine::loadSceneFromJSON(const std::string& jsonFilePath) {
 }
 
 void Engine::loadScene() {
-    loadSceneFromJSON(std::string(SCENES_PATH) + "/sponzaHornbug.json");
+    loadSceneFromJSON(std::string(SCENES_PATH) + "/cubeScene.json");
 }
 
 MTL::VertexDescriptor* Engine::createDefaultVertexDescriptor() {
@@ -377,7 +377,7 @@ void Engine::updateWorldState(bool isPaused) {
 
 	// Define the sun color
 	frameData->sun_color = simd_make_float4(0.95, 0.95, 0.9, 1.0);
-	frameData->sun_specular_intensity = 1.0;
+	frameData->sun_specular_intensity = 0.7;
 
 	// Calculate the sun's X position oscillating over time
 	float oscillationSpeed = 0.02f;
@@ -949,11 +949,11 @@ void Engine::createViewRenderPassDescriptor() {
     // Configure load/store actions
     viewRenderPassDescriptor->colorAttachments()->object(RenderTargetAlbedo)->setLoadAction(MTL::LoadActionClear);
     viewRenderPassDescriptor->colorAttachments()->object(RenderTargetAlbedo)->setStoreAction(MTL::StoreActionStore);
-    viewRenderPassDescriptor->colorAttachments()->object(RenderTargetAlbedo)->setClearColor(MTL::ClearColor(0.0, 0.4, 0.8, 1.0));
+    viewRenderPassDescriptor->colorAttachments()->object(RenderTargetAlbedo)->setClearColor(MTL::ClearColor(0.0, 0.0, 0.0, 1.0));
     
     viewRenderPassDescriptor->colorAttachments()->object(RenderTargetNormal)->setLoadAction(MTL::LoadActionClear);
     viewRenderPassDescriptor->colorAttachments()->object(RenderTargetNormal)->setStoreAction(MTL::StoreActionStore);
-    viewRenderPassDescriptor->colorAttachments()->object(RenderTargetNormal)->setClearColor(MTL::ClearColor(0.0, 0.4, 0.8, 1.0));
+    viewRenderPassDescriptor->colorAttachments()->object(RenderTargetNormal)->setClearColor(MTL::ClearColor(0.0, 0.0, 0.0, 1.0));
     
     viewRenderPassDescriptor->colorAttachments()->object(RenderTargetDepth)->setLoadAction(MTL::LoadActionClear);
     viewRenderPassDescriptor->colorAttachments()->object(RenderTargetDepth)->setStoreAction(MTL::StoreActionStore);

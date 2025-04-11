@@ -12,7 +12,7 @@ public:
 
     struct DebugWindowOptions {
         bool enableDebugFeature = false;
-        bool sky = false;
+        bool sky = true;
         bool sun = false;
         int debugCascadeLevel = -1;
         float intervalLength = 1.0f;

@@ -67,6 +67,35 @@ float3 oct_decode(float2 f) {
     return normalize(n);
 }
 
+half3 renderSky(float3 rayDir, FrameData frameData) {
+    float sunIntensity = frameData.sun_specular_intensity;
+    
+    const float3 skyZenithColor = float3(0.1, 0.2, 0.6);      // Deeper blue at zenith
+    const float3 skyMidColor = float3(0.4, 0.6, 0.9);         // Mid sky blue
+    const float3 skyHorizonColor = float3(0.8, 0.9, 0.95);    // Almost white at horizon
+    
+    float height = 0.5;
+    float3 skyGradient;
+    
+    if (height < 0.3) {
+        // Lower portion: horizon color to mid
+        float t = height / 0.3;
+        skyGradient = mix(skyHorizonColor, skyMidColor, smoothstep(0.0, 1.0, t));
+    } else if (height < 0.5) {
+        // Middle portion: solid mid color
+        skyGradient = skyMidColor;
+    } else {
+        // Upper portion: mid to zenith
+        float t = (height - 0.5) / 0.5;
+        skyGradient = mix(skyMidColor, skyZenithColor, smoothstep(0.0, 1.0, t));
+    }
+    
+    float skyIntensity = sunIntensity * 0.7f;
+    float3 finalSkyColor = skyGradient * skyIntensity;
+    
+    return half3(finalSkyColor);
+}
+
 fragment half4 final_gather_fragment(VertexOut           in              [[stage_in]],
                          constant    FrameData&          frameData       [[buffer(BufferIndexFrameData)]],
                                      texture2d<float>    radianceTexture [[texture(TextureIndexRadiance)]],
@@ -82,17 +111,20 @@ fragment half4 final_gather_fragment(VertexOut           in              [[stage
     half4 normalRaw = half4(normalTexture.sample(samplerLinear, texCoords));
     half3 normal = normalize(normalRaw.xyz);
     float currentDepth = depthTexture.sample(samplerLinear, texCoords).x;
+    
+    if (length(albedoSpecular.rgb) == 0.0) {
+        float4 clipPos = float4(in.texCoords * 2.0 - 1.0, 0.0, 1.0);
+        clipPos.y = -clipPos.y;
+        float4 viewDir = frameData.projection_matrix_inverse * clipPos;
+        float3 worldDir = normalize((frameData.view_matrix_inverse * viewDir).xyz);
+        
+        half3 skyColor = renderSky(worldDir, frameData);
+        return half4(postProcessColor(skyColor), 1.0h);
+    }
 
     bool isEmissive = (normalRaw.a == -1);
     
-    // Handle emissive surfaces directly
-    if (isEmissive) {
-        half3 lightDir = normalize(half3(0.0, 1.0, 0.0));
-        float shading = max(0.0h, dot(normal, half3(lightDir))) * 0.5h + 0.5h;
-        half3 finalColor = albedo * shading * 2.0h;
-        return half4(finalColor, 1.0h);
-    }
-
+    // Render the radiance texture for debugging the cascades
     if (!doBilinear) {
         float4 radiance = radianceTexture.sample(samplerLinear, texCoords);
         
@@ -104,12 +136,22 @@ fragment half4 final_gather_fragment(VertexOut           in              [[stage
         
         return half4(finalColor, 1.0);
     }
+    
+    // Handle emissive surfaces directly
+    if (isEmissive) {
+        half3 lightDir = normalize(half3(0.0, 1.0, 0.0));
+        float shading = max(0.0h, dot(normal, half3(lightDir))) * 0.5h + 0.5h;
+        half3 finalColor = albedo * shading * 2.0h;
+        return half4(finalColor, 1.0h);
+    }
 
     // Calculate probe grid coordinates
     float2 probeGridSize = float2(frameData.framebuffer_width * 0.25, frameData.framebuffer_height * 0.25);
     float2 probeCoord = texCoords * probeGridSize - 0.5f;
     int2 probeBase = int2(floor(probeCoord));
     float2 probeFrac = fract(probeCoord);
+    probeBase = clamp(probeBase, int2(0), int2(probeGridSize) - int2(2));
+
     
     // Default bilinear weights
     float4 bilinearWeights = float4((1.0f - probeFrac.x) * (1.0f - probeFrac.y),

@@ -41,7 +41,7 @@ float4 sky(float3 rayDir, FrameData frameData) {
     float upDot = max(0.0f, rayDir.y);
     float3 skyGradient = mix(skyHorizonColor, skyZenithColor, pow(upDot, 0.5f));
     
-    float skyIntensity = frameData.sun_specular_intensity * 0.5f;
+    float skyIntensity = frameData.sun_specular_intensity * 0.25f;
     float skyMask = (rayDir.y > 0.0f) ? 1.0f : 0.0f;
 
     float3 finalSkyColor = skyGradient * skyIntensity;
@@ -69,7 +69,7 @@ float3 reconstructWorldPositionFromLinearDepth(float2 ndc, float linearDepth, Fr
     viewPos /= viewPos.w;
     
     float scale = linearDepth / fabs(viewPos.z);
-    float depthBias = 0.999;
+    float depthBias = 0.97;
     
     float3 viewPosAtDepth = viewPos.xyz * (scale * depthBias);
     

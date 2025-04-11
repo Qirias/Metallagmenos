@@ -6,16 +6,16 @@
                 "filename": "@MODELS_PATH@/cube.obj"
             },
             {
-                "name": "bunny",
-                "filename": "@MODELS_PATH@/bunny.obj"
+                "name": "quad",
+                "filename": "@MODELS_PATH@/quad.obj"
             }
         ],
         "objects": [
             {
-                "mesh": "cube",
-                "pos": [0.0, -0.6, 0.0],
+                "mesh": "quad",
+                "pos": [0.0, -0.5, 0.0],
                 "scale": [10.0, 0.1, 10.0],
-                "color": [0.8, 0.8, 0.8],
+                "color": [1.0, 1.0, 1.0],
                 "hasTextures": false,
                 "isEmissive": false,
                 "emissiveColor": [0.0, 0.0, 0.0]
@@ -24,19 +24,10 @@
                 "mesh": "cube",
                 "pos": [0.0, 0.0, 0.0],
                 "scale": [0.5, 0.5, 0.5],
-                "color": [0.0, 1.0, 0.0],
+                "color": [0.9608, 0.9608, 0.8627],
                 "hasTextures": false,
                 "isEmissive": false,
                 "emissiveColor": [0.0, 1.0, 0.0]
-            },
-            {
-                "mesh": "bunny",
-                "pos": [0.0, -0.3, -2.0],
-                "scale": [0.7, 0.7, 0.7],
-                "color": [0.0, 1.0, 0.0],
-                "hasTextures": false,
-                "isEmissive": true,
-                "emissiveColor": [3.0, 0.0, 3.0]
             }
         ]
     }

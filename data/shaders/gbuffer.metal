@@ -76,7 +76,7 @@ float linearDepth(float depth, float near, float far) {
 fragment GBufferData gbuffer_fragment(ColorInOut            in                  [[stage_in]],
                           constant    FrameData&            frameData           [[buffer(BufferIndexFrameData)]],
 						  constant    bool&                 isEmissive          [[buffer(BufferIndexIsEmissive)]],
-						  constant    float3&               emissiveColor       [[buffer(BufferIndexEmissiveColor)]],
+						  constant    float3&               noTexColor          [[buffer(BufferIndexColor)]],
 									  texture2d_array<half> baseColorMap        [[texture(TextureIndexBaseColor),   function_constant(hasTextures)]],
 									  texture2d_array<half> normalMap           [[texture(TextureIndexNormal),      function_constant(hasTextures)]],
                           constant    TextureInfo*          diffuseTextureInfos [[buffer(BufferIndexDiffuseInfo),   function_constant(hasTextures)]],
@@ -97,7 +97,7 @@ fragment GBufferData gbuffer_fragment(ColorInOut            in                  
 
 		base_color_sample = baseColorMap.sample(linearSampler, transformedUV, in.diffuseTextureIndex);
 	} else {
-		base_color_sample = half4(0.9608, 0.9608, 0.8627, 1.0); // Default color if no texture
+        base_color_sample =  half4(half3(noTexColor), 1.0h);
 	}
 
 	// Sample the normal from the normal map texture array
@@ -122,7 +122,7 @@ fragment GBufferData gbuffer_fragment(ColorInOut            in                  
 	gBuffer.normal_map = half4(eye_normal, 1.0f);
 
 	if (!hasTextures) {
-		gBuffer.albedo_specular = isEmissive ? half4(half3(emissiveColor), 1.0h) : base_color_sample;
+		gBuffer.albedo_specular = isEmissive ? half4(half3(noTexColor), 1.0h) : base_color_sample;
 	} else {
 		gBuffer.albedo_specular = half4(base_color_sample.rgb, 1.0); // Albedo (RGB) + Specular (A)
 	}

@@ -102,7 +102,8 @@ fragment half4 final_gather_fragment(VertexOut           in              [[stage
                                      texture2d<half>     albedoTexture   [[texture(TextureIndexBaseColor)]],
                                      texture2d<half>     normalTexture   [[texture(TextureIndexNormal)]],
                                      texture2d<float>    depthTexture    [[texture(TextureIndexDepthTexture)]],
-                         constant    bool&               doBilinear      [[buffer(3)]]) {
+                         constant    bool&               doBilinear      [[buffer(3)]],
+                         constant    bool&               drawSky         [[buffer(4)]]) {
     float2 texCoords = float2(in.texCoords.x, 1.0 - in.texCoords.y);
     
     // Sample G-Buffer textures
@@ -113,15 +114,19 @@ fragment half4 final_gather_fragment(VertexOut           in              [[stage
     float currentDepth = depthTexture.sample(samplerLinear, texCoords).x;
     
     if (length(albedoSpecular.rgb) == 0.0) {
-        float4 clipPos = float4(in.texCoords * 2.0 - 1.0, 0.0, 1.0);
-        clipPos.y = -clipPos.y;
-        float4 viewDir = frameData.projection_matrix_inverse * clipPos;
-        float3 worldDir = normalize((frameData.view_matrix_inverse * viewDir).xyz);
+        if (drawSky) {
+            float4 clipPos = float4(in.texCoords * 2.0 - 1.0, 0.0, 1.0);
+            clipPos.y = -clipPos.y;
+            float4 viewDir = frameData.projection_matrix_inverse * clipPos;
+            float3 worldDir = normalize((frameData.view_matrix_inverse * viewDir).xyz);
+            
+            half3 skyColor = renderSky(worldDir, frameData);
+            return half4(postProcessColor(skyColor), 1.0h);
+        }
         
-        half3 skyColor = renderSky(worldDir, frameData);
-        return half4(postProcessColor(skyColor), 1.0h);
+        return half4(0.0, 0.0, 0.0, 1.0);
     }
-
+    
     bool isEmissive = (normalRaw.a == -1);
     
     // Render the radiance texture for debugging the cascades
@@ -137,14 +142,6 @@ fragment half4 final_gather_fragment(VertexOut           in              [[stage
         return half4(finalColor, 1.0);
     }
     
-    // Handle emissive surfaces directly
-    if (isEmissive) {
-        half3 lightDir = normalize(half3(0.0, 1.0, 0.0));
-        float shading = max(0.0h, dot(normal, half3(lightDir))) * 0.5h + 0.5h;
-        half3 finalColor = albedo * shading * 2.0h;
-        return half4(finalColor, 1.0h);
-    }
-
     // Calculate probe grid coordinates
     float2 probeGridSize = float2(frameData.framebuffer_width * 0.25, frameData.framebuffer_height * 0.25);
     float2 probeCoord = texCoords * probeGridSize - 0.5f;
@@ -152,7 +149,6 @@ fragment half4 final_gather_fragment(VertexOut           in              [[stage
     float2 probeFrac = fract(probeCoord);
     probeBase = clamp(probeBase, int2(0), int2(probeGridSize) - int2(2));
 
-    
     // Default bilinear weights
     float4 bilinearWeights = float4((1.0f - probeFrac.x) * (1.0f - probeFrac.y),
                                    probeFrac.x * (1.0f - probeFrac.y),
@@ -165,7 +161,7 @@ fragment half4 final_gather_fragment(VertexOut           in              [[stage
     float2 probeUVs[4];
     
     for (int i = 0; i < 4; i++) {
-        probeCoords[i] = int2(probeBase) + probeOffsets[i];
+        probeCoords[i] = clamp(int2(probeBase) + probeOffsets[i], int2(0.0), int2(probeGridSize-1));
         probeCoords[i] = clamp(probeCoords[i], int2(0), int2(probeGridSize) - 1);
         probeUVs[i] = (float2(probeCoords[i]) + 0.5f) / probeGridSize;
         probeDepths[i] = depthTexture.sample(samplerLinear, probeUVs[i]).x;
@@ -192,7 +188,6 @@ fragment half4 final_gather_fragment(VertexOut           in              [[stage
     float4 probeRadiance[4];
     
     for (int probeIdx = 0; probeIdx < 4; probeIdx++) {
-        
         float2 probeBaseUV = float2(probeCoords[probeIdx]) * probeTileSize * probeTexelSize;
         float4 radianceSum = float4(0.0);
         float totalWeight = 0.0;
@@ -204,9 +199,15 @@ fragment half4 final_gather_fragment(VertexOut           in              [[stage
                 float3 direction = oct_decode(dirUV);
                 float cosTheta = max(0.0, dot(float3(normal), direction));
                 float2 sampleUV = probeBaseUV + dirUV * (probeTileSize * probeTexelSize);
-                float4 sample = radianceTexture.sample(samplerLinear, sampleUV);
                 
-                radianceSum += sample * cosTheta;
+                if (isEmissive) {
+                    float3 emissiveContribution = float3(albedo) * cosTheta;
+                    radianceSum += float4(emissiveContribution, 1.0) * cosTheta;
+                } else {
+                    float4 sample = radianceTexture.sample(samplerLinear, sampleUV);
+                    radianceSum += sample * cosTheta;
+                }
+                
                 totalWeight += cosTheta;
             }
         }

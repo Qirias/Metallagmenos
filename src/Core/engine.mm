@@ -227,7 +227,7 @@ void Engine::loadSceneFromJSON(const std::string& jsonFilePath) {
 }
 
 void Engine::loadScene() {
-    loadSceneFromJSON(std::string(SCENES_PATH) + "/cubeScene.json");
+    loadSceneFromJSON(std::string(SCENES_PATH) + "/bunnies.json");
 }
 
 MTL::VertexDescriptor* Engine::createDefaultVertexDescriptor() {
@@ -1123,7 +1123,10 @@ void Engine::drawMeshes(MTL::RenderCommandEncoder* renderCommandEncoder) {
         // Set any textures read/sampled from the render pipeline
         renderCommandEncoder->setFragmentTexture(meshes[i]->diffuseTextures, TextureIndexBaseColor);
         renderCommandEncoder->setFragmentBytes(&meshes[i]->meshInfo.isEmissive, sizeof(bool), BufferIndexIsEmissive);
-        renderCommandEncoder->setFragmentBytes(&meshes[i]->meshInfo.emissiveColor, sizeof(simd::float3), BufferIndexEmissiveColor);
+        if (meshes[i]->meshInfo.isEmissive)
+            renderCommandEncoder->setFragmentBytes(&meshes[i]->meshInfo.emissiveColor, sizeof(simd::float3), BufferIndexColor);
+        else
+            renderCommandEncoder->setFragmentBytes(&meshes[i]->meshInfo.color, sizeof(simd::float3), BufferIndexColor);
         renderCommandEncoder->setFragmentTexture(meshes[i]->normalTextures, TextureIndexNormal);
         renderCommandEncoder->setFragmentBuffer(meshes[i]->diffuseTextureInfos, 0, BufferIndexDiffuseInfo);
         renderCommandEncoder->setFragmentBuffer(meshes[i]->normalTextureInfos, 0, BufferIndexNormalInfo);
@@ -1149,6 +1152,7 @@ void Engine::drawGBuffer(MTL::RenderCommandEncoder* renderCommandEncoder)
 void Engine::drawFinalGathering(MTL::RenderCommandEncoder* renderCommandEncoder)
 {
     bool doBilinear = editor->debug.debugCascadeLevel == -1;
+    bool drawSky = editor->debug.sky;
     renderCommandEncoder->setCullMode(MTL::CullModeNone);
 
     renderCommandEncoder->setRenderPipelineState(renderPipelines.getRenderPipeline(RenderPipelineType::FinalGather));
@@ -1160,6 +1164,7 @@ void Engine::drawFinalGathering(MTL::RenderCommandEncoder* renderCommandEncoder)
     renderCommandEncoder->setFragmentTexture(normalMapGBuffer, TextureIndexNormal);
     renderCommandEncoder->setFragmentTexture(albedoSpecularGBuffer, TextureIndexBaseColor);
     renderCommandEncoder->setFragmentBytes(&doBilinear, sizeof(bool), 3);
+    renderCommandEncoder->setFragmentBytes(&drawSky, sizeof(bool), 4);
 
     renderCommandEncoder->drawPrimitives(MTL::PrimitiveTypeTriangle, 0, 3, 1);
 }

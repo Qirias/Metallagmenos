@@ -121,6 +121,14 @@ std::vector<Mesh*> SceneParser::loadScene(const std::string& jsonFilePath) {
                         info.emissiveColor = {1.0f, 1.0f, 1.0f};
                     }
                 }
+
+                if (objDef.contains("rot") && objDef["rot"].is_array() && objDef["rot"].size() == 3) {
+                    info.rotation = {
+                        objDef["rot"][0],
+                        objDef["rot"][1],
+                        objDef["rot"][2]
+                    };
+                }
                 
                 std::string meshPath = meshPaths[meshName];
                 Mesh* newMesh = new Mesh(meshPath.c_str(), metalDevice, defaultVertexDescriptor, info);

@@ -38,6 +38,7 @@ struct MeshInfo {
     bool isEmissive = false; 
     float3 scale = float3{1.0, 1.0, 1.0};
     float3 position = float3{0, 0, 0};
+    float3 rotation = float3{0, 0, 0};
     float3 color = float3{1.0, 1.0, 1.0};
     float3 emissiveColor = float3{0.0, 0.0, 0.0};
 };

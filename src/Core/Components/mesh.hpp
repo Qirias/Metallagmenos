@@ -12,6 +12,8 @@ using namespace simd;
 #include <string>
 
 #include <tinyobjloader/tiny_obj_loader.h>
+
+#include "camera.hpp"
 #include "vertexData.hpp"
 #include "textureArray.hpp"
 
@@ -78,18 +80,48 @@ public:
     std::unordered_map<Vertex, uint32_t>    vertexMap;
     
     matrix_float4x4 getTransformMatrix() const {
-        // Create scaling matrix manually using simd notation
+        // Create scaling matrix
         matrix_float4x4 scaleMatrix{simd::float4{meshInfo.scale.x, 0.0f, 0.0f, 0.0f},
                                     simd::float4{0.0f, meshInfo.scale.y, 0.0f, 0.0f},
                                     simd::float4{0.0f, 0.0f, meshInfo.scale.z, 0.0f},
                                     simd::float4{0.0f, 0.0f, 0.0f, 1.0f}};
         
+        float cosX = cos(radians_from_degrees(meshInfo.rotation.x));
+        float sinX = sin(radians_from_degrees(meshInfo.rotation.x));
+        float cosY = cos(radians_from_degrees(meshInfo.rotation.y));
+        float sinY = sin(radians_from_degrees(meshInfo.rotation.y));
+        float cosZ = cos(radians_from_degrees(meshInfo.rotation.z));
+        float sinZ = sin(radians_from_degrees(meshInfo.rotation.z));
+        
+        // Rotation around X axis
+        matrix_float4x4 rotX{simd::float4{1.0f, 0.0f, 0.0f, 0.0f},
+                             simd::float4{0.0f, cosX, sinX, 0.0f},
+                             simd::float4{0.0f, -sinX, cosX, 0.0f},
+                             simd::float4{0.0f, 0.0f, 0.0f, 1.0f}};
+        
+        // Rotation around Y axis
+        matrix_float4x4 rotY{simd::float4{cosY, 0.0f, -sinY, 0.0f},
+                             simd::float4{0.0f, 1.0f, 0.0f, 0.0f},
+                             simd::float4{sinY, 0.0f, cosY, 0.0f},
+                             simd::float4{0.0f, 0.0f, 0.0f, 1.0f}};
+        
+        // Rotation around Z axis
+        matrix_float4x4 rotZ{simd::float4{cosZ, sinZ, 0.0f, 0.0f},
+                             simd::float4{-sinZ, cosZ, 0.0f, 0.0f},
+                             simd::float4{0.0f, 0.0f, 1.0f, 0.0f},
+                             simd::float4{0.0f, 0.0f, 0.0f, 1.0f}};
+        
+        // First Z, then Y, then X
+        matrix_float4x4 rotationMatrix = matrix_multiply(matrix_multiply(rotZ, rotY), rotX);
+        
         matrix_float4x4 posMatrix{simd::float4{1.0f, 0.0f, 0.0f, 0.0f},
                                   simd::float4{0.0f, 1.0f, 0.0f, 0.0f},
                                   simd::float4{0.0f, 0.0f, 1.0f, 0.0f},
                                   simd::float4{meshInfo.position.x, meshInfo.position.y, meshInfo.position.z, 1.0f}};
+        
 
-        return matrix_multiply(posMatrix, scaleMatrix);
+        matrix_float4x4 rotateScale = matrix_multiply(rotationMatrix, scaleMatrix);
+        return matrix_multiply(posMatrix, rotateScale);
     }
     
 public:

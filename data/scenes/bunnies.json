@@ -1,0 +1,58 @@
+{
+    "scene": {
+        "meshes": [
+            {
+                "name": "cube",
+                "filename": "@MODELS_PATH@/cube.obj"
+            },
+            {
+                "name": "quad",
+                "filename": "@MODELS_PATH@/quad.obj"
+            },
+            {
+                "name": "bunny",
+                "filename": "@MODELS_PATH@/bunny.obj"
+            }
+        ],
+        "objects": [
+            {
+                "mesh": "quad",
+                "pos": [0.0, -0.5, 0.0],
+                "scale": [10.0, 0.1, 10.0],
+                "color": [1.0, 1.0, 1.0],
+                "hasTextures": false,
+                "isEmissive": false,
+                "emissiveColor": [0.0, 0.0, 0.0]
+            },
+            {
+                "mesh": "cube",
+                "pos": [1.0, 6.0, -2.0],
+                "scale": [0.2, 1.0, 1.0],
+                "rot": [0.0, -45.0, -120.0],
+                "color": [0.9608, 0.9608, 0.8627],
+                "hasTextures": false,
+                "isEmissive": true,
+                "emissiveColor": [0.67, 0.82, 0.69]
+            },
+            {
+                "mesh": "cube",
+                "pos": [3.0, 1.0, 4.0],
+                "scale": [0.75, 1.5, 0.75],
+                "color": [0.9608, 0.9608, 0.8627],
+                "hasTextures": false,
+                "isEmissive": true,
+                "emissiveColor": [1.0, 0.72, 0.75]
+            },
+            {
+                "mesh": "bunny",
+                "pos": [0.0, -0.3, 0.0],
+                "scale": [2.0, 2.0, 2.0],
+                "rot": [0.0, 90.0, 0.0],
+                "color": [0.9608, 0.9608, 0.8627],
+                "hasTextures": false,
+                "isEmissive": false,
+                "emissiveColor": [1.0, 0.0, 1.0]
+            }
+        ]
+    }
+}

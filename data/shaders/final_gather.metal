@@ -183,12 +183,13 @@ fragment half4 final_gather_fragment(VertexOut           in              [[stage
     w /= wsum;
 
     const uint probeTileSize = 4;
-    const float probeTexelSize = 1.0f / (probeGridSize.x * probeTileSize);
+    const float probeTexelSizeX = 1.0f / (probeGridSize.x * probeTileSize);
+    const float probeTexelSizeY = 1.0f / (probeGridSize.y * probeTileSize);
 
     float4 probeRadiance[4];
     
     for (int probeIdx = 0; probeIdx < 4; probeIdx++) {
-        float2 probeBaseUV = float2(probeCoords[probeIdx]) * probeTileSize * probeTexelSize;
+        float2 probeBaseUV = float2(probeCoords[probeIdx]) * probeTileSize * float2(probeTexelSizeX, probeTexelSizeY);
         float4 radianceSum = float4(0.0);
         float totalWeight = 0.0;
         
@@ -198,7 +199,7 @@ fragment half4 final_gather_fragment(VertexOut           in              [[stage
                 float2 dirUV = float2((x + 0.5f) / probeTileSize, (y + 0.5f) / probeTileSize);
                 float3 direction = oct_decode(dirUV);
                 float cosTheta = max(0.0, dot(float3(normal), direction));
-                float2 sampleUV = probeBaseUV + dirUV * (probeTileSize * probeTexelSize);
+                float2 sampleUV = probeBaseUV + dirUV * (probeTileSize * float2(probeTexelSizeX, probeTexelSizeY));
                 
                 if (isEmissive) {
                     float3 emissiveContribution = float3(albedo) * cosTheta;

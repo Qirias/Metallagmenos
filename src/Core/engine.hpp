@@ -35,6 +35,9 @@
 constexpr uint8_t MaxFramesInFlight = 1;
 constexpr float NEAR_PLANE = 0.1f;
 constexpr float FAR_PLANE = 100.0f;
+constexpr int CASCADE_LEVEL = 6;
+constexpr int PROBE_SPACING = 4;
+constexpr int BASE_RAY = 16;
 
 
 class Engine {
@@ -145,6 +148,9 @@ private:
     MTL::Buffer*                                resourceBuffer;
     size_t                                      totalTriangles;
     MTL::Texture*                               rayTracingTexture;
+    MTL::Texture*                               finalGatherTexture;
+    std::vector<std::vector<MTL::Buffer*>>      cascadeDataBuffer;
+    MTL::RenderPassDescriptor*                  finalGatherDescriptor;
     
     void setupTriangleResources();
     void createAccelerationStructureWithDescriptors();
@@ -159,7 +165,7 @@ private:
     int                                     debugProbeCount = 0;
     int                                     rayCount = 0;
     int                                     debugCascadeLevel = 0;
-    bool                                    createDebugData = true;
+    bool                                    createDebugData = false;
     
     void createSphereGrid();
     void createDebugLines();
@@ -177,11 +183,4 @@ private:
     void dispatchTwoPassBlur(MTL::CommandBuffer* commandBuffer);
     MTL::Texture*                               intermediateBlurTexture;
     MTL::Texture*                               blurredColor;
-    
-    int                                         cascadeLevel = 6;
-    int                                         probeSpacing = 4;
-    int                                         baseRay = 16;
-    MTL::Texture*                               finalGatherTexture;
-    std::vector<std::vector<MTL::Buffer*>>      cascadeDataBuffer;
-    MTL::RenderPassDescriptor*                  finalGatherDescriptor;
 };

@@ -58,7 +58,7 @@ void Engine::cleanup() {
 	for(int frame = 0; frame < MaxFramesInFlight; frame++) {
 		frameDataBuffers[frame]->release();
         
-        for (int cascade = 0; cascade < cascadeLevel; cascade++) {
+        for (int cascade = 0; cascade < CASCADE_LEVEL; cascade++) {
             cascadeDataBuffer[frame][cascade]->release();
             probePosBuffer[frame][cascade]->release();
             rayBuffer[frame][cascade]->release();
@@ -155,7 +155,7 @@ void Engine::resizeFrameBuffer(int width, int height) {
 void Engine::initWindow() {
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindow = glfwCreateWindow(1024, 1024, "Metalλαγμένος", NULL, NULL);
+    glfwWindow = glfwCreateWindow(1920, 1152, "Metalλαγμένος", NULL, NULL);
     if (!glfwWindow) {
         glfwTerminate();
         exit(EXIT_FAILURE);
@@ -311,19 +311,19 @@ void Engine::createBuffers() {
         frameDataBuffers[frame] = metalDevice->newBuffer(sizeof(FrameData), MTL::ResourceStorageModeShared);
         frameDataBuffers[frame]->setLabel(NS::String::string("FrameData", NS::ASCIIStringEncoding));
         
-        cascadeDataBuffer[frame].resize(cascadeLevel);
-        probePosBuffer[frame].resize(cascadeLevel);
-        rayBuffer[frame].resize(cascadeLevel);
-        for (int cascade = 0; cascade < cascadeLevel; cascade++) {
+        cascadeDataBuffer[frame].resize(CASCADE_LEVEL);
+        probePosBuffer[frame].resize(CASCADE_LEVEL);
+        rayBuffer[frame].resize(CASCADE_LEVEL);
+        for (int cascade = 0; cascade < CASCADE_LEVEL; cascade++) {
             std::string labelStr = "Frame: " + std::to_string(frame) + "|CascadeData: " + std::to_string(cascade);
             NS::String* label = NS::String::string(labelStr.c_str(), NS::ASCIIStringEncoding);
             cascadeDataBuffer[frame][cascade] = metalDevice->newBuffer(sizeof(CascadeData), MTL::ResourceStorageModeShared);
             cascadeDataBuffer[frame][cascade]->setLabel(label);
-//
+
             if (createDebugData) {
-                debugProbeCount = floor(metalLayer.drawableSize.width / (probeSpacing * 1 << cascade)) * floor(metalLayer.drawableSize.height / (probeSpacing * 1 << cascade));
+                debugProbeCount = floor(metalLayer.drawableSize.width / (PROBE_SPACING * 1 << cascade)) * floor(metalLayer.drawableSize.height / (PROBE_SPACING * 1 << cascade));
                 size_t probeBufferSize = debugProbeCount * sizeof(Probe);
-                rayCount = debugProbeCount * baseRay * (1 << (2 * cascade));
+                rayCount = debugProbeCount * BASE_RAY * (1 << (2 * cascade));
                 size_t rayBufferSize = rayCount * sizeof(ProbeRay);
                 
                 labelStr = "Frame: " + std::to_string(frame) + "|CascadeProbes: " + std::to_string(cascade);
@@ -592,6 +592,7 @@ void Engine::createAccelerationStructureWithDescriptors() {
         vertexOffset += mesh->vertices.size();
         totalTriangles += mesh->triangleCount;
     }
+    
 
     size_t vertexBufferSize             = mergedVertices.size() * sizeof(Vertex);
     MTL::Buffer* mergedVertexBuffer     = metalDevice->newBuffer(vertexBufferSize, MTL::ResourceStorageModeShared);
@@ -696,8 +697,8 @@ void Engine::setupTriangleResources() {
 void Engine::createSphereGrid() {
     debug->clearLines();
     
-    debugProbeCount = floor(metalLayer.drawableSize.width / (probeSpacing * 1 << debugCascadeLevel)) * floor(metalLayer.drawableSize.height / (probeSpacing * 1 << debugCascadeLevel));
-    const float sphereRadius = 0.001f * float(1 << debugCascadeLevel) * probeSpacing;
+    debugProbeCount = floor(metalLayer.drawableSize.width / (PROBE_SPACING * 1 << debugCascadeLevel)) * floor(metalLayer.drawableSize.height / (PROBE_SPACING * 1 << debugCascadeLevel));
+    const float sphereRadius = 0.001f * float(1 << debugCascadeLevel) * PROBE_SPACING;
     simd::float3 sphereColor = {1.0f, 0.0f, 0.0f};
     std::vector<simd::float4> spherePositions;
     
@@ -712,7 +713,7 @@ void Engine::createSphereGrid() {
 
 void Engine::createDebugLines() {
     
-    rayCount = debugProbeCount * baseRay * (1 << (2 * debugCascadeLevel));
+    rayCount = debugProbeCount * BASE_RAY * (1 << (2 * debugCascadeLevel));
     
     std::vector<simd::float4> startPoints;
     std::vector<simd::float4> endPoints;
@@ -769,22 +770,22 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
     MTL::Texture* lastMergedTexture = nil;
     int pingPongIndex = 0;
     
-    for (int level = cascadeLevel - 1; level >= (editor->debug.debugCascadeLevel == -1 ? 0 : editor->debug.debugCascadeLevel); --level) {
+    for (int level = CASCADE_LEVEL - 1; level >= (editor->debug.debugCascadeLevel == -1 ? 0 : editor->debug.debugCascadeLevel); --level) {
         MTL::ComputeCommandEncoder* computeEncoder = commandBuffer->computeCommandEncoder();
         computeEncoder->setLabel(NS::String::string(("Ray Tracing Cascade " + std::to_string(level)).c_str(), NS::ASCIIStringEncoding));
         
         // Update cascade level in frame data
         CascadeData *cascadeData = reinterpret_cast<CascadeData*>(cascadeDataBuffer[currentFrameIndex][level]->contents());
         cascadeData->cascadeLevel = level;
-        cascadeData->probeSpacing = probeSpacing;
+        cascadeData->probeSpacing = PROBE_SPACING;
         cascadeData->intervalLength = editor->debug.intervalLength;
-        cascadeData->maxCascade = cascadeLevel-1;
+        cascadeData->maxCascade = CASCADE_LEVEL-1;
         cascadeData->enableSky = editor->debug.sky ? 1.0 : 0.0;
         cascadeData->enableSun = editor->debug.sun ? 1.0 : 0.0;
         
         MTL::Texture* currentRenderTarget = nil;
         
-        if (level == cascadeLevel - 1 && (editor->debug.debugCascadeLevel == -1 ? 0 : editor->debug.debugCascadeLevel) != cascadeLevel - 1) {
+        if (level == CASCADE_LEVEL - 1 && (editor->debug.debugCascadeLevel == -1 ? 0 : editor->debug.debugCascadeLevel) != CASCADE_LEVEL - 1) {
             currentRenderTarget = rcRenderTargets[pingPongIndex];
             pingPongIndex = 1 - pingPongIndex;
             lastMergedTexture = nil;
@@ -798,7 +799,7 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
         computeEncoder->setComputePipelineState(renderPipelines.getComputePipeline(ComputePipelineType::Raytracing));
         computeEncoder->setTexture(currentRenderTarget, TextureIndexRadiance);
         
-        if (level < cascadeLevel-1) {
+        if (level < CASCADE_LEVEL-1) {
             computeEncoder->setTexture(lastMergedTexture, TextureIndexRadianceUpper);
             computeEncoder->useResource(lastMergedTexture, MTL::ResourceUsageRead);
         }
@@ -828,9 +829,9 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
         }
 
         // Compute probe grid and thread counts
-        int tile_size = probeSpacing * (1 << level);
-        size_t probeGridSizeX = (metalDrawable->texture()->width() + tile_size - 1) / tile_size;
-        size_t probeGridSizeY = (metalDrawable->texture()->height() + tile_size - 1) / tile_size;
+        int tile_size = PROBE_SPACING * (1 << level);
+        size_t probeGridSizeX = (width + tile_size - 1) / tile_size;
+        size_t probeGridSizeY = (height + tile_size - 1) / tile_size;
         uint raysPerDim =  (1 << (level + 2));
         uint numRays = (raysPerDim * raysPerDim);
         size_t totalProbes = probeGridSizeX * probeGridSizeY;

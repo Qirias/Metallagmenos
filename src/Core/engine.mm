@@ -125,16 +125,16 @@ void Engine::cursorPosCallback(GLFWwindow* window, double xpos, double ypos) {
 void Engine::resizeFrameBuffer(int width, int height) {
     metalLayer.drawableSize = CGSizeMake(width, height);
     
-    if (albedoSpecularGBuffer)      resourceManager->releaseTexture(albedoSpecularGBuffer);
-    if (normalMapGBuffer)           resourceManager->releaseTexture(normalMapGBuffer);
-    if (depthGBuffer)               resourceManager->releaseTexture(depthGBuffer);
-    if (depthStencilTexture)        resourceManager->releaseTexture(depthStencilTexture);
-    if (finalGatherTexture)         resourceManager->releaseTexture(finalGatherTexture);
-    if (forwardDepthStencilTexture) resourceManager->releaseTexture(forwardDepthStencilTexture);
-    if (linearDepthTexture)         resourceManager->releaseTexture(linearDepthTexture);
-    if (minMaxDepthTexture)         resourceManager->releaseTexture(minMaxDepthTexture);
-    if (intermediateBlurTexture)    resourceManager->releaseTexture(intermediateBlurTexture);
-    if (blurredColor)               resourceManager->releaseTexture(blurredColor);
+    resourceManager->releaseTexture(albedoSpecularGBuffer);
+    resourceManager->releaseTexture(normalMapGBuffer);
+    resourceManager->releaseTexture(depthGBuffer);
+    resourceManager->releaseTexture(depthStencilTexture);
+    resourceManager->releaseTexture(finalGatherTexture);
+    resourceManager->releaseTexture(forwardDepthStencilTexture);
+    resourceManager->releaseTexture(linearDepthTexture);
+    resourceManager->releaseTexture(minMaxDepthTexture);
+    resourceManager->releaseTexture(intermediateBlurTexture);
+    resourceManager->releaseTexture(blurredColor);
     
     // Release render pass descriptors
     if (viewRenderPassDescriptor) {
@@ -644,6 +644,16 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
     uint width = metalLayer.drawableSize.width;
     uint height = metalLayer.drawableSize.height;
     
+    // Get required textures using enum-based lookup
+    MTL::Texture* finalGatherTex = resourceManager->getTexture(TextureName::FinalGatherTexture);
+    MTL::Texture* linearDepthTex = resourceManager->getTexture(TextureName::LinearDepthTexture);
+    
+    // Make sure required textures exist
+    if (!finalGatherTex || !linearDepthTex) {
+        std::cerr << "Error: Missing textures for ray tracing dispatch" << std::endl;
+        return;
+    }
+    
     MTL::TextureDescriptor* desc = MTL::TextureDescriptor::alloc()->init();
     desc->setTextureType(MTL::TextureType2D);
     desc->setPixelFormat(MTL::PixelFormatRGBA16Float);
@@ -689,7 +699,7 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
             currentRenderTarget = rcRenderTargets[pingPongIndex];
             pingPongIndex = 1 - pingPongIndex;
         } else {
-            currentRenderTarget = finalGatherTexture;
+            currentRenderTarget = finalGatherTex;
         }
         
         computeEncoder->setComputePipelineState(renderPipelines.getComputePipeline(ComputePipelineType::Raytracing));
@@ -703,7 +713,7 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
         computeEncoder->setBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
         computeEncoder->setBuffer(cascadeDataBuffer[currentFrameIndex][level], 0, BufferIndexCascadeData);
         
-        // Use the resource buffer from RayTracingManager
+        // Get the resource buffer from RayTracingManager
         MTL::Buffer* resourceBuffer = rayTracingManager->getResourceBuffer();
         computeEncoder->setBuffer(resourceBuffer, 0, BufferIndexResources);
         
@@ -712,18 +722,23 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
             computeEncoder->setBuffer(rayBuffer[currentFrameIndex][level], 0, BufferIndexProbeRayData);
         }
         
-        computeEncoder->setTexture(linearDepthTexture, TextureIndexDepthTexture);
+        computeEncoder->setTexture(linearDepthTex, TextureIndexDepthTexture);
 
         computeEncoder->useResource(resourceBuffer, MTL::ResourceUsageRead);
         if (createDebugData) {
             computeEncoder->useResource(probePosBuffer[currentFrameIndex][level], MTL::ResourceUsageWrite);
             computeEncoder->useResource(rayBuffer[currentFrameIndex][level], MTL::ResourceUsageWrite);
         }
-        computeEncoder->useResource(linearDepthTexture, MTL::ResourceUsageRead);
+        computeEncoder->useResource(linearDepthTex, MTL::ResourceUsageRead);
         computeEncoder->useResource(currentRenderTarget, MTL::ResourceUsageWrite);
 
         // Set acceleration structures from RayTracingManager
         MTL::AccelerationStructure* accelStructure = rayTracingManager->getPrimitiveAccelerationStructure();
+        if (!accelStructure) {
+            std::cerr << "Error: Acceleration structure is null when dispatching raytracing!" << std::endl;
+            return;
+        }
+        
         computeEncoder->setAccelerationStructure(accelStructure, BufferIndexAccelerationStructure);
         computeEncoder->useResource(accelStructure, MTL::ResourceUsageRead);
 
@@ -738,7 +753,6 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
 
         MTL::Size threadGroupSize = MTL::Size(64, 1, 1);
         size_t numThreadGroups = (totalThreads + threadGroupSize.width - 1) / threadGroupSize.width;
-        MTL::Size gridSize = MTL::Size(numThreadGroups * threadGroupSize.width, 1, 1);
 
         computeEncoder->dispatchThreadgroups(MTL::Size(numThreadGroups, 1, 1), threadGroupSize);
         computeEncoder->endEncoding();
@@ -754,27 +768,23 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
 }
 
 void Engine::dispatchTwoPassBlur(MTL::CommandBuffer* commandBuffer) {
-    uint width = metalLayer.drawableSize.width;
-    uint height = metalLayer.drawableSize.height;
+    // Use enum-based texture lookups
+    MTL::Texture* finalGatherTex = resourceManager->getTexture(TextureName::FinalGatherTexture);
+    MTL::Texture* intermediateTex = resourceManager->getTexture(TextureName::IntermediateBlurTexture);
+    MTL::Texture* blurredColorTex = resourceManager->getTexture(TextureName::BlurredColorTexture);
     
-    if (!intermediateBlurTexture) {
-        MTL::TextureDescriptor* desc = MTL::TextureDescriptor::alloc()->init();
-        desc->setTextureType(MTL::TextureType2D);
-        desc->setPixelFormat(MTL::PixelFormatRGBA16Float);
-        desc->setWidth(width);
-        desc->setHeight(height);
-        desc->setStorageMode(MTL::StorageModePrivate);
-        desc->setUsage(MTL::TextureUsageShaderRead | MTL::TextureUsageShaderWrite);
-        
-        intermediateBlurTexture = metalDevice->newTexture(desc);
-        intermediateBlurTexture->setLabel(NS::String::string("Intermediate Blur Texture", NS::ASCIIStringEncoding));
-        
-        desc->release();
+    // Make sure textures exist
+    if (!finalGatherTex || !intermediateTex || !blurredColorTex) {
+        std::cerr << "Error: Missing textures for two-pass blur" << std::endl;
+        return;
     }
+    
+    uint width = finalGatherTex->width();
+    uint height = finalGatherTex->height();
     
     MTL::Size threadGroupSize = MTL::Size(16, 16, 1);
     MTL::Size threadgroups = MTL::Size((width + threadGroupSize.width - 1) / threadGroupSize.width,
-                                       (height + threadGroupSize.height - 1) / threadGroupSize.height, 1);
+                                     (height + threadGroupSize.height - 1) / threadGroupSize.height, 1);
     
     // First pass - Horizontal blur
     MTL::ComputeCommandEncoder* horizontalEncoder = commandBuffer->computeCommandEncoder();
@@ -782,11 +792,11 @@ void Engine::dispatchTwoPassBlur(MTL::CommandBuffer* commandBuffer) {
     horizontalEncoder->setComputePipelineState(renderPipelines.getComputePipeline(ComputePipelineType::HorizontalBlur));
     
     horizontalEncoder->setBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
-    horizontalEncoder->setTexture(finalGatherTexture, TextureIndexRadianceUpper);
-    horizontalEncoder->setTexture(intermediateBlurTexture, TextureIndexRadiance);
+    horizontalEncoder->setTexture(finalGatherTex, TextureIndexRadianceUpper);
+    horizontalEncoder->setTexture(intermediateTex, TextureIndexRadiance);
     
-    horizontalEncoder->useResource(finalGatherTexture, MTL::ResourceUsageRead);
-    horizontalEncoder->useResource(intermediateBlurTexture, MTL::ResourceUsageWrite);
+    horizontalEncoder->useResource(finalGatherTex, MTL::ResourceUsageRead);
+    horizontalEncoder->useResource(intermediateTex, MTL::ResourceUsageWrite);
     
     horizontalEncoder->dispatchThreadgroups(threadgroups, threadGroupSize);
     horizontalEncoder->endEncoding();
@@ -797,11 +807,11 @@ void Engine::dispatchTwoPassBlur(MTL::CommandBuffer* commandBuffer) {
     verticalEncoder->setComputePipelineState(renderPipelines.getComputePipeline(ComputePipelineType::VerticalBlur));
     
     verticalEncoder->setBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
-    verticalEncoder->setTexture(intermediateBlurTexture, TextureIndexRadianceUpper);
-    verticalEncoder->setTexture(blurredColor, TextureIndexRadiance);
+    verticalEncoder->setTexture(intermediateTex, TextureIndexRadianceUpper);
+    verticalEncoder->setTexture(blurredColorTex, TextureIndexRadiance);
     
-    verticalEncoder->useResource(intermediateBlurTexture, MTL::ResourceUsageRead);
-    verticalEncoder->useResource(blurredColor, MTL::ResourceUsageWrite);
+    verticalEncoder->useResource(intermediateTex, MTL::ResourceUsageRead);
+    verticalEncoder->useResource(blurredColorTex, MTL::ResourceUsageWrite);
     
     verticalEncoder->dispatchThreadgroups(threadgroups, threadGroupSize);
     verticalEncoder->endEncoding();
@@ -816,22 +826,22 @@ void Engine::createViewRenderPassDescriptor() {
     uint32_t width = metalLayer.drawableSize.width;
     uint32_t height = metalLayer.drawableSize.height;
     
-    // Create GBuffer textures using ResourceManager
+    // Create GBuffer textures using ResourceManager with enums
     albedoSpecularGBuffer = resourceManager->createGBufferTexture(
-        width, height, albedoSpecularGBufferFormat, "Albedo GBuffer"
+        width, height, albedoSpecularGBufferFormat, TextureName::AlbedoGBuffer
     );
     
     normalMapGBuffer = resourceManager->createGBufferTexture(
-        width, height, normalMapGBufferFormat, "Normal + Specular GBuffer"
+        width, height, normalMapGBufferFormat, TextureName::NormalGBuffer
     );
     
     depthGBuffer = resourceManager->createGBufferTexture(
-        width, height, depthGBufferFormat, "Depth GBuffer"
+        width, height, depthGBufferFormat, TextureName::DepthGBuffer
     );
     
     // Create depth/stencil texture
     depthStencilTexture = resourceManager->createDepthStencilTexture(
-        width, height, "Depth-Stencil Texture"
+        width, height, TextureName::DepthStencilTexture
     );
     
     // Create render pass descriptor
@@ -867,7 +877,7 @@ void Engine::createViewRenderPassDescriptor() {
     
     // Forward Debug
     forwardDepthStencilTexture = resourceManager->createDepthStencilTexture(
-        width, height, "Forward Depth Stencil Texture"
+        width, height, TextureName::ForwardDepthStencilTexture
     );
     
     forwardDescriptor = MTL::RenderPassDescriptor::alloc()->init();
@@ -877,7 +887,7 @@ void Engine::createViewRenderPassDescriptor() {
     
     // Create linear depth texture for prepass
     linearDepthTexture = resourceManager->createRenderTargetTexture(
-        width, height, MTL::PixelFormatR32Float, "Linear Depth Texture"
+        width, height, MTL::PixelFormatR32Float, TextureName::LinearDepthTexture
     );
 
     // Create depth prepass descriptor
@@ -907,16 +917,16 @@ void Engine::createViewRenderPassDescriptor() {
     minMaxDescriptor->setHeight(height);
     minMaxDescriptor->setStorageMode(MTL::StorageModeShared);
     minMaxDescriptor->setUsage(MTL::TextureUsageShaderRead | MTL::TextureUsageShaderWrite);
-    // minMaxDescriptor->setMipmapLevelCount(log2(std::max(width, height)) + 1);
+    minMaxDescriptor->setMipmapLevelCount(log2(std::max(metalLayer.drawableSize.width, metalLayer.drawableSize.height)) + 1);
     
-    minMaxDepthTexture = resourceManager->createTexture(minMaxDescriptor, "Min-Max Depth Texture");
+    minMaxDepthTexture = resourceManager->createTexture(minMaxDescriptor, TextureName::MinMaxDepthTexture);
     minMaxDescriptor->release();
     
     // Create the raytracing output texture
-    finalGatherTexture = resourceManager->createRaytracingOutputTexture(width, height, "Final Gather");
+    finalGatherTexture = resourceManager->createRaytracingOutputTexture(width, height, TextureName::FinalGatherTexture);
     
     // Create blur textures
-    blurredColor = resourceManager->createRaytracingOutputTexture(width, height, "Blurred Color");
+    blurredColor = resourceManager->createRaytracingOutputTexture(width, height, TextureName::BlurredColorTexture);
     
     // Create intermediate blur texture
     MTL::TextureDescriptor* blurDesc = MTL::TextureDescriptor::alloc()->init();
@@ -927,7 +937,7 @@ void Engine::createViewRenderPassDescriptor() {
     blurDesc->setStorageMode(MTL::StorageModePrivate);
     blurDesc->setUsage(MTL::TextureUsageShaderRead | MTL::TextureUsageShaderWrite);
     
-    intermediateBlurTexture = resourceManager->createTexture(blurDesc, "Intermediate Blur Texture");
+    intermediateBlurTexture = resourceManager->createTexture(blurDesc, TextureName::IntermediateBlurTexture);
     blurDesc->release();
 }
 
@@ -968,6 +978,20 @@ void Engine::updateRenderPassDescriptor() {
 }
 
 void Engine::renderDepthPrepass(MTL::CommandBuffer* commandBuffer) {
+    MTL::Texture* linearDepthTexture = resourceManager->getTexture(TextureName::LinearDepthTexture);
+    MTL::Texture* depthStencilTexture = resourceManager->getTexture(TextureName::DepthStencilTexture);
+    
+    // Make sure we have the necessary textures
+    if (!linearDepthTexture || !depthStencilTexture) {
+        std::cerr << "Error: Missing textures for depth prepass" << std::endl;
+        return;
+    }
+    
+    // Update the descriptor with the latest textures
+    depthPrepassDescriptor->colorAttachments()->object(0)->setTexture(linearDepthTexture);
+    depthPrepassDescriptor->depthAttachment()->setTexture(depthStencilTexture);
+    depthPrepassDescriptor->stencilAttachment()->setTexture(depthStencilTexture);
+    
     MTL::RenderCommandEncoder* depthPrepassEncoder = commandBuffer->renderCommandEncoder(depthPrepassDescriptor);
     depthPrepassEncoder->setFrontFacingWinding(MTL::WindingCounterClockwise);
     depthPrepassEncoder->setLabel(NS::String::string("Depth Prepass", NS::ASCIIStringEncoding));
@@ -985,7 +1009,7 @@ void Engine::renderDepthPrepass(MTL::CommandBuffer* commandBuffer) {
         matrix_float4x4 modelMatrix = meshes[i]->getTransformMatrix();
         depthPrepassEncoder->setVertexBytes(&modelMatrix, sizeof(modelMatrix), BufferIndexVertexBytes);
         
-        depthPrepassEncoder->drawIndexedPrimitives(MTL::PrimitiveTypeTriangle,  meshes[i]->indexCount, MTL::IndexTypeUInt32, meshes[i]->indexBuffer, 0);
+        depthPrepassEncoder->drawIndexedPrimitives(MTL::PrimitiveTypeTriangle, meshes[i]->indexCount, MTL::IndexTypeUInt32, meshes[i]->indexBuffer, 0);
     }
     
     depthPrepassEncoder->endEncoding();
@@ -1026,19 +1050,48 @@ void Engine::drawMeshes(MTL::RenderCommandEncoder* renderCommandEncoder) {
 
 void Engine::drawGBuffer(MTL::RenderCommandEncoder* renderCommandEncoder)
 {
-	renderCommandEncoder->pushDebugGroup(NS::String::string("Draw G-Buffer", NS::ASCIIStringEncoding));
-	renderCommandEncoder->setCullMode(MTL::CullModeBack);
-	renderCommandEncoder->setDepthStencilState(renderPipelines.getDepthStencilState(DepthStencilType::GBuffer));
-	renderCommandEncoder->setStencilReferenceValue(128);
-    renderCommandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
-	renderCommandEncoder->setFragmentBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
+    MTL::Texture* albedoGBuffer = resourceManager->getTexture(TextureName::AlbedoGBuffer);
+    MTL::Texture* normalGBuffer = resourceManager->getTexture(TextureName::NormalGBuffer);
+    MTL::Texture* depthGBuffer = resourceManager->getTexture(TextureName::DepthGBuffer);
+    MTL::Texture* depthStencilTex = resourceManager->getTexture(TextureName::DepthStencilTexture);
+    
+    // Make sure the textures exist
+    if (!albedoGBuffer || !normalGBuffer || !depthGBuffer || !depthStencilTex) {
+        std::cerr << "Error: Missing textures for G-Buffer rendering" << std::endl;
+        return;
+    }
+    
+    // Update render pass descriptor with current textures
+    viewRenderPassDescriptor->colorAttachments()->object(RenderTargetAlbedo)->setTexture(albedoGBuffer);
+    viewRenderPassDescriptor->colorAttachments()->object(RenderTargetNormal)->setTexture(normalGBuffer);
+    viewRenderPassDescriptor->colorAttachments()->object(RenderTargetDepth)->setTexture(depthGBuffer);
+    viewRenderPassDescriptor->depthAttachment()->setTexture(depthStencilTex);
+    viewRenderPassDescriptor->stencilAttachment()->setTexture(depthStencilTex);
 
-	drawMeshes(renderCommandEncoder);
-	renderCommandEncoder->popDebugGroup();
+    renderCommandEncoder->pushDebugGroup(NS::String::string("Draw G-Buffer", NS::ASCIIStringEncoding));
+    renderCommandEncoder->setCullMode(MTL::CullModeBack);
+    renderCommandEncoder->setDepthStencilState(renderPipelines.getDepthStencilState(DepthStencilType::GBuffer));
+    renderCommandEncoder->setStencilReferenceValue(128);
+    renderCommandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
+    renderCommandEncoder->setFragmentBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
+
+    drawMeshes(renderCommandEncoder);
+    renderCommandEncoder->popDebugGroup();
 }
 
 void Engine::drawFinalGathering(MTL::RenderCommandEncoder* renderCommandEncoder)
 {
+    MTL::Texture* finalGatherTex = resourceManager->getTexture(TextureName::FinalGatherTexture);
+    MTL::Texture* normalMapTex = resourceManager->getTexture(TextureName::NormalGBuffer);
+    MTL::Texture* albedoSpecularTex = resourceManager->getTexture(TextureName::AlbedoGBuffer);
+    MTL::Texture* linearDepthTex = resourceManager->getTexture(TextureName::LinearDepthTexture);
+    
+    // Check that required textures exist
+    if (!finalGatherTex || !normalMapTex || !albedoSpecularTex || !linearDepthTex) {
+        std::cerr << "Error: Missing textures for final gathering pass" << std::endl;
+        return;
+    }
+    
     bool doBilinear = editor->debug.debugCascadeLevel == -1;
     bool drawSky = editor->debug.sky;
     renderCommandEncoder->setCullMode(MTL::CullModeNone);
@@ -1047,10 +1100,10 @@ void Engine::drawFinalGathering(MTL::RenderCommandEncoder* renderCommandEncoder)
     renderCommandEncoder->setVertexBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
     renderCommandEncoder->setFragmentBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
     
-    renderCommandEncoder->setFragmentTexture(finalGatherTexture, TextureIndexRadiance);
-    renderCommandEncoder->setFragmentTexture(linearDepthTexture, TextureIndexDepthTexture);
-    renderCommandEncoder->setFragmentTexture(normalMapGBuffer, TextureIndexNormal);
-    renderCommandEncoder->setFragmentTexture(albedoSpecularGBuffer, TextureIndexBaseColor);
+    renderCommandEncoder->setFragmentTexture(finalGatherTex, TextureIndexRadiance);
+    renderCommandEncoder->setFragmentTexture(linearDepthTex, TextureIndexDepthTexture);
+    renderCommandEncoder->setFragmentTexture(normalMapTex, TextureIndexNormal);
+    renderCommandEncoder->setFragmentTexture(albedoSpecularTex, TextureIndexBaseColor);
     renderCommandEncoder->setFragmentBytes(&doBilinear, sizeof(bool), 3);
     renderCommandEncoder->setFragmentBytes(&drawSky, sizeof(bool), 4);
 
@@ -1058,16 +1111,26 @@ void Engine::drawFinalGathering(MTL::RenderCommandEncoder* renderCommandEncoder)
 }
 
 void Engine::dispatchMinMaxDepthMipmaps(MTL::CommandBuffer* commandBuffer) {
+    // Use enum-based texture lookups
+    MTL::Texture* depthStencilTex = resourceManager->getTexture(TextureName::DepthStencilTexture);
+    MTL::Texture* minMaxDepthTex = resourceManager->getTexture(TextureName::MinMaxDepthTexture);
+    
+    // Make sure textures exist
+    if (!depthStencilTex || !minMaxDepthTex) {
+        std::cerr << "Error: Missing textures for min/max depth mipmaps" << std::endl;
+        return;
+    }
+    
     MTL::ComputeCommandEncoder* encoder = commandBuffer->computeCommandEncoder();
     {
         encoder->setLabel(NS::String::string("First Min Max Depth", NS::ASCIIStringEncoding));
         encoder->setComputePipelineState(renderPipelines.getComputePipeline(ComputePipelineType::InitMinMaxDepth));
 
-        encoder->setTexture(depthStencilTexture, 0);
-        encoder->setTexture(minMaxDepthTexture, 1);
+        encoder->setTexture(depthStencilTex, 0);
+        encoder->setTexture(minMaxDepthTex, 1);
 
         MTL::Size threadsPerGroup(8, 8, 1);
-        MTL::Size threadgroups((minMaxDepthTexture->width() + 7) / 8, (minMaxDepthTexture->height() + 7) / 8, 1);
+        MTL::Size threadgroups((minMaxDepthTex->width() + 7) / 8, (minMaxDepthTex->height() + 7) / 8, 1);
 
         encoder->dispatchThreadgroups(threadgroups, threadsPerGroup);
     }
@@ -1075,7 +1138,7 @@ void Engine::dispatchMinMaxDepthMipmaps(MTL::CommandBuffer* commandBuffer) {
     encoder->setLabel(NS::String::string("Min Max Depth", NS::ASCIIStringEncoding));
     encoder->setComputePipelineState(renderPipelines.getComputePipeline(ComputePipelineType::MinMaxDepth));
 
-    unsigned long mipLevels = minMaxDepthTexture->mipmapLevelCount();
+    unsigned long mipLevels = minMaxDepthTex->mipmapLevelCount();
 
     for (uint32_t level = 1; level < mipLevels; ++level) {
         std::string labelStr = "MipLevel: " + std::to_string(level-1);
@@ -1086,14 +1149,14 @@ void Engine::dispatchMinMaxDepthMipmaps(MTL::CommandBuffer* commandBuffer) {
         NS::Range levelRangeDst(level, 1);
         NS::Range sliceRange(0, 1);
 
-        MTL::Texture* srcMip = minMaxDepthTexture->newTextureView(
+        MTL::Texture* srcMip = minMaxDepthTex->newTextureView(
             MTL::PixelFormatRG32Float,
             MTL::TextureType2D,
             levelRangeSrc,
             sliceRange
         );
 
-        MTL::Texture* dstMip = minMaxDepthTexture->newTextureView(
+        MTL::Texture* dstMip = minMaxDepthTex->newTextureView(
             MTL::PixelFormatRG32Float,
             MTL::TextureType2D,
             levelRangeDst,

@@ -27,6 +27,7 @@
 #include "../editor/editor.hpp"
 #include "../debug/debug.hpp"
 #include "managers/resourceManager.hpp"
+#include "managers/resourceNames.hpp"
 #include "managers/rayTracingManager.hpp"
 
 #include <stb/stb_image.h>

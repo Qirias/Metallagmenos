@@ -1,9 +1,7 @@
 #pragma once
 
 #include <Metal/Metal.hpp>
-#include <string>
-#include <unordered_map>
-#include <cassert>
+#include "../pch.hpp"
 
 enum class RenderPipelineType {
     GBufferTextured,

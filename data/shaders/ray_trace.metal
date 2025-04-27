@@ -8,11 +8,6 @@ using namespace raytracing;
 #include "shaderTypes.hpp"
 #include "shaderCommon.hpp"
 
-constant float PI4 = 12.56637; // Surface area of unit sphere
-constant uint ANGULAR_FACTOR = 4;
-constant uint C0_INTERVAL_COUNT = 16;
-constant float MAX_SOLID_ANGLE = 0.005;
-
 struct TriangleResources {
     struct TriangleData {
         float4 normals[3];
@@ -41,7 +36,7 @@ float4 sky(float3 rayDir, FrameData frameData) {
     float upDot = max(0.0f, rayDir.y);
     float3 skyGradient = mix(skyHorizonColor, skyZenithColor, pow(upDot, 0.5f));
     
-    float skyIntensity = frameData.sun_specular_intensity * 0.25f;
+    float skyIntensity = frameData.sun_specular_intensity * 0.5f;
     float skyMask = (rayDir.y > 0.0f) ? 1.0f : 0.0f;
 
     float3 finalSkyColor = skyGradient * skyIntensity;
@@ -69,7 +64,7 @@ float3 reconstructWorldPositionFromLinearDepth(float2 ndc, float linearDepth, Fr
     viewPos /= viewPos.w;
     
     float scale = linearDepth / fabs(viewPos.z);
-    float depthBias = 0.97;
+    float depthBias = 0.98;
     
     float3 viewPosAtDepth = viewPos.xyz * (scale * depthBias);
     
@@ -275,19 +270,12 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
         probeUV.y + (rayUV.y - 0.5f) * (float(tileSize) / float(frameData.framebuffer_height))
     );
 
-    // https://github.com/mxcop/src-dgi/blob/main/assets/shaders/surfels/cascade.slang
-    float baseIntervalLength = MAX_SOLID_ANGLE * C0_INTERVAL_COUNT / PI4;
-
-    // Scale intervals with angular resolution
-    float intervalStart, intervalEnd;
-    if (cascadeLevel == 0) {
-        intervalStart = 0.0f;
-        intervalEnd = baseIntervalLength * float(ANGULAR_FACTOR);
-    } else {
-        float start_scale = pow(float(ANGULAR_FACTOR), float(cascadeLevel));
-        intervalStart = baseIntervalLength * start_scale;
-        intervalEnd = baseIntervalLength * start_scale * float(ANGULAR_FACTOR);
-    }
+    const float baseCascadeRange = 0.016f;
+    const float cascadeRangeMultiplier = 4.0f;
+    float cascadeStartRange = (cascadeLevel == 0) ? 0.0f : (baseCascadeRange * pow(cascadeRangeMultiplier, float(cascadeLevel - 1)));
+    float cascadeEndRange = baseCascadeRange * pow(cascadeRangeMultiplier, float(cascadeLevel));
+    float intervalStart = cascadeStartRange * intervalLength;
+    float intervalEnd = cascadeEndRange * intervalLength;
 
     intervalStart *= intervalLength;
     intervalEnd *= intervalLength;
@@ -303,7 +291,7 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
 
 //    float3 startPoint = worldPos + rayDir * intervalStart;
 //    float3 endPoint = worldPos + rayDir * intervalEnd;
-
+//
 //    uint rayDataIndex = probeIndex * numRays + rayIndex;
 //    rayData[rayDataIndex].intervalStart = float4(startPoint, 1.0);
 //    rayData[rayDataIndex].intervalEnd = float4(endPoint, 1.0);
@@ -312,7 +300,7 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
     bool sampleSunOrSky = cascadeData.enableSky || cascadeData.enableSun;
     float4 radiance = float4(0.0);
     float occlusion;
-    
+//    rayData[rayDataIndex].color = float4(1.0, 0.0, 0.0, 1.0);
     if (result.type != intersection_type::none) {
         unsigned int primitiveIndex = result.primitive_id;
         const device TriangleResources::TriangleData& triangle = resources[primitiveIndex];

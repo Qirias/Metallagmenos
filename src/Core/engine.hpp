@@ -26,6 +26,8 @@
 #include "managers/renderPipeline.hpp"
 #include "../editor/editor.hpp"
 #include "../debug/debug.hpp"
+#include "managers/resourceManager.hpp"
+#include "managers/rayTracingManager.hpp"
 
 #include <stb/stb_image.h>
 
@@ -104,8 +106,10 @@ private:
     CA::MetalDrawable*  metalDrawable;
 
     // Managers
-    RenderPipeline                renderPipelines;
-    std::unique_ptr<Editor>       editor;
+    RenderPipeline                      renderPipelines;
+    std::unique_ptr<Editor>             editor;
+    std::unique_ptr<ResourceManager>    resourceManager;
+    std::unique_ptr<RayTracingManager>  rayTracingManager;
     
     bool                windowResizeFlag = false;
     int                 newWidth;

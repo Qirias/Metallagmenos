@@ -17,8 +17,11 @@ void Engine::init() {
     initDevice();
     initWindow();
 
+    resourceManager = std::make_unique<ResourceManager>(metalDevice);
     editor = std::make_unique<Editor>(glfwWindow, metalDevice);
     debug = std::make_unique<Debug>(metalDevice);
+    rayTracingManager = std::make_unique<RayTracingManager>(metalDevice, resourceManager.get());
+
 
     createCommandQueue();
 	loadScene();
@@ -28,8 +31,10 @@ void Engine::init() {
     defaultVertexDescriptor = createDefaultVertexDescriptor();
     createRenderPipelines();
 	createViewRenderPassDescriptor();
-    createAccelerationStructureWithDescriptors();
-    setupTriangleResources();
+    // createAccelerationStructureWithDescriptors();
+    // setupTriangleResources();
+    rayTracingManager->setupAccelerationStructures(meshes);
+    rayTracingManager->setupTriangleResources(meshes);
 }
 
 void Engine::run() {
@@ -52,31 +57,50 @@ void Engine::run() {
 
 void Engine::cleanup() {
     glfwTerminate();
-    for (auto& mesh : meshes)
-            delete mesh;
-	
-	for(int frame = 0; frame < MaxFramesInFlight; frame++) {
-		frameDataBuffers[frame]->release();
-        
+    
+    // Clean up mesh objects
+    for (auto& mesh : meshes) {
+        delete mesh;
+    }
+    
+    // Release frame-specific buffers that are not managed by ResourceManager
+    for (int frame = 0; frame < MaxFramesInFlight; frame++) {
+        // Will be moving these to ResourceManager eventually, but for now:
         for (int cascade = 0; cascade < CASCADE_LEVEL; cascade++) {
-            cascadeDataBuffer[frame][cascade]->release();
-            probePosBuffer[frame][cascade]->release();
-            rayBuffer[frame][cascade]->release();
+            if (cascadeDataBuffer[frame][cascade]) {
+                cascadeDataBuffer[frame][cascade]->release();
+            }
+            
+            if (createDebugData) {
+                if (probePosBuffer[frame][cascade]) {
+                    probePosBuffer[frame][cascade]->release();
+                }
+                if (rayBuffer[frame][cascade]) {
+                    rayBuffer[frame][cascade]->release();
+                }
+            }
         }
     }
     
-
-    linearDepthTexture->release();    
-    depthPrepassDescriptor->release();
-    finalGatherTexture->release();
-    forwardDepthStencilTexture->release();
-    minMaxDepthTexture->release();
-    resourceBuffer->release();
-	defaultVertexDescriptor->release();
-	viewRenderPassDescriptor->release();
-    finalGatherDescriptor->release();
-    forwardDescriptor->release();
-    metalDevice->release();
+    // Release descriptors which aren't managed by ResourceManager
+    if (viewRenderPassDescriptor) viewRenderPassDescriptor->release();
+    if (finalGatherDescriptor) finalGatherDescriptor->release();
+    if (forwardDescriptor) forwardDescriptor->release();
+    if (depthPrepassDescriptor) depthPrepassDescriptor->release();
+    
+    // Release other Metal objects
+    if (defaultVertexDescriptor) defaultVertexDescriptor->release();
+    if (metalCommandQueue) metalCommandQueue->release();
+    
+    // Use ResourceManager to release all resources it manages
+    if (resourceManager) {
+        resourceManager->releaseAllResources();
+    }
+    
+    // Finally release the device
+    if (metalDevice) {
+        metalDevice->release();
+    }
 }
 
 void Engine::initDevice() {
@@ -100,31 +124,19 @@ void Engine::cursorPosCallback(GLFWwindow* window, double xpos, double ypos) {
 
 void Engine::resizeFrameBuffer(int width, int height) {
     metalLayer.drawableSize = CGSizeMake(width, height);
-    // Deallocate the textures if they have been created
-    if (albedoSpecularGBuffer) {
-        albedoSpecularGBuffer->release();
-        albedoSpecularGBuffer = nil;
-    }
-    if (normalMapGBuffer) {
-        normalMapGBuffer->release();
-        normalMapGBuffer = nil;
-    }
-    if (depthGBuffer) {
-        depthGBuffer->release();
-        depthGBuffer = nil;
-    }
-    if (depthStencilTexture) {
-        depthStencilTexture->release();
-        depthStencilTexture = nil;
-    }
-    if (finalGatherTexture) {
-        finalGatherTexture->release();
-        finalGatherTexture = nil;
-    }
-    if (forwardDepthStencilTexture) {
-        forwardDepthStencilTexture->release();
-        forwardDepthStencilTexture = nil;
-    }
+    
+    if (albedoSpecularGBuffer)      resourceManager->releaseTexture(albedoSpecularGBuffer);
+    if (normalMapGBuffer)           resourceManager->releaseTexture(normalMapGBuffer);
+    if (depthGBuffer)               resourceManager->releaseTexture(depthGBuffer);
+    if (depthStencilTexture)        resourceManager->releaseTexture(depthStencilTexture);
+    if (finalGatherTexture)         resourceManager->releaseTexture(finalGatherTexture);
+    if (forwardDepthStencilTexture) resourceManager->releaseTexture(forwardDepthStencilTexture);
+    if (linearDepthTexture)         resourceManager->releaseTexture(linearDepthTexture);
+    if (minMaxDepthTexture)         resourceManager->releaseTexture(minMaxDepthTexture);
+    if (intermediateBlurTexture)    resourceManager->releaseTexture(intermediateBlurTexture);
+    if (blurredColor)               resourceManager->releaseTexture(blurredColor);
+    
+    // Release render pass descriptors
     if (viewRenderPassDescriptor) {
         viewRenderPassDescriptor->release();
         viewRenderPassDescriptor = nil;
@@ -141,13 +153,9 @@ void Engine::resizeFrameBuffer(int width, int height) {
         depthPrepassDescriptor->release();
         depthPrepassDescriptor = nil;
     }
-    if (linearDepthTexture) {
-        linearDepthTexture->release();
-        linearDepthTexture = nil;
-    }
 
-	// Recreate G-buffer textures and descriptors
-	createViewRenderPassDescriptor();
+    // Recreate G-buffer textures and descriptors
+    createViewRenderPassDescriptor();
     metalDrawable = (__bridge CA::MetalDrawable*)[metalLayer nextDrawable];
     updateRenderPassDescriptor();
 }
@@ -227,7 +235,7 @@ void Engine::loadSceneFromJSON(const std::string& jsonFilePath) {
 }
 
 void Engine::loadScene() {
-    loadSceneFromJSON(std::string(SCENES_PATH) + "/bunnies.json");
+    loadSceneFromJSON(std::string(SCENES_PATH) + "/sponza.json");
 }
 
 MTL::VertexDescriptor* Engine::createDefaultVertexDescriptor() {
@@ -302,39 +310,55 @@ void Engine::createDefaultLibrary() {
 }
 
 void Engine::createBuffers() {
- 
     cascadeDataBuffer.resize(MaxFramesInFlight);
     probePosBuffer.resize(MaxFramesInFlight);
     rayBuffer.resize(MaxFramesInFlight);
     
     for (int frame = 0; frame < MaxFramesInFlight; frame++) {
-        frameDataBuffers[frame] = metalDevice->newBuffer(sizeof(FrameData), MTL::ResourceStorageModeShared);
-        frameDataBuffers[frame]->setLabel(NS::String::string("FrameData", NS::ASCIIStringEncoding));
+        // Use ResourceManager to create frame data buffers
+        frameDataBuffers[frame] = resourceManager->createBuffer(
+            sizeof(FrameData), 
+            nullptr, 
+            MTL::ResourceStorageModeShared, 
+            "FrameData"
+        );
         
         cascadeDataBuffer[frame].resize(CASCADE_LEVEL);
         probePosBuffer[frame].resize(CASCADE_LEVEL);
         rayBuffer[frame].resize(CASCADE_LEVEL);
+        
         for (int cascade = 0; cascade < CASCADE_LEVEL; cascade++) {
             std::string labelStr = "Frame: " + std::to_string(frame) + "|CascadeData: " + std::to_string(cascade);
-            NS::String* label = NS::String::string(labelStr.c_str(), NS::ASCIIStringEncoding);
-            cascadeDataBuffer[frame][cascade] = metalDevice->newBuffer(sizeof(CascadeData), MTL::ResourceStorageModeShared);
-            cascadeDataBuffer[frame][cascade]->setLabel(label);
+            
+            cascadeDataBuffer[frame][cascade] = resourceManager->createBuffer(
+                sizeof(CascadeData), 
+                nullptr, 
+                MTL::ResourceStorageModeShared, 
+                labelStr.c_str()
+            );
 
             if (createDebugData) {
-                debugProbeCount = floor(metalLayer.drawableSize.width / (PROBE_SPACING * 1 << cascade)) * floor(metalLayer.drawableSize.height / (PROBE_SPACING * 1 << cascade));
+                debugProbeCount = floor(metalLayer.drawableSize.width / (PROBE_SPACING * 1 << cascade)) * 
+                                  floor(metalLayer.drawableSize.height / (PROBE_SPACING * 1 << cascade));
                 size_t probeBufferSize = debugProbeCount * sizeof(Probe);
                 rayCount = debugProbeCount * BASE_RAY * (1 << (2 * cascade));
                 size_t rayBufferSize = rayCount * sizeof(ProbeRay);
                 
                 labelStr = "Frame: " + std::to_string(frame) + "|CascadeProbes: " + std::to_string(cascade);
-                label = NS::String::string(labelStr.c_str(), NS::ASCIIStringEncoding);
-                probePosBuffer[frame][cascade] = metalDevice->newBuffer(probeBufferSize, MTL::ResourceStorageModeShared);
-                probePosBuffer[frame][cascade]->setLabel(NS::String::string("probePosBuffer", NS::ASCIIStringEncoding));
+                probePosBuffer[frame][cascade] = resourceManager->createBuffer(
+                    probeBufferSize, 
+                    nullptr, 
+                    MTL::ResourceStorageModeShared, 
+                    "probePosBuffer"
+                );
                 
                 labelStr = "Frame: " + std::to_string(frame) + "|CascadeRays: " + std::to_string(cascade);
-                label = NS::String::string(labelStr.c_str(), NS::ASCIIStringEncoding);
-                rayBuffer[frame][cascade] = metalDevice->newBuffer(rayBufferSize, MTL::ResourceStorageModeShared);
-                rayBuffer[frame][cascade]->setLabel(NS::String::string("rayBuffer", NS::ASCIIStringEncoding));
+                rayBuffer[frame][cascade] = resourceManager->createBuffer(
+                    rayBufferSize, 
+                    nullptr, 
+                    MTL::ResourceStorageModeShared, 
+                    "rayBuffer"
+                );
             }
         }
     }
@@ -566,134 +590,6 @@ void Engine::createRenderPipelines() {
     }
 }
 
-void Engine::createAccelerationStructureWithDescriptors() {
-    // Create a separate command queue for acceleration structure building
-    MTL::CommandQueue* commandQueue = metalDevice->newCommandQueue();
-    MTL::CommandBuffer* commandBuffer = commandQueue->commandBuffer();
-
-    std::vector<Vertex> mergedVertices;
-    std::vector<uint32_t> mergedIndices;
-
-    size_t vertexOffset = 0;
-    
-    for (const auto& mesh : meshes) {
-        matrix_float4x4 modelMatrix = mesh->getTransformMatrix();
-
-        for (const auto& vertex : mesh->vertices) {
-            Vertex transformedVertex = vertex;
-            transformedVertex.position = modelMatrix * vertex.position;
-            mergedVertices.push_back(transformedVertex);
-        }
-
-        for (size_t index : mesh->vertexIndices) {
-            mergedIndices.push_back(static_cast<uint32_t>(index + vertexOffset));
-        }
-
-        vertexOffset += mesh->vertices.size();
-        totalTriangles += mesh->triangleCount;
-    }
-    
-
-    size_t vertexBufferSize             = mergedVertices.size() * sizeof(Vertex);
-    MTL::Buffer* mergedVertexBuffer     = metalDevice->newBuffer(vertexBufferSize, MTL::ResourceStorageModeShared);
-    mergedVertexBuffer->setLabel(NS::String::string("mergedVertexBuffer", NS::ASCIIStringEncoding));
-    memcpy(mergedVertexBuffer->contents(), mergedVertices.data(), vertexBufferSize);
-
-    size_t indexBufferSize          = mergedIndices.size() * sizeof(uint32_t);
-    MTL::Buffer* mergedIndexBuffer  = metalDevice->newBuffer(indexBufferSize, MTL::ResourceStorageModeShared);
-    mergedIndexBuffer->setLabel(NS::String::string("mergedIndexBuffer", NS::ASCIIStringEncoding));
-
-    memcpy(mergedIndexBuffer->contents(), mergedIndices.data(), indexBufferSize);
-
-    MTL::AccelerationStructureTriangleGeometryDescriptor* geometryDescriptor = MTL::AccelerationStructureTriangleGeometryDescriptor::alloc()->init();
-
-    geometryDescriptor->setVertexBuffer(mergedVertexBuffer);
-    geometryDescriptor->setVertexStride(sizeof(Vertex));
-    geometryDescriptor->setVertexFormat(MTL::AttributeFormatFloat3);
-
-    geometryDescriptor->setIndexBuffer(mergedIndexBuffer);
-    geometryDescriptor->setIndexType(MTL::IndexTypeUInt32);
-    geometryDescriptor->setTriangleCount(static_cast<uint32_t>(totalTriangles));
-
-    NS::Array* geometryDescriptors = NS::Array::array(geometryDescriptor);
-
-    // Set the triangle geometry descriptors in the acceleration structure descriptor
-    MTL::PrimitiveAccelerationStructureDescriptor* accelerationStructureDescriptor = MTL::PrimitiveAccelerationStructureDescriptor::alloc()->init();
-    accelerationStructureDescriptor->setGeometryDescriptors(geometryDescriptors);
-
-    // Get acceleration structure sizes
-    MTL::AccelerationStructureSizes sizes = metalDevice->accelerationStructureSizes(accelerationStructureDescriptor);
-
-    // Create the acceleration structure
-    MTL::AccelerationStructure* accelerationStructure = metalDevice->newAccelerationStructure(sizes.accelerationStructureSize);
-
-    // Create a scratch buffer for building the acceleration structure
-    MTL::Buffer* scratchBuffer = metalDevice->newBuffer(sizes.buildScratchBufferSize, MTL::ResourceStorageModePrivate);
-    scratchBuffer->setLabel(NS::String::string("scratchBuffer", NS::ASCIIStringEncoding));
-
-
-    // Build the acceleration structure
-    MTL::AccelerationStructureCommandEncoder* commandEncoder = commandBuffer->accelerationStructureCommandEncoder();
-    commandEncoder->buildAccelerationStructure(accelerationStructure, accelerationStructureDescriptor, scratchBuffer, 0);
-    commandEncoder->endEncoding();
-
-    // Commit and wait for the command buffer to complete
-    commandBuffer->commit();
-    commandBuffer->waitUntilCompleted();
-
-    // Store the acceleration structure for later use
-    primitiveAccelerationStructures.push_back(accelerationStructure);
-
-    geometryDescriptor->release();
-    geometryDescriptors->release();
-    accelerationStructureDescriptor->release();
-    scratchBuffer->release();
-    commandBuffer->release();
-    commandQueue->release();
-}
-
-void Engine::setupTriangleResources() {
-    size_t resourceStride = sizeof(TriangleData);
-    size_t bufferLength = resourceStride * totalTriangles;
-
-    resourceBuffer = metalDevice->newBuffer(bufferLength, MTL::ResourceStorageModeShared);
-    resourceBuffer->setLabel(NS::String::string("Resource Buffer", NS::ASCIIStringEncoding));
-
-    TriangleData* resourceBufferContents = (TriangleData*)((uint8_t*)(resourceBuffer->contents()));
-    size_t triangleIndex = 0;
-
-    for (int m = 0; m < meshes.size(); m++) {
-        simd::float4 meshColor;
-        
-        if (meshes[m]->meshInfo.isEmissive) {
-            meshColor = simd::float4{
-                meshes[m]->meshInfo.emissiveColor.x,
-                meshes[m]->meshInfo.emissiveColor.y,
-                meshes[m]->meshInfo.emissiveColor.z,
-                -1.0f  // Emissive
-            };
-        } else {
-            meshColor = simd::float4{
-                meshes[m]->meshInfo.color.x,
-                meshes[m]->meshInfo.color.y,
-                meshes[m]->meshInfo.color.z,
-                1.0f  // Non-emissive
-            };
-        }
-        
-
-        for (size_t i = 0; i < meshes[m]->vertexIndices.size(); i += 3) {
-            TriangleData& triangle = resourceBufferContents[triangleIndex++];
-
-            for (size_t j = 0; j < 3; ++j) {
-                size_t vertexIndex = meshes[m]->vertexIndices[i + j];
-                triangle.normals[j] = meshes[m]->vertices[vertexIndex].normal;
-                triangle.colors[j] = meshColor;
-            }
-        }
-    }
-}
-
 void Engine::createSphereGrid() {
     debug->clearLines();
     
@@ -806,7 +702,11 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
         
         computeEncoder->setBuffer(frameDataBuffers[currentFrameIndex], 0, BufferIndexFrameData);
         computeEncoder->setBuffer(cascadeDataBuffer[currentFrameIndex][level], 0, BufferIndexCascadeData);
+        
+        // Use the resource buffer from RayTracingManager
+        MTL::Buffer* resourceBuffer = rayTracingManager->getResourceBuffer();
         computeEncoder->setBuffer(resourceBuffer, 0, BufferIndexResources);
+        
         if (createDebugData) {
             computeEncoder->setBuffer(probePosBuffer[currentFrameIndex][level], 0, BufferIndexProbeData);
             computeEncoder->setBuffer(rayBuffer[currentFrameIndex][level], 0, BufferIndexProbeRayData);
@@ -822,11 +722,10 @@ void Engine::dispatchRaytracing(MTL::CommandBuffer* commandBuffer) {
         computeEncoder->useResource(linearDepthTexture, MTL::ResourceUsageRead);
         computeEncoder->useResource(currentRenderTarget, MTL::ResourceUsageWrite);
 
-        // Set acceleration structures
-        for (uint i = 0; i < primitiveAccelerationStructures.size(); i++) {
-            computeEncoder->setAccelerationStructure(primitiveAccelerationStructures[i], BufferIndexAccelerationStructure);
-            computeEncoder->useResource(primitiveAccelerationStructures[i], MTL::ResourceUsageRead);
-        }
+        // Set acceleration structures from RayTracingManager
+        MTL::AccelerationStructure* accelStructure = rayTracingManager->getPrimitiveAccelerationStructure();
+        computeEncoder->setAccelerationStructure(accelStructure, BufferIndexAccelerationStructure);
+        computeEncoder->useResource(accelStructure, MTL::ResourceUsageRead);
 
         // Compute probe grid and thread counts
         int tile_size = PROBE_SPACING * (1 << level);
@@ -909,35 +808,33 @@ void Engine::dispatchTwoPassBlur(MTL::CommandBuffer* commandBuffer) {
 }
 
 void Engine::createViewRenderPassDescriptor() {
-    MTL::TextureDescriptor* gbufferTextureDesc = MTL::TextureDescriptor::alloc()->init();
+    // Define GBuffer formats
+    albedoSpecularGBufferFormat = MTL::PixelFormatRGBA8Unorm_sRGB;
+    normalMapGBufferFormat = MTL::PixelFormatRGBA8Snorm;
+    depthGBufferFormat = MTL::PixelFormatR32Float;
     
-    gbufferTextureDesc->setPixelFormat(MTL::PixelFormatRGBA8Unorm_sRGB);
-    gbufferTextureDesc->setWidth(metalLayer.drawableSize.width);
-    gbufferTextureDesc->setHeight(metalLayer.drawableSize.height);
-    gbufferTextureDesc->setMipmapLevelCount(1);
-    gbufferTextureDesc->setTextureType(MTL::TextureType2D);
+    uint32_t width = metalLayer.drawableSize.width;
+    uint32_t height = metalLayer.drawableSize.height;
     
-    // StorageModeShared
-    gbufferTextureDesc->setUsage(MTL::TextureUsageRenderTarget | MTL::TextureUsageShaderRead);
-    gbufferTextureDesc->setStorageMode(MTL::StorageModeShared);
-    gbufferTextureDesc->setPixelFormat(albedoSpecularGBufferFormat);
-    albedoSpecularGBuffer = metalDevice->newTexture(gbufferTextureDesc);
-    gbufferTextureDesc->setPixelFormat(normalMapGBufferFormat);
-    normalMapGBuffer = metalDevice->newTexture(gbufferTextureDesc);
-    gbufferTextureDesc->setPixelFormat(depthGBufferFormat);
-    depthGBuffer = metalDevice->newTexture(gbufferTextureDesc);
+    // Create GBuffer textures using ResourceManager
+    albedoSpecularGBuffer = resourceManager->createGBufferTexture(
+        width, height, albedoSpecularGBufferFormat, "Albedo GBuffer"
+    );
+    
+    normalMapGBuffer = resourceManager->createGBufferTexture(
+        width, height, normalMapGBufferFormat, "Normal + Specular GBuffer"
+    );
+    
+    depthGBuffer = resourceManager->createGBufferTexture(
+        width, height, depthGBufferFormat, "Depth GBuffer"
+    );
     
     // Create depth/stencil texture
-    gbufferTextureDesc->setPixelFormat(MTL::PixelFormatDepth32Float_Stencil8);
-    depthStencilTexture = metalDevice->newTexture(gbufferTextureDesc);
+    depthStencilTexture = resourceManager->createDepthStencilTexture(
+        width, height, "Depth-Stencil Texture"
+    );
     
-    albedoSpecularGBuffer->setLabel(NS::String::string("Albedo GBuffer", NS::ASCIIStringEncoding));
-    normalMapGBuffer->setLabel(NS::String::string("Normal + Specular GBuffer", NS::ASCIIStringEncoding));
-    depthGBuffer->setLabel(NS::String::string("Depth GBuffer", NS::ASCIIStringEncoding));
-    depthStencilTexture->setLabel(NS::String::string("Depth-Stencil Texture", NS::ASCIIStringEncoding));
-    
-    gbufferTextureDesc->release();
-    
+    // Create render pass descriptor
     viewRenderPassDescriptor = MTL::RenderPassDescriptor::alloc()->init();
     
     // Set up render pass descriptor attachments
@@ -969,33 +866,19 @@ void Engine::createViewRenderPassDescriptor() {
     viewRenderPassDescriptor->stencilAttachment()->setClearStencil(0);
     
     // Forward Debug
-    MTL::TextureDescriptor* depthStencilDesc = MTL::TextureDescriptor::alloc()->init();
-    depthStencilDesc->setTextureType(MTL::TextureType2D);
-    depthStencilDesc->setPixelFormat(MTL::PixelFormatDepth32Float_Stencil8);
-    depthStencilDesc->setWidth(metalLayer.drawableSize.width);
-    depthStencilDesc->setHeight(metalLayer.drawableSize.height);
-    depthStencilDesc->setStorageMode(MTL::StorageModePrivate);
-    depthStencilDesc->setUsage(MTL::TextureUsageRenderTarget | MTL::TextureUsageShaderRead);
-    
-    forwardDepthStencilTexture = metalDevice->newTexture(depthStencilDesc);
-    depthStencilDesc->release();
+    forwardDepthStencilTexture = resourceManager->createDepthStencilTexture(
+        width, height, "Forward Depth Stencil Texture"
+    );
     
     forwardDescriptor = MTL::RenderPassDescriptor::alloc()->init();
 
     // Final Gathering
     finalGatherDescriptor = MTL::RenderPassDescriptor::alloc()->init();
     
-
     // Create linear depth texture for prepass
-    MTL::TextureDescriptor* linearDepthTextureDesc = MTL::TextureDescriptor::alloc()->init();
-    linearDepthTextureDesc->setPixelFormat(MTL::PixelFormatR32Float);
-    linearDepthTextureDesc->setWidth(metalLayer.drawableSize.width);
-    linearDepthTextureDesc->setHeight(metalLayer.drawableSize.height);
-    linearDepthTextureDesc->setStorageMode(MTL::StorageModeShared);
-    linearDepthTextureDesc->setUsage(MTL::TextureUsageRenderTarget | MTL::TextureUsageShaderRead);
-    linearDepthTexture = metalDevice->newTexture(linearDepthTextureDesc);
-    linearDepthTexture->setLabel(NS::String::string("Linear Depth Texture", NS::ASCIIStringEncoding));
-    linearDepthTextureDesc->release();
+    linearDepthTexture = resourceManager->createRenderTargetTexture(
+        width, height, MTL::PixelFormatR32Float, "Linear Depth Texture"
+    );
 
     // Create depth prepass descriptor
     depthPrepassDescriptor = MTL::RenderPassDescriptor::alloc()->init();
@@ -1017,55 +900,58 @@ void Engine::createViewRenderPassDescriptor() {
     depthPrepassDescriptor->stencilAttachment()->setClearStencil(0);
     
     // Min Max Depth Buffer
-    MTL::TextureDescriptor* descriptor = MTL::TextureDescriptor::alloc()->init();
-    descriptor->setTextureType(MTL::TextureType2D);
-    descriptor->setPixelFormat(MTL::PixelFormatRG32Float); // 2x32-bit floats
-    descriptor->setWidth(metalLayer.drawableSize.width);
-    descriptor->setHeight(metalLayer.drawableSize.height);
-    descriptor->setStorageMode(MTL::StorageModeShared);
-    descriptor->setUsage(MTL::TextureUsageShaderRead | MTL::TextureUsageShaderWrite);
+    MTL::TextureDescriptor* minMaxDescriptor = MTL::TextureDescriptor::alloc()->init();
+    minMaxDescriptor->setTextureType(MTL::TextureType2D);
+    minMaxDescriptor->setPixelFormat(MTL::PixelFormatRG32Float); // 2x32-bit floats
+    minMaxDescriptor->setWidth(width);
+    minMaxDescriptor->setHeight(height);
+    minMaxDescriptor->setStorageMode(MTL::StorageModeShared);
+    minMaxDescriptor->setUsage(MTL::TextureUsageShaderRead | MTL::TextureUsageShaderWrite);
+    // minMaxDescriptor->setMipmapLevelCount(log2(std::max(width, height)) + 1);
     
-    descriptor->setMipmapLevelCount(log2(std::max(metalLayer.drawableSize.width, metalLayer.drawableSize.height)) + 1);
+    minMaxDepthTexture = resourceManager->createTexture(minMaxDescriptor, "Min-Max Depth Texture");
+    minMaxDescriptor->release();
     
-    minMaxDepthTexture = metalDevice->newTexture(descriptor);
-    descriptor->release();
+    // Create the raytracing output texture
+    finalGatherTexture = resourceManager->createRaytracingOutputTexture(width, height, "Final Gather");
     
-    MTL::TextureDescriptor* desc = MTL::TextureDescriptor::alloc()->init();
-    desc->setTextureType(MTL::TextureType2D);
-    desc->setPixelFormat(MTL::PixelFormatRGBA16Float);
-    desc->setWidth(metalLayer.drawableSize.width);
-    desc->setHeight(metalLayer.drawableSize.height);
-    desc->setStorageMode(MTL::StorageModeShared);
-    desc->setUsage(MTL::TextureUsageShaderRead | MTL::TextureUsageShaderWrite);
+    // Create blur textures
+    blurredColor = resourceManager->createRaytracingOutputTexture(width, height, "Blurred Color");
     
-    NS::String* label = NS::String::string("Final Gather", NS::ASCIIStringEncoding);
-    finalGatherTexture = metalDevice->newTexture(desc);
-    finalGatherTexture->setLabel(label);
+    // Create intermediate blur texture
+    MTL::TextureDescriptor* blurDesc = MTL::TextureDescriptor::alloc()->init();
+    blurDesc->setTextureType(MTL::TextureType2D);
+    blurDesc->setPixelFormat(MTL::PixelFormatRGBA16Float);
+    blurDesc->setWidth(width);
+    blurDesc->setHeight(height);
+    blurDesc->setStorageMode(MTL::StorageModePrivate);
+    blurDesc->setUsage(MTL::TextureUsageShaderRead | MTL::TextureUsageShaderWrite);
     
-    label = NS::String::string("Blurred Color", NS::ASCIIStringEncoding);
-    blurredColor = metalDevice->newTexture(desc);
-    blurredColor->setLabel(label);
+    intermediateBlurTexture = resourceManager->createTexture(blurDesc, "Intermediate Blur Texture");
+    blurDesc->release();
 }
 
 void Engine::updateRenderPassDescriptor() {
-	// Update all render pass descriptor attachments with resized textures
-	viewRenderPassDescriptor->colorAttachments()->object(RenderTargetAlbedo)->setTexture(albedoSpecularGBuffer);
-	viewRenderPassDescriptor->colorAttachments()->object(RenderTargetNormal)->setTexture(normalMapGBuffer);
-	viewRenderPassDescriptor->colorAttachments()->object(RenderTargetDepth)->setTexture(depthGBuffer);
+    // Update all render pass descriptor attachments with resized textures
+    viewRenderPassDescriptor->colorAttachments()->object(RenderTargetAlbedo)->setTexture(albedoSpecularGBuffer);
+    viewRenderPassDescriptor->colorAttachments()->object(RenderTargetNormal)->setTexture(normalMapGBuffer);
+    viewRenderPassDescriptor->colorAttachments()->object(RenderTargetDepth)->setTexture(depthGBuffer);
 
-	// Update depth/stencil attachment
-	viewRenderPassDescriptor->depthAttachment()->setTexture(depthStencilTexture);
+    // Update depth/stencil attachment
+    viewRenderPassDescriptor->depthAttachment()->setTexture(depthStencilTexture);
     viewRenderPassDescriptor->depthAttachment()->setLoadAction(MTL::LoadActionClear);
     viewRenderPassDescriptor->depthAttachment()->setStoreAction(MTL::StoreActionStore);
     viewRenderPassDescriptor->depthAttachment()->setClearDepth(1.0); // Clear depth to furthest
     viewRenderPassDescriptor->stencilAttachment()->setTexture(depthStencilTexture);
     viewRenderPassDescriptor->stencilAttachment()->setClearStencil(0); // Clear stencil
     
+    // Set up the final gather descriptor to render to the drawable
     finalGatherDescriptor->colorAttachments()->object(0)->setTexture(metalDrawable->texture());
     finalGatherDescriptor->colorAttachments()->object(0)->setLoadAction(MTL::LoadActionClear);
     finalGatherDescriptor->colorAttachments()->object(0)->setStoreAction(MTL::StoreActionStore);
     finalGatherDescriptor->colorAttachments()->object(0)->setClearColor(MTL::ClearColor(0.0, 0.4, 0.8, 1.0));
     
+    // Set up the forward descriptor to render on top of final gather results
     forwardDescriptor->colorAttachments()->object(0)->setTexture(metalDrawable->texture());
     forwardDescriptor->colorAttachments()->object(0)->setLoadAction(MTL::LoadActionLoad); // Preserve Final Gathering results
     forwardDescriptor->depthAttachment()->setTexture(forwardDepthStencilTexture);
@@ -1075,6 +961,7 @@ void Engine::updateRenderPassDescriptor() {
     forwardDescriptor->stencilAttachment()->setLoadAction(MTL::LoadActionLoad);
     forwardDescriptor->stencilAttachment()->setClearStencil(0);
 
+    // Set up the depth prepass descriptor
     depthPrepassDescriptor->colorAttachments()->object(0)->setTexture(linearDepthTexture);
     depthPrepassDescriptor->depthAttachment()->setTexture(depthStencilTexture);
     depthPrepassDescriptor->stencilAttachment()->setTexture(depthStencilTexture);

@@ -105,7 +105,7 @@ fragment half4 final_gather_fragment(VertexOut           in              [[stage
                          constant    bool&               doBilinear      [[buffer(3)]],
                          constant    bool&               drawSky         [[buffer(4)]]) {
     float2 texCoords = float2(in.texCoords.x, 1.0 - in.texCoords.y);
-    
+
     // Sample G-Buffer textures
     half4 albedoSpecular = half4(albedoTexture.sample(samplerLinear, texCoords));
     half3 albedo = albedoSpecular.rgb;
@@ -113,6 +113,7 @@ fragment half4 final_gather_fragment(VertexOut           in              [[stage
     half3 normal = normalize(normalRaw.xyz);
     float currentDepth = depthTexture.sample(samplerLinear, texCoords).x;
     
+    // If pixel is empty draw the sky
     if (length(albedoSpecular.rgb) == 0.0) {
         if (drawSky) {
             float4 clipPos = float4(in.texCoords * 2.0 - 1.0, 0.0, 1.0);
@@ -217,9 +218,9 @@ fragment half4 final_gather_fragment(VertexOut           in              [[stage
     }
 
     float4 finalRadiance = probeRadiance[0] * w.x +
-                          probeRadiance[1]  * w.y +
-                          probeRadiance[2]  * w.z +
-                          probeRadiance[3]  * w.w;
+                           probeRadiance[1] * w.y +
+                           probeRadiance[2] * w.z +
+                           probeRadiance[3] * w.w;
 
     half3 finalColor = albedo * half3(finalRadiance.rgb);
     

@@ -120,7 +120,6 @@ void RayTracingManager::setupTriangleResources(const std::vector<Mesh*>& meshes)
     size_t resourceStride = sizeof(TriangleData);
     size_t bufferLength = resourceStride * totalTriangles;
 
-    // Use ResourceManager to create the resource buffer with enum-based naming
     resourceBuffer = resourceManager->createBuffer(
         bufferLength, 
         nullptr, 

@@ -32,7 +32,7 @@
 #include <simd/simd.h>
 #include <filesystem>
 
-constexpr uint8_t MaxFramesInFlight = 1;
+constexpr uint8_t MaxFramesInFlight = 3;
 constexpr float NEAR_PLANE = 0.1f;
 constexpr float FAR_PLANE = 100.0f;
 
@@ -86,7 +86,8 @@ private:
     uint                                                currentFrameIndex;
 	
 	// Buffers used to store dynamically changing per-frame data
-	MTL::Buffer* 		frameDataBuffers[MaxFramesInFlight];
+	std::vector<MTL::Buffer*> 		            frameDataBuffers;
+    std::vector<std::vector<MTL::Buffer*>>      cascadeDataBuffer; // Per cascade data buffer. First dimension is the frame index from frames in flight
 
     MTL::Device*        metalDevice;
     GLFWwindow*         glfwWindow;
@@ -113,6 +114,7 @@ private:
 
     // Renderpass descriptors
 	MTL::RenderPassDescriptor* 	viewRenderPassDescriptor;
+    MTL::RenderPassDescriptor*  depthPrepassDescriptor;
 	
 	// GBuffer properties
 	MTL::PixelFormat 			albedoSpecularGBufferFormat;
@@ -134,22 +136,24 @@ private:
     
     // Ray tracing
     std::vector<MTL::AccelerationStructure*>    primitiveAccelerationStructures;
-    std::vector<std::vector<MTL::Buffer*>>      cascadeDataBuffer;
     MTL::RenderPassDescriptor*                  finalGatherDescriptor;
     
     
     // Forward Debug
     std::unique_ptr<Debug>                  debug;
     MTL::RenderPassDescriptor*              forwardDescriptor;
+    // Buffer that stores world space positions of the debug probes
     std::vector<std::vector<MTL::Buffer*>>  probePosBuffer;
+    // Buffer that stores ray directions of the debug probes
     std::vector<std::vector<MTL::Buffer*>>  rayBuffer;
-    int                                     debugProbeCount = 0;
-    int                                     rayCount = 0;
-    int                                     debugCascadeLevel = 0;
-    bool                                    createDebugData = false;
+    int                                     debugProbeCount = 0; // Don't adjust this value, it is set in the engine.mm
+    int                                     rayCount = 0; // Same here
+    int                                     debugCascadeLevel = 0; // This is the level of cascade that you will be debugging
+    // Debug probes and rays require a lot of memory. In high resolution use MaxFramesInFlight = 1 or lower resolution
+    // If you don't need debug probes and rays, set this to false
+    bool                                    createDebugData = false; 
     
+    // Debugging probes and rays
     void createSphereGrid();
     void createDebugLines();
-
-    MTL::RenderPassDescriptor*  depthPrepassDescriptor;
 };

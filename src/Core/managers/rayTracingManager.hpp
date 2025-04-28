@@ -11,11 +11,9 @@ public:
     RayTracingManager(MTL::Device* device, ResourceManager* resourceManager);
     ~RayTracingManager();
     
-    // Setup methods
     void setupAccelerationStructures(const std::vector<Mesh*>& meshes);
     void setupTriangleResources(const std::vector<Mesh*>& meshes);
     
-    // Resource accessors
     MTL::AccelerationStructure* getPrimitiveAccelerationStructure() const;
     MTL::Buffer* getResourceBuffer() const;
     size_t getTotalTriangles() const { return totalTriangles; }

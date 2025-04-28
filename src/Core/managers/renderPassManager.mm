@@ -201,7 +201,7 @@ void RenderPassManager::dispatchRaytracing(MTL::CommandBuffer* commandBuffer, MT
     MTL::Texture* lastMergedTexture = nil;
     int pingPongIndex = 0;
     
-    int startLevel = CASCADE_LEVEL - 1;
+    int startLevel = MAX_CASCADE_LEVEL - 1;
     int endLevel = (editor->debug.debugCascadeLevel == -1) ? 0 : editor->debug.debugCascadeLevel;
     
     for (int level = startLevel; level >= endLevel; --level) {
@@ -213,13 +213,13 @@ void RenderPassManager::dispatchRaytracing(MTL::CommandBuffer* commandBuffer, MT
         cascadeData->cascadeLevel = level;
         cascadeData->probeSpacing = PROBE_SPACING;
         cascadeData->intervalLength = editor->debug.intervalLength;
-        cascadeData->maxCascade = CASCADE_LEVEL - 1;
+        cascadeData->maxCascade = MAX_CASCADE_LEVEL - 1;
         cascadeData->enableSky = editor->debug.sky ? 1.0 : 0.0;
         cascadeData->enableSun = editor->debug.sun ? 1.0 : 0.0;
         
         MTL::Texture* currentRenderTarget = nil;
         
-        if (level == CASCADE_LEVEL - 1 && (editor->debug.debugCascadeLevel == -1 ? 0 : editor->debug.debugCascadeLevel) != CASCADE_LEVEL - 1) {
+        if (level == MAX_CASCADE_LEVEL - 1 && (editor->debug.debugCascadeLevel == -1 ? 0 : editor->debug.debugCascadeLevel) != MAX_CASCADE_LEVEL - 1) {
             currentRenderTarget = rcRenderTargets[pingPongIndex];
             pingPongIndex = 1 - pingPongIndex;
             lastMergedTexture = nil;
@@ -233,7 +233,7 @@ void RenderPassManager::dispatchRaytracing(MTL::CommandBuffer* commandBuffer, MT
         computeEncoder->setComputePipelineState(renderPipelines->getComputePipeline(ComputePipelineType::Raytracing));
         computeEncoder->setTexture(currentRenderTarget, TextureIndexRadiance);
         
-        if (level < CASCADE_LEVEL - 1) {
+        if (level < MAX_CASCADE_LEVEL - 1) {
             computeEncoder->setTexture(lastMergedTexture, TextureIndexRadianceUpper);
             computeEncoder->useResource(lastMergedTexture, MTL::ResourceUsageRead);
         }

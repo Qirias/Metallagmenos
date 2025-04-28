@@ -10,7 +10,9 @@
 #include "../editor/editor.hpp"
 #include "../../data/shaders/shaderTypes.hpp"
 
-constexpr int CASCADE_LEVEL = 6;
+// You can try different max cascade levels
+constexpr int MAX_CASCADE_LEVEL = 6;
+// You can't put any value of probe spacing and base ray
 constexpr int PROBE_SPACING = 4;
 constexpr int BASE_RAY = 16;
 
@@ -26,21 +28,14 @@ public:
     
     // Render pipeline passes
     void drawMeshes(MTL::RenderCommandEncoder* renderCommandEncoder, const std::vector<Mesh*>& meshes, MTL::Buffer* frameDataBuffer);
-                    
     void drawGBuffer(MTL::RenderCommandEncoder* renderCommandEncoder, const std::vector<Mesh*>& meshes, MTL::Buffer* frameDataBuffer);
-                     
-    void drawFinalGathering(MTL::RenderCommandEncoder* renderCommandEncoder,
-                           MTL::Buffer* frameDataBuffer);
-                           
+    void drawFinalGathering(MTL::RenderCommandEncoder* renderCommandEncoder, MTL::Buffer* frameDataBuffer);
     void drawDepthPrepass(MTL::CommandBuffer* commandBuffer, const std::vector<Mesh*>& meshes, MTL::Buffer* frameDataBuffer);
-                        
     void drawDebug(MTL::RenderCommandEncoder* commandEncoder, MTL::CommandBuffer* commandBuffer);
                   
     // Compute pipeline passes
     void dispatchRaytracing(MTL::CommandBuffer* commandBuffer, MTL::Buffer* frameDataBuffer, const std::vector<MTL::Buffer*>& cascadeBuffers);
-                           
     void dispatchTwoPassBlur(MTL::CommandBuffer* commandBuffer, MTL::Buffer* frameDataBuffer);
-                            
     void dispatchMinMaxDepthMipmaps(MTL::CommandBuffer* commandBuffer);
 
 private:

@@ -11,13 +11,8 @@ public:
     ResourceManager(MTL::Device* device);
     ~ResourceManager();
 
-    MTL::Buffer* createBuffer(size_t size, const void* initialData = nullptr, 
-                            MTL::ResourceOptions options = MTL::ResourceStorageModeShared,
-                            const char* label = nullptr);
-    
-    MTL::Buffer* createBuffer(size_t size, const void* initialData,
-                            MTL::ResourceOptions options,
-                            BufferName name);
+    MTL::Buffer* createBuffer(size_t size, const void* initialData = nullptr, MTL::ResourceOptions options = MTL::ResourceStorageModeShared, const char* label = nullptr);
+    MTL::Buffer* createBuffer(size_t size, const void* initialData, MTL::ResourceOptions options, BufferName name);
     
     // Texture creation methods
     void createTexture(const MTL::TextureDescriptor* descriptor, TextureName name);

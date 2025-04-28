@@ -72,7 +72,7 @@ void Engine::cleanup() {
     // Release frame-specific buffers that are not managed by ResourceManager
     for (int frame = 0; frame < MaxFramesInFlight; frame++) {
         // Will be moving these to ResourceManager eventually, but for now:
-        for (int cascade = 0; cascade < CASCADE_LEVEL; cascade++) {
+        for (int cascade = 0; cascade < MAX_CASCADE_LEVEL; cascade++) {
             if (cascadeDataBuffer[frame][cascade]) {
                 cascadeDataBuffer[frame][cascade]->release();
             }
@@ -153,7 +153,7 @@ void Engine::resizeFrameBuffer(int width, int height) {
 void Engine::initWindow() {
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindow = glfwCreateWindow(1920, 1152, "Metalλαγμένος", NULL, NULL);
+    glfwWindow = glfwCreateWindow(1280, 768, "RC-SPWI", NULL, NULL);
     if (!glfwWindow) {
         glfwTerminate();
         exit(EXIT_FAILURE);
@@ -202,6 +202,8 @@ void Engine::endFrame(MTL::CommandBuffer* commandBuffer) {
         commandBuffer->presentDrawable(metalDrawable);
         commandBuffer->commit();
         
+        // Draw the debug spheres and lines once after 100 frames so you can inspect them
+        // Remove the if statement for real-time updates. Slow as fuck
         if (frameNumber == 100 && createDebugData) {
             createSphereGrid();
             createDebugLines();
@@ -225,7 +227,7 @@ void Engine::loadSceneFromJSON(const std::string& jsonFilePath) {
 }
 
 void Engine::loadScene() {
-    loadSceneFromJSON(std::string(SCENES_PATH) + "/cubeScene.json");
+    loadSceneFromJSON(std::string(SCENES_PATH) + "/cubesScene.json");
 }
 
 MTL::VertexDescriptor* Engine::createDefaultVertexDescriptor() {
@@ -302,23 +304,24 @@ void Engine::createDefaultLibrary() {
 void Engine::createBuffers() {
     cascadeDataBuffer.resize(MaxFramesInFlight);
     probePosBuffer.resize(MaxFramesInFlight);
+    frameDataBuffers.resize(MaxFramesInFlight);
     rayBuffer.resize(MaxFramesInFlight);
     
     for (int frame = 0; frame < MaxFramesInFlight; frame++) {
-        // Use ResourceManager to create frame data buffers
+        std::string labelStr = "FrameData: " + std::to_string(frame);
         frameDataBuffers[frame] = resourceManager->createBuffer(
             sizeof(FrameData), 
             nullptr, 
             MTL::ResourceStorageModeShared, 
-            "FrameData"
+            labelStr.c_str()
         );
         
-        cascadeDataBuffer[frame].resize(CASCADE_LEVEL);
-        probePosBuffer[frame].resize(CASCADE_LEVEL);
-        rayBuffer[frame].resize(CASCADE_LEVEL);
+        cascadeDataBuffer[frame].resize(MAX_CASCADE_LEVEL);
+        probePosBuffer[frame].resize(MAX_CASCADE_LEVEL);
+        rayBuffer[frame].resize(MAX_CASCADE_LEVEL);
         
-        for (int cascade = 0; cascade < CASCADE_LEVEL; cascade++) {
-            std::string labelStr = "Frame: " + std::to_string(frame) + "|CascadeData: " + std::to_string(cascade);
+        for (int cascade = 0; cascade < MAX_CASCADE_LEVEL; cascade++) {
+            labelStr = "Frame: " + std::to_string(frame) + "|CascadeData: " + std::to_string(cascade);
             
             cascadeDataBuffer[frame][cascade] = resourceManager->createBuffer(
                 sizeof(CascadeData), 
@@ -745,8 +748,8 @@ void Engine::draw() {
         gBufferEncoder->endEncoding();
     }
     
-    // Min-max depth mipmaps
-    renderPassManager->dispatchMinMaxDepthMipmaps(commandBuffer);
+    // Min max buffer is not used at the moment
+    // renderPassManager->dispatchMinMaxDepthMipmaps(commandBuffer);
     
     renderPassManager->dispatchRaytracing(commandBuffer, 
                                          frameDataBuffers[currentFrameIndex], 

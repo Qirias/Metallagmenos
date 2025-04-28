@@ -4,6 +4,7 @@ using namespace metal;
 
 #include "shaderTypes.hpp"
 #include "shaderCommon.hpp"
+#include "common.hpp"
 
 struct VertexOut {
     float4 position [[position]];
@@ -47,24 +48,6 @@ half3 postProcessColor(half3 color) {
     color = gammaCorrect(color);
     
     return color;
-}
-
-float2 sign_NotZero(float2 v) {
-    return float2((v.x >= 0.0) ? +1.0 : -1.0, (v.y >= 0.0) ? +1.0 : -1.0);
-}
-
-float2 oct_encode(float3 n) {
-    float2 p = n.xy * (1.0 / (abs(n.x) + abs(n.y) + abs(n.z)));
-    p = (n.z <= 0.0) ? ((1.0 - abs(p.yx)) * sign_NotZero(p)) : p;
-    return p * 0.5 + 0.5; // -1,1 to 0,1
-}
-
-float3 oct_decode(float2 f) {
-    f = f * 2.0 - 1.0; // 0,1 to -1,1
-    float3 n = float3(f.x, f.y, 1.0 - abs(f.x) - abs(f.y));
-    if (n.z < 0)
-        n.xy = (1.0 - abs(n.yx)) * sign_NotZero(n.xy);
-    return normalize(n);
 }
 
 half3 renderSky(float3 rayDir, FrameData frameData) {
@@ -168,11 +151,13 @@ fragment half4 final_gather_fragment(VertexOut           in              [[stage
         probeDepths[i] = depthTexture.sample(samplerLinear, probeUVs[i]).x;
     }
 
+    // Perform bilateral filtering instead of bilinear 3D, as it is good enough for depth awareness on cascade 0
+    // https://gist.github.com/pixelmager/a4364ea18305ed5ca707d89ddc5f8743
     float mind = min(min(probeDepths.x, probeDepths.y), min(probeDepths.z, probeDepths.w));
     float maxd = max(max(probeDepths.x, probeDepths.y), max(probeDepths.z, probeDepths.w));
     float diffd = maxd - mind;
     float avg = dot(probeDepths, float4(0.25f));
-    bool d_edge = (diffd / avg) > 0.05;
+    bool d_edge = (diffd / avg) > 0.05; // Pretty sharp for cascade 0
 
     float4 w = bilinearWeights;
     if (d_edge) {
@@ -183,7 +168,7 @@ fragment half4 final_gather_fragment(VertexOut           in              [[stage
     float wsum = w.x + w.y + w.z + w.w;
     w /= wsum;
 
-    const uint probeTileSize = 4;
+    const uint probeTileSize = 4; // Cascade 0 octahedrons are always 4 on both dimensions
     const float probeTexelSizeX = 1.0f / (probeGridSize.x * probeTileSize);
     const float probeTexelSizeY = 1.0f / (probeGridSize.y * probeTileSize);
 
@@ -198,7 +183,7 @@ fragment half4 final_gather_fragment(VertexOut           in              [[stage
         for (uint y = 0; y < probeTileSize; y++) {
             for (uint x = 0; x < probeTileSize; x++) {
                 float2 dirUV = float2((x + 0.5f) / probeTileSize, (y + 0.5f) / probeTileSize);
-                float3 direction = oct_decode(dirUV);
+                float3 direction = octDecode(dirUV);
                 float cosTheta = max(0.0, dot(float3(normal), direction));
                 float2 sampleUV = probeBaseUV + dirUV * (probeTileSize * float2(probeTexelSizeX, probeTexelSizeY));
                 

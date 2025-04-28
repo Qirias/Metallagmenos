@@ -19,6 +19,7 @@ void RayTracingManager::setupAccelerationStructures(const std::vector<Mesh*>& me
     size_t vertexOffset = 0;
     totalTriangles = 0;
     
+    // One acceleration structure for all the meshes. In a dynamic scene, you might want to create one per mesh or group of meshes.
     for (const auto& mesh : meshes) {
         matrix_float4x4 modelMatrix = mesh->getTransformMatrix();
 

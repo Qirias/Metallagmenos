@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.15)
 
 if(STANDALONE_BUILD)
-    project(Metallagmenos LANGUAGES CXX OBJCXX)
+    project(RC-SPWI LANGUAGES CXX OBJCXX)
 elseif(XCODE_BUILD)
-    project(Metallagmenos)
+    project(RC-SPWI)
 else()
     message(STATUS "Unknown build mode")
 endif()

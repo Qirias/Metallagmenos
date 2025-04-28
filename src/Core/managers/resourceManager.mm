@@ -244,11 +244,6 @@ void ResourceManager::releaseTexture(MTL::Texture*& texture) {
 }
 
 void ResourceManager::releaseAllResources() {
-    for (auto resource : managedResources) {
-        if (resource) {
-            resource->release();
-        }
-    }
     managedResources.clear();
     resourceTracker.clear();
     resourceRegistry.clear();

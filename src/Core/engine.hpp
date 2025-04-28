@@ -97,6 +97,7 @@ private:
 
     // Managers
     RenderPipeline                      renderPipelines;
+    std::unique_ptr<Debug>              debug;
     std::unique_ptr<Editor>             editor;
     std::unique_ptr<ResourceManager>    resourceManager;
     std::unique_ptr<RayTracingManager>  rayTracingManager;
@@ -140,7 +141,6 @@ private:
     
     
     // Forward Debug
-    std::unique_ptr<Debug>                  debug;
     MTL::RenderPassDescriptor*              forwardDescriptor;
     // Buffer that stores world space positions of the debug probes
     std::vector<std::vector<MTL::Buffer*>>  probePosBuffer;
@@ -149,7 +149,7 @@ private:
     int                                     debugProbeCount = 0; // Don't adjust this value, it is set in the engine.mm
     int                                     rayCount = 0; // Same here
     int                                     debugCascadeLevel = 0; // This is the level of cascade that you will be debugging
-    // Debug probes and rays require a lot of memory. In high resolution use MaxFramesInFlight = 1 or lower resolution
+    // Debug probes and rays require a lot of memory. In high resolution use MaxFramesInFlight = 1 or lower the resolution
     // If you don't need debug probes and rays, set this to false
     bool                                    createDebugData = false; 
     

@@ -748,7 +748,7 @@ void Engine::draw() {
         gBufferEncoder->endEncoding();
     }
     
-    // Min max buffer is not used at the moment
+    // Min max buffer is not used currently
     // renderPassManager->dispatchMinMaxDepthMipmaps(commandBuffer);
     
     renderPassManager->dispatchRaytracing(commandBuffer, 

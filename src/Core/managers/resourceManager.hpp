@@ -5,6 +5,7 @@
 #include "../vertexData.hpp"
 #include "resourceNames.hpp"
 
+
 class ResourceManager {
 public:
     ResourceManager(MTL::Device* device);
@@ -19,39 +20,13 @@ public:
                             BufferName name);
     
     // Texture creation methods
-    MTL::Texture* createTexture(const MTL::TextureDescriptor* descriptor, 
-                              const char* label = nullptr);
+    void createTexture(const MTL::TextureDescriptor* descriptor, TextureName name);
+    void createRenderTargetTexture(uint32_t width, uint32_t height, MTL::PixelFormat format, TextureName name);
+    void createDepthStencilTexture(uint32_t width, uint32_t height, TextureName name);
+    void createGBufferTexture(uint32_t width, uint32_t height, MTL::PixelFormat format, TextureName name);
+    void createRaytracingOutputTexture(uint32_t width, uint32_t height, TextureName name);
     
-    MTL::Texture* createTexture(const MTL::TextureDescriptor* descriptor,
-                                TextureName name);
-    
-    MTL::Texture* createRenderTargetTexture(uint32_t width, uint32_t height,
-                                            MTL::PixelFormat format,
-                                            const char* label = nullptr);
-    
-    MTL::Texture* createRenderTargetTexture(uint32_t width, uint32_t height,
-                                            MTL::PixelFormat format,
-                                            TextureName name);
-    
-    MTL::Texture* createDepthStencilTexture(uint32_t width, uint32_t height,
-                                            const char* label = nullptr);
-    
-    MTL::Texture* createDepthStencilTexture(uint32_t width, uint32_t height,
-                                            TextureName name);
-    
-    MTL::Texture* createGBufferTexture(uint32_t width, uint32_t height,
-                                       MTL::PixelFormat format,
-                                       const char* label = nullptr);
-    
-    MTL::Texture* createGBufferTexture(uint32_t width, uint32_t height,
-                                       MTL::PixelFormat format,
-                                       TextureName name);
-    
-    MTL::Texture* createRaytracingOutputTexture(uint32_t width, uint32_t height,
-                                                const char* label = nullptr);
-    
-    MTL::Texture* createRaytracingOutputTexture(uint32_t width, uint32_t height,
-                                                TextureName name);
+    bool hasTexture(TextureName name) const;
     
     MTL::AccelerationStructure* createAccelerationStructure(MTL::AccelerationStructureDescriptor* descriptor, const char* label = nullptr);
     MTL::AccelerationStructure* createAccelerationStructure(size_t size, const char* label = nullptr);

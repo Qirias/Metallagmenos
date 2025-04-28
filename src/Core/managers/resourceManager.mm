@@ -38,32 +38,35 @@ MTL::Buffer* ResourceManager::createBuffer(size_t size, const void* initialData,
     return createBuffer(size, initialData, options, label.c_str());
 }
 
-MTL::Texture* ResourceManager::createTexture(const MTL::TextureDescriptor* descriptor, 
-                                           const char* label) {
+void ResourceManager::createTexture(const MTL::TextureDescriptor* descriptor, TextureName name) {
+    std::string textureLabel = ResourceNames::toString(name);
+    
+    // Check if a texture with this name already exists
+    if (hasTexture(name)) {
+        // Release the existing texture
+        MTL::Texture* existingTexture = getTexture(name);
+        releaseResource(existingTexture);
+        unregisterResource(name);
+    }
+    
+    // Create the new texture
     MTL::Texture* texture = device->newTexture(descriptor);
     
-    if (texture && label) {
-        texture->setLabel(NS::String::string(label, NS::ASCIIStringEncoding));
-        registerResource(texture, label);
+    if (texture) {
+        texture->setLabel(NS::String::string(textureLabel.c_str(), NS::ASCIIStringEncoding));
+        
+        // Add to managed resources list
+        if (resourceTracker.find(texture) == resourceTracker.end()) {
+            managedResources.push_back(texture);
+            resourceTracker.insert(texture);
+        }
+        
+        // Register with the name
+        registerResource(texture, name);
     }
-    
-    if (texture && resourceTracker.find(texture) == resourceTracker.end()) {
-        managedResources.push_back(texture);
-        resourceTracker.insert(texture);
-    }
-    
-    return texture;
 }
 
-MTL::Texture* ResourceManager::createTexture(const MTL::TextureDescriptor* descriptor,
-                                           TextureName name) {
-    std::string label = ResourceNames::toString(name);
-    return createTexture(descriptor, label.c_str());
-}
-
-MTL::Texture* ResourceManager::createRenderTargetTexture(uint32_t width, uint32_t height,
-                                                       MTL::PixelFormat format,
-                                                       const char* label) {
+void ResourceManager::createRenderTargetTexture(uint32_t width, uint32_t height, MTL::PixelFormat format, TextureName name) {
     MTL::TextureDescriptor* desc = MTL::TextureDescriptor::alloc()->init();
     desc->setPixelFormat(format);
     desc->setWidth(width);
@@ -71,21 +74,11 @@ MTL::Texture* ResourceManager::createRenderTargetTexture(uint32_t width, uint32_
     desc->setStorageMode(MTL::StorageModeShared);
     desc->setUsage(MTL::TextureUsageRenderTarget | MTL::TextureUsageShaderRead);
     
-    MTL::Texture* texture = createTexture(desc, label);
+    createTexture(desc, name);
     desc->release();
-    
-    return texture;
 }
 
-MTL::Texture* ResourceManager::createRenderTargetTexture(uint32_t width, uint32_t height,
-                                                       MTL::PixelFormat format,
-                                                       TextureName name) {
-    std::string label = ResourceNames::toString(name);
-    return createRenderTargetTexture(width, height, format, label.c_str());
-}
-
-MTL::Texture* ResourceManager::createDepthStencilTexture(uint32_t width, uint32_t height,
-                                                       const char* label) {
+void ResourceManager::createDepthStencilTexture(uint32_t width, uint32_t height, TextureName name) {
     MTL::TextureDescriptor* desc = MTL::TextureDescriptor::alloc()->init();
     desc->setPixelFormat(MTL::PixelFormatDepth32Float_Stencil8);
     desc->setWidth(width);
@@ -93,21 +86,11 @@ MTL::Texture* ResourceManager::createDepthStencilTexture(uint32_t width, uint32_
     desc->setStorageMode(MTL::StorageModePrivate);
     desc->setUsage(MTL::TextureUsageRenderTarget | MTL::TextureUsageShaderRead);
     
-    MTL::Texture* texture = createTexture(desc, label);
+    createTexture(desc, name);
     desc->release();
-    
-    return texture;
 }
 
-MTL::Texture* ResourceManager::createDepthStencilTexture(uint32_t width, uint32_t height,
-                                                       TextureName name) {
-    std::string label = ResourceNames::toString(name);
-    return createDepthStencilTexture(width, height, label.c_str());
-}
-
-MTL::Texture* ResourceManager::createGBufferTexture(uint32_t width, uint32_t height,
-                                                  MTL::PixelFormat format,
-                                                  const char* label) {
+void ResourceManager::createGBufferTexture(uint32_t width, uint32_t height, MTL::PixelFormat format, TextureName name) {
     MTL::TextureDescriptor* desc = MTL::TextureDescriptor::alloc()->init();
     desc->setPixelFormat(format);
     desc->setWidth(width);
@@ -117,21 +100,11 @@ MTL::Texture* ResourceManager::createGBufferTexture(uint32_t width, uint32_t hei
     desc->setUsage(MTL::TextureUsageRenderTarget | MTL::TextureUsageShaderRead);
     desc->setStorageMode(MTL::StorageModeShared);
     
-    MTL::Texture* texture = createTexture(desc, label);
+    createTexture(desc, name);
     desc->release();
-    
-    return texture;
 }
 
-MTL::Texture* ResourceManager::createGBufferTexture(uint32_t width, uint32_t height,
-                                                  MTL::PixelFormat format,
-                                                  TextureName name) {
-    std::string label = ResourceNames::toString(name);
-    return createGBufferTexture(width, height, format, label.c_str());
-}
-
-MTL::Texture* ResourceManager::createRaytracingOutputTexture(uint32_t width, uint32_t height,
-                                                          const char* label) {
+void ResourceManager::createRaytracingOutputTexture(uint32_t width, uint32_t height, TextureName name) {
     MTL::TextureDescriptor* desc = MTL::TextureDescriptor::alloc()->init();
     desc->setTextureType(MTL::TextureType2D);
     desc->setPixelFormat(MTL::PixelFormatRGBA16Float);
@@ -140,36 +113,12 @@ MTL::Texture* ResourceManager::createRaytracingOutputTexture(uint32_t width, uin
     desc->setStorageMode(MTL::StorageModeShared);
     desc->setUsage(MTL::TextureUsageShaderRead | MTL::TextureUsageShaderWrite);
     
-    MTL::Texture* texture = createTexture(desc, label);
+    createTexture(desc, name);
     desc->release();
-    
-    return texture;
 }
 
-MTL::Texture* ResourceManager::createRaytracingOutputTexture(uint32_t width, uint32_t height,
-                                                          TextureName name) {
-    std::string label = ResourceNames::toString(name);
-    return createRaytracingOutputTexture(width, height, label.c_str());
-}
-
-MTL::AccelerationStructure* ResourceManager::createAccelerationStructure(
-    MTL::AccelerationStructureDescriptor* descriptor,
-    const char* label) {
-    
-    MTL::AccelerationStructureSizes sizes = device->accelerationStructureSizes(descriptor);
-    MTL::AccelerationStructure* accelStructure = device->newAccelerationStructure(sizes.accelerationStructureSize);
-    
-    if (accelStructure && label) {
-        accelStructure->setLabel(NS::String::string(label, NS::ASCIIStringEncoding));
-        registerResource(accelStructure, label);
-    }
-    
-    if (accelStructure && resourceTracker.find(accelStructure) == resourceTracker.end()) {
-        managedResources.push_back(accelStructure);
-        resourceTracker.insert(accelStructure);
-    }
-    
-    return accelStructure;
+bool ResourceManager::hasTexture(TextureName name) const {
+    return getTexture(name) != nullptr;
 }
 
 MTL::AccelerationStructure* ResourceManager::createAccelerationStructure(

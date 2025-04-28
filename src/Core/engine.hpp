@@ -15,19 +15,16 @@
 
 
 #include "vertexData.hpp"
-#include "texture.hpp"
 #include "components/mesh.hpp"
-#include "components/textureArray.hpp"
 #include "components/camera.hpp"
 #include "components/gltfLoader.hpp"
 #include "components/sceneParser.hpp"
-#include "../../data/shaders/shaderTypes.hpp"
 #include "../../data/shaders/config.hpp"
 #include "managers/renderPipeline.hpp"
 #include "../editor/editor.hpp"
 #include "../debug/debug.hpp"
 #include "managers/resourceManager.hpp"
-#include "managers/resourceNames.hpp"
+#include "managers/renderPassManager.hpp"
 #include "managers/rayTracingManager.hpp"
 
 #include <stb/stb_image.h>
@@ -38,9 +35,6 @@
 constexpr uint8_t MaxFramesInFlight = 1;
 constexpr float NEAR_PLANE = 0.1f;
 constexpr float FAR_PLANE = 100.0f;
-constexpr int CASCADE_LEVEL = 6;
-constexpr int PROBE_SPACING = 4;
-constexpr int BASE_RAY = 16;
 
 
 class Engine {
@@ -70,11 +64,7 @@ private:
     void updateWorldState(bool isPaused);
 	
 	void draw();
-	void drawMeshes(MTL::RenderCommandEncoder* renderCommandEncoder);
-	void drawGBuffer(MTL::RenderCommandEncoder* renderCommandEncoder);
-	void drawFinalGathering(MTL::RenderCommandEncoder* renderCommandEncoder);
 
-    void createDepthTexture();
 	void createViewRenderPassDescriptor();
 
     // resizing window
@@ -84,11 +74,9 @@ private:
     void createDefaultLibrary();
     void createCommandQueue();
     void createRenderPipelines();
-    void createLightSourceRenderPipeline();
 
     void encodeRenderCommand(MTL::RenderCommandEncoder* renderCommandEncoder);
     void sendRenderCommand();
-
 
     static void frameBufferSizeCallback(GLFWwindow *window, int width, int height);
     void resizeFrameBuffer(int width, int height);
@@ -111,6 +99,7 @@ private:
     std::unique_ptr<Editor>             editor;
     std::unique_ptr<ResourceManager>    resourceManager;
     std::unique_ptr<RayTracingManager>  rayTracingManager;
+    std::unique_ptr<RenderPassManager>  renderPassManager;
     
     bool                windowResizeFlag = false;
     int                 newWidth;
@@ -129,13 +118,8 @@ private:
 	MTL::PixelFormat 			albedoSpecularGBufferFormat;
 	MTL::PixelFormat 			normalMapGBufferFormat;
 	MTL::PixelFormat 			depthGBufferFormat;
-	MTL::Texture* 				albedoSpecularGBuffer;
-	MTL::Texture* 				normalMapGBuffer;
-	MTL::Texture* 				depthGBuffer;
 
 	MTL::StorageMode 			GBufferStorageMode;
-
-	MTL::Texture* 				depthStencilTexture;
 
 	MTL::VertexDescriptor*		defaultVertexDescriptor;
     MTL::Library*               metalDefaultLibrary;
@@ -150,21 +134,13 @@ private:
     
     // Ray tracing
     std::vector<MTL::AccelerationStructure*>    primitiveAccelerationStructures;
-    MTL::Buffer*                                resourceBuffer;
-    size_t                                      totalTriangles;
-    MTL::Texture*                               rayTracingTexture;
-    MTL::Texture*                               finalGatherTexture;
     std::vector<std::vector<MTL::Buffer*>>      cascadeDataBuffer;
     MTL::RenderPassDescriptor*                  finalGatherDescriptor;
     
-    void setupTriangleResources();
-    void createAccelerationStructureWithDescriptors();
-    void dispatchRaytracing(MTL::CommandBuffer* commandBuffer);
     
     // Forward Debug
     std::unique_ptr<Debug>                  debug;
     MTL::RenderPassDescriptor*              forwardDescriptor;
-    MTL::Texture*                           forwardDepthStencilTexture;
     std::vector<std::vector<MTL::Buffer*>>  probePosBuffer;
     std::vector<std::vector<MTL::Buffer*>>  rayBuffer;
     int                                     debugProbeCount = 0;
@@ -174,18 +150,6 @@ private:
     
     void createSphereGrid();
     void createDebugLines();
-    void drawDebug(MTL::RenderCommandEncoder* commandEncoder, MTL::CommandBuffer* commandBuffer);
 
-    MTL::Texture*               linearDepthTexture;
     MTL::RenderPassDescriptor*  depthPrepassDescriptor;
-    
-    void renderDepthPrepass(MTL::CommandBuffer* commandBuffer);
-
-    // Min Max Depth Buffer
-    void dispatchMinMaxDepthMipmaps(MTL::CommandBuffer* commandBuffer);
-    MTL::Texture* minMaxDepthTexture;
-    
-    void dispatchTwoPassBlur(MTL::CommandBuffer* commandBuffer);
-    MTL::Texture*                               intermediateBlurTexture;
-    MTL::Texture*                               blurredColor;
 };

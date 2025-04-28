@@ -14,4 +14,4 @@ cmake -DSTANDALONE_BUILD=TRUE ..
 # Build the project using the maximum number of available processors
 cmake --build . -- -j$(sysctl -n hw.ncpu)
 
-./metallagmenos
+./rc-spwi

@@ -127,7 +127,7 @@ fragment half4 final_gather_fragment(VertexOut           in              [[stage
     }
     
     // Calculate probe grid coordinates
-    float2 probeGridSize = float2(frameData.framebuffer_width * 0.25, frameData.framebuffer_height * 0.25);
+    float2 probeGridSize = float2(frameData.framebuffer_width * 0.25, frameData.framebuffer_height * 0.25); // Cascade 0 probe grid size is 4 times less than the framebuffer size
     float2 probeCoord = texCoords * probeGridSize - 0.5f;
     int2 probeBase = int2(floor(probeCoord));
     float2 probeFrac = fract(probeCoord);

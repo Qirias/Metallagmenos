@@ -17,6 +17,14 @@ struct TriangleResources {
     device TriangleData* triangles;
 };
 
+// https://github.com/tooll3/Resources/blob/master/hash-functions.hlsl
+float3 hash33(float3 p3)
+{
+    p3 = fract(p3 * float3(.1031, .1030, .0973));
+    p3 += dot(p3, p3.yxz+33.33);
+    return fract((p3.xxy + p3.yxx)*p3.zyx);
+}
+
 float4 sun(float3 rayDir, FrameData frameData) {
     float3 sunDirection = normalize(-frameData.sun_eye_direction.xyz);
     float3 sunColor = frameData.sun_color.rgb;
@@ -196,12 +204,13 @@ float4 mergeUpperCascade(texture2d<float, access::sample> upperRadianceTexture,
 // Manually uncomment anything related to debugging if you want to see the probe data
 kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture         [[texture(TextureIndexRadiance)]],
                              texture2d<float, access::sample>   upperRadianceTexture    [[texture(TextureIndexRadianceUpper)]],
+                             texture2d<float, access::read>     historyTexture          [[texture(TextureIndexHistory)]],
                     constant FrameData&                         frameData               [[buffer(BufferIndexFrameData)]],
                     constant CascadeData&                       cascadeData             [[buffer(BufferIndexCascadeData)]],
                              primitive_acceleration_structure   accelerationStructure   [[buffer(BufferIndexAccelerationStructure)]],
                 const device TriangleResources::TriangleData*   resources               [[buffer(BufferIndexResources)]],
-                    //  device Probe*                             probeData               [[buffer(BufferIndexProbeData)]],
-                    //  device ProbeRay*                          rayData                 [[buffer(BufferIndexProbeRayData)]],
+                      device Probe*                             probeData               [[buffer(BufferIndexProbeData)]],
+                      device ProbeRay*                          rayData                 [[buffer(BufferIndexProbeRayData)]],
                              texture2d<float, access::sample>   depthTexture            [[texture(TextureIndexDepthTexture)]],
                              uint                               tid                     [[thread_position_in_grid]]) {
     const uint probeSpacing = cascadeData.probeSpacing;
@@ -235,23 +244,29 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
     float2 probeNDC = probeUV * 2.0f - 1.0f;
     probeNDC.y = -probeNDC.y; // Flip Y axis for Metal API
     float probeDepth = depthTexture.sample(depthSampler, probeUV).x;
+    if (probeDepth >= frameData.far_plane - 0.1)
+        return;
+    
     float3 worldPos = reconstructWorldPositionFromLinearDepth(probeNDC, probeDepth, frameData);
 
     // In debug, write the probe position only once
-    // if (rayIndex == 0) {
-    //     probeData[probeIndex].position = float4(worldPos, 0.0f);
-    // }
+     if (rayIndex == 0) {
+         probeData[probeIndex].position = float4(worldPos, 0.0f);
+     }
 
     // Ray index in a 2D grid inside the octahedron
     int rayX = rayIndex % raysPerDim;
     int rayY = rayIndex / raysPerDim;
 
     // Map ray to screen UV center
-    float2 rayUV = float2(
-        (rayX+0.5f) / float(raysPerDim),
-        (rayY+0.5f) / float(raysPerDim)
-    );
-    
+//    float2 rayUV = float2(
+//        (rayX+0.5f) / float(raysPerDim),
+//        (rayY+0.5f) / float(raysPerDim)
+//    );
+    float3 frame_hash = hash33(float3(frameData.frameNumber));
+    // Scale hash to [-0.5, 0.5] to stay within pixel
+    float2 jitter = (frame_hash.xy - 0.5) / float(raysPerDim);
+    float2 rayUV = (float2(rayX + 0.5f, rayY + 0.5f) + jitter) / float(raysPerDim);
     float3 rayDir = octDecode(rayUV);
     
     // Minus -0.5 to give an offset relative to the probe center
@@ -276,14 +291,14 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
     intersector<triangle_data> intersector;
     intersection_result<triangle_data> result = intersector.intersect(ray, accelerationStructure);
     
-    // intervalStart *= intervalLength;
-    // intervalEnd *= intervalLength;
-    // float3 startPoint = worldPos + rayDir * intervalStart;
-    // float3 endPoint = worldPos + rayDir * intervalEnd;
+     intervalStart *= intervalLength;
+     intervalEnd *= intervalLength;
+     float3 startPoint = worldPos + rayDir * intervalStart;
+     float3 endPoint = worldPos + rayDir * intervalEnd;
 
-    // uint rayDataIndex = probeIndex * numRays + rayIndex;
-    // rayData[rayDataIndex].intervalStart = float4(startPoint, 1.0);
-    // rayData[rayDataIndex].intervalEnd = float4(endPoint, 1.0);
+     uint rayDataIndex = probeIndex * numRays + rayIndex;
+     rayData[rayDataIndex].intervalStart = float4(startPoint, 1.0);
+     rayData[rayDataIndex].intervalEnd = float4(endPoint, 1.0);
 
     // Direct radiance from current cascade
     bool sampleSunOrSky = cascadeData.enableSky || cascadeData.enableSun;
@@ -297,10 +312,10 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
         radiance = (triangle.colors[0].a == -1.0f) ? float4(triangle.colors[0].rgb, 1.0) : float4(0.0, 0.0, 0.0, 1.0);
         occlusion = 0.0;
         
-        // if (triangle.colors[0].a == -1.0f)
-        //     rayData[rayDataIndex].color = float4(1.0, 0.0, 0.0, 1.0);
-        // else
-        //     rayData[rayDataIndex].color = float4(0.0, 0.0, 1.0, 1.0);
+         if (triangle.colors[0].a == -1.0f)
+             rayData[rayDataIndex].color = float4(1.0, 0.0, 0.0, 1.0);
+         else
+             rayData[rayDataIndex].color = float4(0.0, 0.0, 1.0, 1.0);
     } else {
         occlusion = 1.0f;
         // No intersection - Apply sky for higher cascades
@@ -324,7 +339,7 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
                                           frameData);
 
         if (result.type == intersection_type::none) {
-            // rayData[rayDataIndex].color = float4(0.4, 0.4, 0.4, 1.0);
+             rayData[rayDataIndex].color = float4(0.4, 0.4, 0.4, 1.0);
             // If no hit in current cascade, use upper cascade
             radiance = upperRadiance;
         } else {
@@ -337,5 +352,13 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
     uint texX = uint(tileUV.x * frameData.framebuffer_width);
     uint texY = uint(tileUV.y * frameData.framebuffer_height);
     
-    radianceTexture.write(radiance, uint2(texX, texY));
+    if (cascadeLevel != 0) {
+        radianceTexture.write(radiance, uint2(texX, texY));
+    }
+    else {
+        float modulationFactor = 0.9;
+        float4 historyColor = historyTexture.read(uint2(texX, texY));
+        float4 accumulatedColor = mix(radiance, historyColor, modulationFactor);
+        radianceTexture.write(accumulatedColor, uint2(texX, texY));
+    }
 }

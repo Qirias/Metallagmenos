@@ -19,7 +19,7 @@ RenderPassManager::~RenderPassManager() {
     // No need to release anything since we don't own the resources
 }
 
-void RenderPassManager::drawMeshes(MTL::RenderCommandEncoder* renderCommandEncoder,  const std::vector<Mesh*>& meshes, MTL::Buffer* frameDataBuffer) {
+void RenderPassManager::drawMeshes(MTL::RenderCommandEncoder* renderCommandEncoder,  const std::vector<Mesh*>& meshes, MTL::Buffer*& frameDataBuffer) {
     renderCommandEncoder->setFrontFacingWinding(MTL::WindingCounterClockwise);
     renderCommandEncoder->setCullMode(MTL::CullModeBack);
     
@@ -51,8 +51,8 @@ void RenderPassManager::drawMeshes(MTL::RenderCommandEncoder* renderCommandEncod
     }
 }
 
-void RenderPassManager::drawGBuffer(MTL::RenderCommandEncoder* renderCommandEncoder, const std::vector<Mesh*>& meshes, MTL::Buffer* frameDataBuffer) {
-    if (!resourceManager->getTexture(TextureName::AlbedoGBuffer) || 
+void RenderPassManager::drawGBuffer(MTL::RenderCommandEncoder* renderCommandEncoder, const std::vector<Mesh*>& meshes, MTL::Buffer*& frameDataBuffer) {
+    if (!resourceManager->getTexture(TextureName::AlbedoGBuffer) ||
         !resourceManager->getTexture(TextureName::NormalGBuffer) || 
         !resourceManager->getTexture(TextureName::DepthGBuffer) || 
         !resourceManager->getTexture(TextureName::DepthStencilTexture)) {
@@ -71,7 +71,7 @@ void RenderPassManager::drawGBuffer(MTL::RenderCommandEncoder* renderCommandEnco
     renderCommandEncoder->popDebugGroup();
 }
 
-void RenderPassManager::drawFinalGathering(MTL::RenderCommandEncoder* renderCommandEncoder, MTL::Buffer* frameDataBuffer) {
+void RenderPassManager::drawFinalGathering(MTL::RenderCommandEncoder* renderCommandEncoder, MTL::Buffer*& frameDataBuffer) {
 
     bool doBilinear = editor->debug.debugCascadeLevel == -1;
     bool drawSky = editor->debug.sky;
@@ -99,8 +99,8 @@ void RenderPassManager::drawFinalGathering(MTL::RenderCommandEncoder* renderComm
     renderCommandEncoder->drawPrimitives(MTL::PrimitiveTypeTriangle, 0, 3, 1);
 }
 
-void RenderPassManager::drawDepthPrepass(MTL::CommandBuffer* commandBuffer, const std::vector<Mesh*>& meshes, MTL::Buffer* frameDataBuffer) {
-    if (!resourceManager->getTexture(TextureName::LinearDepthTexture) || 
+void RenderPassManager::drawDepthPrepass(MTL::CommandBuffer* commandBuffer, const std::vector<Mesh*>& meshes, MTL::Buffer*& frameDataBuffer) {
+    if (!resourceManager->getTexture(TextureName::LinearDepthTexture) ||
         !resourceManager->getTexture(TextureName::DepthStencilTexture)) {
         std::cerr << "Error: Missing textures for depth prepass" << std::endl;
         return;
@@ -155,10 +155,9 @@ void RenderPassManager::drawDebug(MTL::RenderCommandEncoder* commandEncoder, MTL
     commandEncoder->setVertexBuffer(debug->lineBuffer, 0, 0);
     
     // Assuming the frameDataBuffer is the latest one in the frame
-    MTL::Buffer* frameDataBuffer = resourceManager->getBuffer(BufferName::FrameData);
-    if (frameDataBuffer) {
-        commandEncoder->setVertexBuffer(frameDataBuffer, 0, BufferIndexFrameData);
-    }
+    std::string labelStr = "FrameData" + std::to_string(0);
+    MTL::Buffer* frameDataBuffer = resourceManager->getBufferByName(labelStr);
+    commandEncoder->setVertexBuffer(frameDataBuffer, 0, BufferIndexFrameData);
 
     uint32_t* lineCount = reinterpret_cast<uint32_t*>(debug->lineCountBuffer->contents());
     
@@ -168,15 +167,15 @@ void RenderPassManager::drawDebug(MTL::RenderCommandEncoder* commandEncoder, MTL
     editor->endFrame(commandBuffer, commandEncoder);
 }
 
-void RenderPassManager::dispatchRaytracing(MTL::CommandBuffer* commandBuffer, MTL::Buffer* frameDataBuffer, const std::vector<MTL::Buffer*>& cascadeBuffers) {
+void RenderPassManager::dispatchRaytracing(MTL::CommandBuffer* commandBuffer, MTL::Buffer*& frameDataBuffer, const std::vector<MTL::Buffer*>& cascadeBuffers) {
     if (!resourceManager->getTexture(TextureName::FinalGatherTexture) ||
         !resourceManager->getTexture(TextureName::LinearDepthTexture)) {
         std::cerr << "Error: Missing textures for ray tracing dispatch" << std::endl;
         return;
     }
     
-    uint width = resourceManager->getTexture(TextureName::FinalGatherTexture)->width();
-    uint height = resourceManager->getTexture(TextureName::LinearDepthTexture)->height();
+    uint width = uint(resourceManager->getTexture(TextureName::FinalGatherTexture)->width());
+    uint height = uint(resourceManager->getTexture(TextureName::FinalGatherTexture)->height());
     
     // Create ping-pong textures for cascades
     MTL::TextureDescriptor* desc = MTL::TextureDescriptor::alloc()->init();
@@ -203,7 +202,7 @@ void RenderPassManager::dispatchRaytracing(MTL::CommandBuffer* commandBuffer, MT
     
     int startLevel = MAX_CASCADE_LEVEL - 1;
     int endLevel = (editor->debug.debugCascadeLevel == -1) ? 0 : editor->debug.debugCascadeLevel;
-    
+
     for (int level = startLevel; level >= endLevel; --level) {
         MTL::ComputeCommandEncoder* computeEncoder = commandBuffer->computeCommandEncoder();
         computeEncoder->setLabel(NS::String::string(("Ray Tracing Cascade " + std::to_string(level)).c_str(), NS::ASCIIStringEncoding));
@@ -237,9 +236,31 @@ void RenderPassManager::dispatchRaytracing(MTL::CommandBuffer* commandBuffer, MT
             computeEncoder->setTexture(lastMergedTexture, TextureIndexRadianceUpper);
             computeEncoder->useResource(lastMergedTexture, MTL::ResourceUsageRead);
         }
+        if (level == endLevel) {
+            computeEncoder->setTexture(resourceManager->getTexture(TextureName::HistoryTexture), TextureIndexHistory);
+            computeEncoder->useResource(resourceManager->getTexture(TextureName::HistoryTexture), MTL::ResourceUsageRead);
+        }
         
-        computeEncoder->setBuffer(frameDataBuffer, 0, BufferIndexFrameData);
-        computeEncoder->setBuffer(cascadeBuffers[level], 0, BufferIndexCascadeData);
+        labelStr = "Frame" + std::to_string(0) + "CascadeProbes" + std::to_string(level);
+        MTL::Buffer* probeBuffer = resourceManager->getBufferByName(labelStr);
+        labelStr = "Frame" + std::to_string(0) + "CascadeRays" + std::to_string(level);
+        MTL::Buffer* rayBuffer = resourceManager->getBufferByName(labelStr);
+        
+        // For debugging
+        if (CREATE_DEBUG_DATA) {
+            computeEncoder->setBuffer(probeBuffer, 0, BufferIndexProbeData);
+            computeEncoder->setBuffer(rayBuffer, 0, BufferIndexProbeRayData);
+            computeEncoder->useResource(probeBuffer, MTL::ResourceUsageWrite);
+            computeEncoder->useResource(rayBuffer, MTL::ResourceUsageWrite);
+        }
+        
+        labelStr = "FrameData" + std::to_string(0);
+        MTL::Buffer* frameData = resourceManager->getBufferByName(labelStr);
+        labelStr = "Frame" + std::to_string(0) + "CascadeData" + std::to_string(level);
+        MTL::Buffer* cascadeBuffer = resourceManager->getBufferByName(labelStr);
+        
+        computeEncoder->setBuffer(frameData, 0, BufferIndexFrameData);
+        computeEncoder->setBuffer(cascadeBuffer, 0, BufferIndexCascadeData);
         
         // Get the resource buffer from RayTracingManager
         MTL::Buffer* resourceBuffer = rayTracingManager->getResourceBuffer();
@@ -262,7 +283,7 @@ void RenderPassManager::dispatchRaytracing(MTL::CommandBuffer* commandBuffer, MT
         computeEncoder->useResource(accelStructure, MTL::ResourceUsageRead);
 
         // Compute probe grid and thread counts
-        int tile_size = 4 * (1 << level); // PROBE_SPACING * (1 << level)
+        int tile_size = PROBE_SPACING * (1 << level);
         size_t probeGridSizeX = (width + tile_size - 1) / tile_size;
         size_t probeGridSizeY = (height + tile_size - 1) / tile_size;
         uint raysPerDim = (1 << (level + 2));
@@ -281,13 +302,20 @@ void RenderPassManager::dispatchRaytracing(MTL::CommandBuffer* commandBuffer, MT
         }
     }
     
+    // Copy last result to history
+    MTL::BlitCommandEncoder* blitEncoder = commandBuffer->blitCommandEncoder();
+    MTL::Origin origin = MTL::Origin(0, 0, 0);
+    MTL::Size size = MTL::Size(width, height, 1);
+    blitEncoder->copyFromTexture(resourceManager->getTexture(TextureName::FinalGatherTexture), 0, 0, origin, size, resourceManager->getTexture(TextureName::HistoryTexture), 0, 0, origin);
+    blitEncoder->endEncoding();
+    
     // Clean up temporary textures
     desc->release();
     rcRenderTargets[0]->release();
     rcRenderTargets[1]->release();
 }
 
-void RenderPassManager::dispatchTwoPassBlur(MTL::CommandBuffer* commandBuffer, MTL::Buffer* frameDataBuffer) {
+void RenderPassManager::dispatchTwoPassBlur(MTL::CommandBuffer* commandBuffer, MTL::Buffer*& frameDataBuffer) {
     // Use enum-based texture lookups
     
     // Make sure textures exist
@@ -298,8 +326,8 @@ void RenderPassManager::dispatchTwoPassBlur(MTL::CommandBuffer* commandBuffer, M
         return;
     }
     
-    uint width = resourceManager->getTexture(TextureName::FinalGatherTexture)->width();
-    uint height = resourceManager->getTexture(TextureName::FinalGatherTexture)->height();
+    uint width = uint(resourceManager->getTexture(TextureName::FinalGatherTexture)->width());
+    uint height = uint(resourceManager->getTexture(TextureName::FinalGatherTexture)->height());
     
     MTL::Size threadGroupSize = MTL::Size(16, 16, 1);
     MTL::Size threadgroups = MTL::Size((width + threadGroupSize.width - 1) / threadGroupSize.width,

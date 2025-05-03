@@ -18,12 +18,12 @@ enum class TextureName {
     // Ray tracing textures
     FinalGatherTexture,
     BlurredColorTexture,
-    IntermediateBlurTexture
+    IntermediateBlurTexture,
+    HistoryTexture
 };
 
 // Enum for buffer resources
 enum class BufferName {
-    FrameData,
     TriangleResources
 };
 
@@ -41,7 +41,8 @@ public:
             {TextureName::MinMaxDepthTexture, "MinMaxDepthTexture"},
             {TextureName::FinalGatherTexture, "FinalGatherTexture"},
             {TextureName::BlurredColorTexture, "BlurredColorTexture"},
-            {TextureName::IntermediateBlurTexture, "IntermediateBlurTexture"}
+            {TextureName::IntermediateBlurTexture, "IntermediateBlurTexture"},
+            {TextureName::HistoryTexture, "HistoryTexture"}
         };
         
         auto it = textureNames.find(name);
@@ -54,7 +55,6 @@ public:
     
     static std::string toString(BufferName name) {
         static const std::unordered_map<BufferName, std::string> bufferNames = {
-            {BufferName::FrameData, "FrameDataBuffer"},
             {BufferName::TriangleResources, "TriangleResourcesBuffer"}
         };
         

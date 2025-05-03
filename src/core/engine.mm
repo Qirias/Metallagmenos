@@ -77,7 +77,7 @@ void Engine::cleanup() {
                 cascadeDataBuffer[frame][cascade]->release();
             }
             
-            if (createDebugData) {
+            if (CREATE_DEBUG_DATA) {
                 if (probePosBuffer[frame][cascade]) {
                     probePosBuffer[frame][cascade]->release();
                 }
@@ -153,7 +153,7 @@ void Engine::resizeFrameBuffer(int width, int height) {
 void Engine::initWindow() {
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindow = glfwCreateWindow(1280, 768, "RC-SPWI", NULL, NULL);
+    glfwWindow = glfwCreateWindow(512, 512, "RC-SPWI", NULL, NULL);
     if (!glfwWindow) {
         glfwTerminate();
         exit(EXIT_FAILURE);
@@ -204,7 +204,7 @@ void Engine::endFrame(MTL::CommandBuffer* commandBuffer) {
         
         // Draw the debug spheres and lines once after 100 frames so you can inspect them
         // Remove the if statement for real-time updates. Slow as fuck
-        if (frameNumber == 100 && createDebugData) {
+        if (frameNumber == 100 && CREATE_DEBUG_DATA) {
             createSphereGrid();
             createDebugLines();
         }
@@ -227,7 +227,7 @@ void Engine::loadSceneFromJSON(const std::string& jsonFilePath) {
 }
 
 void Engine::loadScene() {
-    loadSceneFromJSON(std::string(SCENES_PATH) + "/cubesScene.json");
+    loadSceneFromJSON(std::string(SCENES_PATH) + "/cubeScene.json");
 }
 
 MTL::VertexDescriptor* Engine::createDefaultVertexDescriptor() {
@@ -307,8 +307,18 @@ void Engine::createBuffers() {
     frameDataBuffers.resize(MaxFramesInFlight);
     rayBuffer.resize(MaxFramesInFlight);
     
+    MTL::TextureDescriptor* desc = MTL::TextureDescriptor::alloc()->init();
+    desc->setTextureType(MTL::TextureType2D);
+    desc->setPixelFormat(MTL::PixelFormatRGBA16Float);
+    desc->setWidth(metalLayer.drawableSize.width);
+    desc->setHeight(metalLayer.drawableSize.height);
+    desc->setStorageMode(MTL::StorageModeShared);
+    desc->setUsage(MTL::TextureUsageShaderRead | MTL::TextureUsageShaderWrite);
+    NS::String* label;
+    std::string labelStr;
+    
     for (int frame = 0; frame < MaxFramesInFlight; frame++) {
-        std::string labelStr = "FrameData: " + std::to_string(frame);
+        labelStr = "FrameData" + std::to_string(frame);
         frameDataBuffers[frame] = resourceManager->createBuffer(
             sizeof(FrameData), 
             nullptr, 
@@ -321,7 +331,7 @@ void Engine::createBuffers() {
         rayBuffer[frame].resize(MAX_CASCADE_LEVEL);
         
         for (int cascade = 0; cascade < MAX_CASCADE_LEVEL; cascade++) {
-            labelStr = "Frame: " + std::to_string(frame) + "|CascadeData: " + std::to_string(cascade);
+            labelStr = "Frame" + std::to_string(frame) + "CascadeData" + std::to_string(cascade);
             
             cascadeDataBuffer[frame][cascade] = resourceManager->createBuffer(
                 sizeof(CascadeData), 
@@ -330,27 +340,27 @@ void Engine::createBuffers() {
                 labelStr.c_str()
             );
 
-            if (createDebugData) {
-                debugProbeCount = floor(metalLayer.drawableSize.width / (PROBE_SPACING * 1 << cascade)) * 
+            if (CREATE_DEBUG_DATA) {
+                debugProbeCount = floor(metalLayer.drawableSize.width / (PROBE_SPACING * 1 << cascade)) *
                                   floor(metalLayer.drawableSize.height / (PROBE_SPACING * 1 << cascade));
                 size_t probeBufferSize = debugProbeCount * sizeof(Probe);
                 rayCount = debugProbeCount * BASE_RAY * (1 << (2 * cascade));
                 size_t rayBufferSize = rayCount * sizeof(ProbeRay);
                 
-                labelStr = "Frame: " + std::to_string(frame) + "|CascadeProbes: " + std::to_string(cascade);
+                labelStr = "Frame" + std::to_string(frame) + "CascadeProbes" + std::to_string(cascade);
                 probePosBuffer[frame][cascade] = resourceManager->createBuffer(
                     probeBufferSize, 
                     nullptr, 
                     MTL::ResourceStorageModeShared, 
-                    "probePosBuffer"
+                    labelStr.c_str()
                 );
                 
-                labelStr = "Frame: " + std::to_string(frame) + "|CascadeRays: " + std::to_string(cascade);
+                labelStr = "Frame" + std::to_string(frame) + "CascadeRays" + std::to_string(cascade);
                 rayBuffer[frame][cascade] = resourceManager->createBuffer(
                     rayBufferSize, 
                     nullptr, 
                     MTL::ResourceStorageModeShared, 
-                    "rayBuffer"
+                    labelStr.c_str()
                 );
             }
         }
@@ -391,6 +401,7 @@ void Engine::updateWorldState(bool isPaused) {
 	frameData->framebuffer_height = (uint)metalLayer.drawableSize.height;
     frameData->near_plane = NEAR_PLANE;
     frameData->far_plane = FAR_PLANE;
+    frameData->frameNumber = frameNumber;
 
 	// Define the sun color
 	frameData->sun_color = simd_make_float4(0.95, 0.95, 0.9, 1.0);
@@ -651,6 +662,8 @@ void Engine::createViewRenderPassDescriptor() {
     blurDesc->setStorageMode(MTL::StorageModePrivate);
     blurDesc->setUsage(MTL::TextureUsageShaderRead | MTL::TextureUsageShaderWrite);
     resourceManager->createTexture(blurDesc, TextureName::IntermediateBlurTexture);
+    // HistoryTexture has same descriptor
+    resourceManager->createTexture(blurDesc, TextureName::HistoryTexture);
     blurDesc->release();
     
     // Min-max depth texture
@@ -664,6 +677,8 @@ void Engine::createViewRenderPassDescriptor() {
     minMaxDescriptor->setMipmapLevelCount(log2(std::max(metalLayer.drawableSize.width, metalLayer.drawableSize.height)) + 1);
     resourceManager->createTexture(minMaxDescriptor, TextureName::MinMaxDepthTexture);
     minMaxDescriptor->release();
+    
+    
     
     // Create render pass descriptors
     viewRenderPassDescriptor = MTL::RenderPassDescriptor::alloc()->init();
@@ -747,9 +762,6 @@ void Engine::draw() {
         renderPassManager->drawGBuffer(gBufferEncoder, meshes, frameDataBuffers[currentFrameIndex]);
         gBufferEncoder->endEncoding();
     }
-    
-    // Min max buffer is not used currently
-    // renderPassManager->dispatchMinMaxDepthMipmaps(commandBuffer);
     
     renderPassManager->dispatchRaytracing(commandBuffer, 
                                          frameDataBuffers[currentFrameIndex], 

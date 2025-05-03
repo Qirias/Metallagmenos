@@ -18,7 +18,7 @@ struct FrameData {
 	float sun_specular_intensity;
     float near_plane;
     float far_plane;
-    uint padding;
+    float frameNumber;
 	
 	// Vector group
 	simd::float4 sun_color;
@@ -81,6 +81,7 @@ typedef enum TextureIndex {
     TextureIndexRadianceUpper       = 5,
     TextureIndexDepthTexture		= 6,
     TextureIndexUpperRadiance       = 7,
+    TextureIndexHistory             = 8,
 
 	NumMeshTextures = TextureIndexNormal + 1
 

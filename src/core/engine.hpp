@@ -32,7 +32,7 @@
 #include <simd/simd.h>
 #include <filesystem>
 
-constexpr uint8_t MaxFramesInFlight = 3;
+constexpr uint8_t MaxFramesInFlight = 1;
 constexpr float NEAR_PLANE = 0.1f;
 constexpr float FAR_PLANE = 100.0f;
 
@@ -116,6 +116,7 @@ private:
     // Renderpass descriptors
 	MTL::RenderPassDescriptor* 	viewRenderPassDescriptor;
     MTL::RenderPassDescriptor*  depthPrepassDescriptor;
+    MTL::RenderPassDescriptor*                  finalGatherDescriptor;
 	
 	// GBuffer properties
 	MTL::PixelFormat 			albedoSpecularGBufferFormat;
@@ -135,11 +136,6 @@ private:
     uint64_t                    frameNumber;
     uint8_t                     frameDataBufferIndex;
     
-    // Ray tracing
-    std::vector<MTL::AccelerationStructure*>    primitiveAccelerationStructures;
-    MTL::RenderPassDescriptor*                  finalGatherDescriptor;
-    
-    
     // Forward Debug
     MTL::RenderPassDescriptor*              forwardDescriptor;
     // Buffer that stores world space positions of the debug probes
@@ -148,10 +144,7 @@ private:
     std::vector<std::vector<MTL::Buffer*>>  rayBuffer;
     int                                     debugProbeCount = 0; // Don't adjust this value, it is set in the engine.mm
     int                                     rayCount = 0; // Same here
-    int                                     debugCascadeLevel = 0; // This is the level of cascade that you will be debugging
-    // Debug probes and rays require a lot of memory. In high resolution use MaxFramesInFlight = 1 or lower the resolution
-    // If you don't need debug probes and rays, set this to false
-    bool                                    createDebugData = false; 
+    int                                     debugCascadeLevel = 3; // This is the level of cascade that you will be debugging
     
     // Debugging probes and rays
     void createSphereGrid();

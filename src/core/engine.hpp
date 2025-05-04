@@ -108,6 +108,8 @@ private:
     int                 newHeight;
 
     Camera              camera;
+    simd::float3        lastFrameCameraPosition = simd::float3{0, 0, 0};
+    simd::float3        lastFrameCameraForward = simd::float3{0, 0, 1};
     float               lastFrame;
     
     static void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
@@ -116,7 +118,7 @@ private:
     // Renderpass descriptors
 	MTL::RenderPassDescriptor* 	viewRenderPassDescriptor;
     MTL::RenderPassDescriptor*  depthPrepassDescriptor;
-    MTL::RenderPassDescriptor*                  finalGatherDescriptor;
+    MTL::RenderPassDescriptor*  finalGatherDescriptor;
 	
 	// GBuffer properties
 	MTL::PixelFormat 			albedoSpecularGBufferFormat;

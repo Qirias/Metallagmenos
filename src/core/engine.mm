@@ -153,7 +153,7 @@ void Engine::resizeFrameBuffer(int width, int height) {
 void Engine::initWindow() {
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindow = glfwCreateWindow(512, 512, "RC-SPWI", NULL, NULL);
+    glfwWindow = glfwCreateWindow(1920, 1152, "RC-SPWI", NULL, NULL);
     if (!glfwWindow) {
         glfwTerminate();
         exit(EXIT_FAILURE);
@@ -227,7 +227,7 @@ void Engine::loadSceneFromJSON(const std::string& jsonFilePath) {
 }
 
 void Engine::loadScene() {
-    loadSceneFromJSON(std::string(SCENES_PATH) + "/cubeScene.json");
+    loadSceneFromJSON(std::string(SCENES_PATH) + "/sponzaHornbug.json");
 }
 
 MTL::VertexDescriptor* Engine::createDefaultVertexDescriptor() {
@@ -384,8 +384,38 @@ void Engine::updateWorldState(bool isPaused) {
 	FrameData *frameData = (FrameData *)(frameDataBuffers[currentFrameIndex]->contents());
 
 	float aspectRatio = metalDrawable->layer()->drawableSize().width / metalDrawable->layer()->drawableSize().height;
+
+    frameData->maxTemporalAccumulationFrames = 16.0f;
+
+    // If the scene is static or the camera hasn't moved, increment the counter
+    if (!isPaused) {
+        float3 currentCameraPosition = float3{frameData->cameraPosition.x, 
+                                              frameData->cameraPosition.y, 
+                                              frameData->cameraPosition.z};
+        float3 currentCameraForward = float3{frameData->cameraForward.x,
+                                             frameData->cameraForward.y,
+                                             frameData->cameraForward.z};
+
+        bool significantChange = false;
+        
+        if (simd::dot(lastFrameCameraForward, currentCameraForward) < 0.9998f || simd::distance(lastFrameCameraPosition, currentCameraPosition) > 0.001f) {
+            significantChange = true;
+        }
+        
+        if (!significantChange && lastFrameCameraPosition.x != 0) { // Skip first frame
+            // Camera hasn't moved significantly, accumulate
+            frameData->temporalAccumulationCount = min(frameData->temporalAccumulationCount + 1.0f, frameData->maxTemporalAccumulationFrames);
+        } else {
+            // Camera moved or rotated, reset accumulation
+            frameData->temporalAccumulationCount = 1.0f;
+        }
+        lastFrameCameraPosition = currentCameraPosition;
+        lastFrameCameraForward = currentCameraForward;
+    }
 	
 	camera.setProjectionMatrix(45, aspectRatio, NEAR_PLANE, FAR_PLANE);
+    frameData->prev_projection_matrix = frameData->projection_matrix;
+    frameData->prev_view_matrix = frameData->view_matrix;
 	frameData->projection_matrix = camera.getProjectionMatrix();
 	frameData->projection_matrix_inverse = matrix_invert(frameData->projection_matrix);
 	frameData->view_matrix = camera.getViewMatrix();

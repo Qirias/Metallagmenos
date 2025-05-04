@@ -356,8 +356,17 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
         radianceTexture.write(radiance, uint2(texX, texY));
     }
     else {
-        float modulationFactor = 0.9;
         float4 historyColor = historyTexture.read(uint2(texX, texY));
+    
+        // Calculate adaptive blend factor based on accumulated frames
+        float frameCount = min(frameData.temporalAccumulationCount, frameData.maxTemporalAccumulationFrames);
+        float modulationFactor = frameCount / (frameCount + 1.0); // Approaches 1.0 as frames accumulate
+        
+        // If we've reached our max frames, use a fixed factor to allow for scene changes
+        if (frameCount >= frameData.maxTemporalAccumulationFrames) {
+            modulationFactor = frameData.maxTemporalAccumulationFrames / (frameData.maxTemporalAccumulationFrames + 1.0);
+        }
+        
         float4 accumulatedColor = mix(radiance, historyColor, modulationFactor);
         radianceTexture.write(accumulatedColor, uint2(texX, texY));
     }

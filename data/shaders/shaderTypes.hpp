@@ -19,14 +19,16 @@ struct FrameData {
     float near_plane;
     float far_plane;
     float frameNumber;
+    float temporalAccumulationCount;
+    float maxTemporalAccumulationFrames;
 	
 	// Vector group
 	simd::float4 sun_color;
 	simd::float4 sun_eye_direction;
 	
 	// Matrix group
-	simd::float4x4 _pad2;
-	simd::float4x4 _pad3;
+	simd::float4x4 prev_projection_matrix;
+    simd::float4x4 prev_view_matrix;
     simd::float4x4 view_matrix_inverse;
 	simd::float4x4 scene_model_matrix;
 	simd::float4x4 scene_modelview_matrix;

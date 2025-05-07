@@ -19,7 +19,8 @@ enum class TextureName {
     FinalGatherTexture,
     BlurredColorTexture,
     IntermediateBlurTexture,
-    HistoryTexture
+    HistoryTexture,
+    HistoryDepthTexture
 };
 
 // Enum for buffer resources
@@ -42,7 +43,8 @@ public:
             {TextureName::FinalGatherTexture, "FinalGatherTexture"},
             {TextureName::BlurredColorTexture, "BlurredColorTexture"},
             {TextureName::IntermediateBlurTexture, "IntermediateBlurTexture"},
-            {TextureName::HistoryTexture, "HistoryTexture"}
+            {TextureName::HistoryTexture, "HistoryTexture"},
+            {TextureName::HistoryDepthTexture, "HistoryDepthTexture"}
         };
         
         auto it = textureNames.find(name);

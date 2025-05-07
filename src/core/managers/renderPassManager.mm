@@ -267,6 +267,7 @@ void RenderPassManager::dispatchRaytracing(MTL::CommandBuffer* commandBuffer, MT
         computeEncoder->setBuffer(resourceBuffer, 0, BufferIndexResources);
         
         computeEncoder->setTexture(resourceManager->getTexture(TextureName::LinearDepthTexture), TextureIndexDepthTexture);
+        computeEncoder->setTexture(resourceManager->getTexture(TextureName::HistoryDepthTexture), TextureIndexHistoryDepthTexture);
 
         computeEncoder->useResource(resourceBuffer, MTL::ResourceUsageRead);
         computeEncoder->useResource(resourceManager->getTexture(TextureName::LinearDepthTexture), MTL::ResourceUsageRead);
@@ -307,6 +308,10 @@ void RenderPassManager::dispatchRaytracing(MTL::CommandBuffer* commandBuffer, MT
     MTL::Origin origin = MTL::Origin(0, 0, 0);
     MTL::Size size = MTL::Size(width, height, 1);
     blitEncoder->copyFromTexture(resourceManager->getTexture(TextureName::FinalGatherTexture), 0, 0, origin, size, resourceManager->getTexture(TextureName::HistoryTexture), 0, 0, origin);
+    blitEncoder->endEncoding();
+    
+    blitEncoder = commandBuffer->blitCommandEncoder();
+    blitEncoder->copyFromTexture(resourceManager->getTexture(TextureName::LinearDepthTexture), 0, 0, origin, size, resourceManager->getTexture(TextureName::HistoryDepthTexture), 0, 0, origin);
     blitEncoder->endEncoding();
     
     // Clean up temporary textures

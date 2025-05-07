@@ -212,6 +212,7 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
                       device Probe*                             probeData               [[buffer(BufferIndexProbeData)]],
                       device ProbeRay*                          rayData                 [[buffer(BufferIndexProbeRayData)]],
                              texture2d<float, access::sample>   depthTexture            [[texture(TextureIndexDepthTexture)]],
+                             texture2d<float, access::sample>   historyDepthTexture     [[texture(TextureIndexHistoryDepthTexture)]],
                              uint                               tid                     [[thread_position_in_grid]]) {
     const uint probeSpacing = cascadeData.probeSpacing;
     uint cascadeLevel = cascadeData.cascadeLevel;

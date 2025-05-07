@@ -34,7 +34,7 @@ void Engine::init() {
         resourceManager.get(), 
         &renderPipelines, 
         rayTracingManager.get(), 
-        debug.get(), 
+        debug.get(),
         editor.get()
     );
     
@@ -668,7 +668,7 @@ void Engine::createViewRenderPassDescriptor() {
     
     uint32_t width = metalLayer.drawableSize.width;
     uint32_t height = metalLayer.drawableSize.height;
-        
+    
     // GBuffer textures
     resourceManager->createGBufferTexture(width, height, albedoSpecularGBufferFormat, TextureName::AlbedoGBuffer);
     resourceManager->createGBufferTexture(width, height, normalMapGBufferFormat, TextureName::NormalGBuffer);
@@ -697,18 +697,19 @@ void Engine::createViewRenderPassDescriptor() {
     blurDesc->release();
     
     // Min-max depth texture
-    MTL::TextureDescriptor* minMaxDescriptor = MTL::TextureDescriptor::alloc()->init();
-    minMaxDescriptor->setTextureType(MTL::TextureType2D);
-    minMaxDescriptor->setPixelFormat(MTL::PixelFormatRG32Float);
-    minMaxDescriptor->setWidth(width);
-    minMaxDescriptor->setHeight(height);
-    minMaxDescriptor->setStorageMode(MTL::StorageModeShared);
-    minMaxDescriptor->setUsage(MTL::TextureUsageShaderRead | MTL::TextureUsageShaderWrite);
-    minMaxDescriptor->setMipmapLevelCount(log2(std::max(metalLayer.drawableSize.width, metalLayer.drawableSize.height)) + 1);
-    resourceManager->createTexture(minMaxDescriptor, TextureName::MinMaxDepthTexture);
-    minMaxDescriptor->release();
-    
-    
+    MTL::TextureDescriptor* depthTextureDesc = MTL::TextureDescriptor::alloc()->init();
+    depthTextureDesc->setTextureType(MTL::TextureType2D);
+    depthTextureDesc->setPixelFormat(MTL::PixelFormatRG32Float);
+    depthTextureDesc->setWidth(width);
+    depthTextureDesc->setHeight(height);
+    depthTextureDesc->setStorageMode(MTL::StorageModeShared);
+    depthTextureDesc->setUsage(MTL::TextureUsageShaderRead | MTL::TextureUsageShaderWrite);
+    depthTextureDesc->setMipmapLevelCount(log2(std::max(metalLayer.drawableSize.width, metalLayer.drawableSize.height)) + 1);
+    resourceManager->createTexture(depthTextureDesc, TextureName::MinMaxDepthTexture);
+    depthTextureDesc->setPixelFormat(MTL::PixelFormatR32Float);
+    depthTextureDesc->setMipmapLevelCount(1);
+    resourceManager->createTexture(depthTextureDesc, TextureName::HistoryDepthTexture);
+    depthTextureDesc->release();
     
     // Create render pass descriptors
     viewRenderPassDescriptor = MTL::RenderPassDescriptor::alloc()->init();
@@ -802,7 +803,7 @@ void Engine::draw() {
     finalGatherEncoder->setLabel(NS::String::string("Final Gather", NS::ASCIIStringEncoding));
     if (finalGatherEncoder) {
         renderPassManager->drawFinalGathering(finalGatherEncoder, 
-                                             frameDataBuffers[currentFrameIndex]);
+                                              frameDataBuffers[currentFrameIndex]);
         finalGatherEncoder->endEncoding();
     }
 
@@ -811,6 +812,8 @@ void Engine::draw() {
     debugEncoder->setLabel(NS::String::string("Debug and ImGui", NS::ASCIIStringEncoding));
     renderPassManager->drawDebug(debugEncoder, commandBuffer);
     debugEncoder->endEncoding();
+    
+    
 
     endFrame(commandBuffer);
 }

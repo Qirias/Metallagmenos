@@ -69,25 +69,6 @@ void Engine::cleanup() {
         delete mesh;
     }
     
-    // Release frame-specific buffers that are not managed by ResourceManager
-    for (int frame = 0; frame < MaxFramesInFlight; frame++) {
-        // Will be moving these to ResourceManager eventually, but for now:
-        for (int cascade = 0; cascade < MAX_CASCADE_LEVEL; cascade++) {
-            if (cascadeDataBuffer[frame][cascade]) {
-                cascadeDataBuffer[frame][cascade]->release();
-            }
-            
-            if (CREATE_DEBUG_DATA) {
-                if (probePosBuffer[frame][cascade]) {
-                    probePosBuffer[frame][cascade]->release();
-                }
-                if (rayBuffer[frame][cascade]) {
-                    rayBuffer[frame][cascade]->release();
-                }
-            }
-        }
-    }
-    
     // Release descriptors which aren't managed by ResourceManager
     if (viewRenderPassDescriptor) viewRenderPassDescriptor->release();
     if (finalGatherDescriptor) finalGatherDescriptor->release();
@@ -306,6 +287,7 @@ void Engine::createBuffers() {
     probePosBuffer.resize(MaxFramesInFlight);
     frameDataBuffers.resize(MaxFramesInFlight);
     rayBuffer.resize(MaxFramesInFlight);
+    probeAccumBuffer.resize(MaxFramesInFlight);
     
     MTL::TextureDescriptor* desc = MTL::TextureDescriptor::alloc()->init();
     desc->setTextureType(MTL::TextureType2D);
@@ -316,6 +298,7 @@ void Engine::createBuffers() {
     desc->setUsage(MTL::TextureUsageShaderRead | MTL::TextureUsageShaderWrite);
     NS::String* label;
     std::string labelStr;
+    int probeCount = 0;
     
     for (int frame = 0; frame < MaxFramesInFlight; frame++) {
         labelStr = "FrameData" + std::to_string(frame);
@@ -329,6 +312,7 @@ void Engine::createBuffers() {
         cascadeDataBuffer[frame].resize(MAX_CASCADE_LEVEL);
         probePosBuffer[frame].resize(MAX_CASCADE_LEVEL);
         rayBuffer[frame].resize(MAX_CASCADE_LEVEL);
+        probeAccumBuffer[frame].resize(MAX_CASCADE_LEVEL);
         
         for (int cascade = 0; cascade < MAX_CASCADE_LEVEL; cascade++) {
             labelStr = "Frame" + std::to_string(frame) + "CascadeData" + std::to_string(cascade);
@@ -341,27 +325,30 @@ void Engine::createBuffers() {
             );
 
             if (CREATE_DEBUG_DATA) {
-                debugProbeCount = floor(metalLayer.drawableSize.width / (PROBE_SPACING * 1 << cascade)) *
-                                  floor(metalLayer.drawableSize.height / (PROBE_SPACING * 1 << cascade));
-                size_t probeBufferSize = debugProbeCount * sizeof(Probe);
-                rayCount = debugProbeCount * BASE_RAY * (1 << (2 * cascade));
+                probeCount = floor(metalLayer.drawableSize.width / (PROBE_SPACING * 1 << cascade)) *
+                            floor(metalLayer.drawableSize.height / (PROBE_SPACING * 1 << cascade));
+                size_t probeBufferSize = probeCount * sizeof(Probe);
+                rayCount = probeCount * BASE_RAY * (1 << (2 * cascade));
                 size_t rayBufferSize = rayCount * sizeof(ProbeRay);
+                size_t probeAccumBufferSize = probeCount * sizeof(ProbeAccum);
                 
                 labelStr = "Frame" + std::to_string(frame) + "CascadeProbes" + std::to_string(cascade);
-                probePosBuffer[frame][cascade] = resourceManager->createBuffer(
-                    probeBufferSize, 
-                    nullptr, 
-                    MTL::ResourceStorageModeShared, 
-                    labelStr.c_str()
-                );
+                probePosBuffer[frame][cascade] = resourceManager->createBuffer(probeBufferSize,
+                                                                               nullptr,
+                                                                               MTL::ResourceStorageModeShared,
+                                                                               labelStr.c_str());
                 
                 labelStr = "Frame" + std::to_string(frame) + "CascadeRays" + std::to_string(cascade);
-                rayBuffer[frame][cascade] = resourceManager->createBuffer(
-                    rayBufferSize, 
-                    nullptr, 
-                    MTL::ResourceStorageModeShared, 
-                    labelStr.c_str()
-                );
+                rayBuffer[frame][cascade] = resourceManager->createBuffer(rayBufferSize,
+                                                                          nullptr,
+                                                                          MTL::ResourceStorageModeShared,
+                                                                          labelStr.c_str());
+                
+                labelStr = "Frame" + std::to_string(frame) + "ProbeAccum" + std::to_string(cascade);
+                probeAccumBuffer[frame][cascade] = resourceManager->createBuffer(probeAccumBufferSize,
+                                                                                 nullptr,
+                                                                                 MTL::ResourceStorageModeShared,
+                                                                                 labelStr.c_str());
             }
         }
     }
@@ -381,16 +368,16 @@ void Engine::updateWorldState(bool isPaused) {
 		frameNumber++;
 	}
 
-	FrameData *frameData = (FrameData *)(frameDataBuffers[currentFrameIndex]->contents());
+    FrameData *frameData = (FrameData *)(frameDataBuffers[currentFrameIndex]->contents());
 
-	float aspectRatio = metalDrawable->layer()->drawableSize().width / metalDrawable->layer()->drawableSize().height;
+    float aspectRatio = metalLayer.drawableSize.width / metalLayer.drawableSize.height;
 
     frameData->maxTemporalAccumulationFrames = 16.0f;
 
-    // If the scene is static or the camera hasn't moved, increment the counter
+    // Reset probeAccum buffers for all cascades on significant camera movement
     if (!isPaused) {
-        float3 currentCameraPosition = float3{frameData->cameraPosition.x, 
-                                              frameData->cameraPosition.y, 
+        float3 currentCameraPosition = float3{frameData->cameraPosition.x,
+                                              frameData->cameraPosition.y,
                                               frameData->cameraPosition.z};
         float3 currentCameraForward = float3{frameData->cameraForward.x,
                                              frameData->cameraForward.y,
@@ -398,21 +385,29 @@ void Engine::updateWorldState(bool isPaused) {
 
         bool significantChange = false;
         
-        if (simd::dot(lastFrameCameraForward, currentCameraForward) < 0.9998f || simd::distance(lastFrameCameraPosition, currentCameraPosition) > 0.001f) {
+        if (simd::dot(lastFrameCameraForward, currentCameraForward) < 0.9998f ||
+            simd::distance(lastFrameCameraPosition, currentCameraPosition) > 0.001f) {
             significantChange = true;
         }
         
-        if (!significantChange && lastFrameCameraPosition.x != 0) { // Skip first frame
-            // Camera hasn't moved significantly, accumulate
-            frameData->temporalAccumulationCount = min(frameData->temporalAccumulationCount + 1.0f, frameData->maxTemporalAccumulationFrames);
-        } else {
-            // Camera moved or rotated, reset accumulation
-            frameData->temporalAccumulationCount = 1.0f;
+        if (significantChange) {
+            for (int cascade = 0; cascade < MAX_CASCADE_LEVEL; cascade++) {
+                if (CREATE_DEBUG_DATA) {
+                    int probeCount = floor(metalLayer.drawableSize.width / (PROBE_SPACING * (1 << cascade))) *
+                                     floor(metalLayer.drawableSize.height / (PROBE_SPACING * (1 << cascade)));
+                    
+                    ProbeAccum* probeAccumData = (ProbeAccum*)probeAccumBuffer[currentFrameIndex][cascade]->contents();
+                    for (int i = 0; i < probeCount; ++i) {
+                        probeAccumData[i].temporalAccumulationCount = 1.0f;
+                    }
+                }
+            }
         }
+        
         lastFrameCameraPosition = currentCameraPosition;
         lastFrameCameraForward = currentCameraForward;
     }
-	
+    
 	camera.setProjectionMatrix(45, aspectRatio, NEAR_PLANE, FAR_PLANE);
     frameData->prev_projection_matrix = frameData->projection_matrix;
     frameData->prev_view_matrix = frameData->view_matrix;
@@ -796,7 +791,8 @@ void Engine::draw() {
     
     renderPassManager->dispatchRaytracing(commandBuffer, 
                                          frameDataBuffers[currentFrameIndex], 
-                                         cascadeDataBuffer[currentFrameIndex]);
+                                         cascadeDataBuffer[currentFrameIndex],
+                                          probeAccumBuffer[currentFrameIndex]);
 
     // Final gathering pass
     MTL::RenderCommandEncoder* finalGatherEncoder = commandBuffer->renderCommandEncoder(finalGatherDescriptor);

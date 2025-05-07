@@ -57,6 +57,10 @@ struct ProbeRay {
     simd::float4 color;
 };
 
+struct ProbeAccum {
+    float temporalAccumulationCount;
+};
+
 typedef enum RenderTargetIndex {
 	RenderTargetAlbedo,
 	RenderTargetNormal,
@@ -101,6 +105,7 @@ typedef enum BufferIndex {
     BufferIndexProbeData                = 7,
     BufferIndexProbeRayData             = 8,
     BufferIndexCascadeData              = 9,
-    BufferIndexColor       		    	= 10,
-	BufferIndexIsEmissive				= 11,
+    BufferIndexProbeAccumData           = 10,
+    BufferIndexColor       		    	= 11,
+	BufferIndexIsEmissive				= 12,
 } BufferIndex;

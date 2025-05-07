@@ -37,7 +37,7 @@ public:
     void drawDebug(MTL::RenderCommandEncoder* commandEncoder, MTL::CommandBuffer* commandBuffer);
                   
     // Compute pipeline passes
-    void dispatchRaytracing(MTL::CommandBuffer* commandBuffer, MTL::Buffer*& frameDataBuffer, const std::vector<MTL::Buffer*>& cascadeBuffers);
+    void dispatchRaytracing(MTL::CommandBuffer* commandBuffer, MTL::Buffer*& frameDataBuffer, const std::vector<MTL::Buffer*>& cascadeBuffers, std::vector<MTL::Buffer*>& probeAccumBuffers);
     void dispatchTwoPassBlur(MTL::CommandBuffer* commandBuffer, MTL::Buffer*& frameDataBuffer);
     void dispatchMinMaxDepthMipmaps(MTL::CommandBuffer* commandBuffer);
 

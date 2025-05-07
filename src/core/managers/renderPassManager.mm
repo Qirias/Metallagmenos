@@ -167,7 +167,7 @@ void RenderPassManager::drawDebug(MTL::RenderCommandEncoder* commandEncoder, MTL
     editor->endFrame(commandBuffer, commandEncoder);
 }
 
-void RenderPassManager::dispatchRaytracing(MTL::CommandBuffer* commandBuffer, MTL::Buffer*& frameDataBuffer, const std::vector<MTL::Buffer*>& cascadeBuffers) {
+void RenderPassManager::dispatchRaytracing(MTL::CommandBuffer* commandBuffer, MTL::Buffer*& frameDataBuffer, const std::vector<MTL::Buffer*>& cascadeBuffers, std::vector<MTL::Buffer*>& probeAccumBuffers) {
     if (!resourceManager->getTexture(TextureName::FinalGatherTexture) ||
         !resourceManager->getTexture(TextureName::LinearDepthTexture)) {
         std::cerr << "Error: Missing textures for ray tracing dispatch" << std::endl;
@@ -253,6 +253,7 @@ void RenderPassManager::dispatchRaytracing(MTL::CommandBuffer* commandBuffer, MT
             computeEncoder->useResource(probeBuffer, MTL::ResourceUsageWrite);
             computeEncoder->useResource(rayBuffer, MTL::ResourceUsageWrite);
         }
+        computeEncoder->setBuffer(probeAccumBuffers[level], 0, BufferIndexProbeAccumData);
         
         labelStr = "FrameData" + std::to_string(0);
         MTL::Buffer* frameData = resourceManager->getBufferByName(labelStr);

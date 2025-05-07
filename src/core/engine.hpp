@@ -88,6 +88,7 @@ private:
 	// Buffers used to store dynamically changing per-frame data
 	std::vector<MTL::Buffer*> 		            frameDataBuffers;
     std::vector<std::vector<MTL::Buffer*>>      cascadeDataBuffer; // Per cascade data buffer. First dimension is the frame index from frames in flight
+    std::vector<std::vector<MTL::Buffer*>>      probeAccumBuffer;
 
     MTL::Device*        metalDevice;
     GLFWwindow*         glfwWindow;

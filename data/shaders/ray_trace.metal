@@ -67,9 +67,9 @@ float4 skyAndSun(float3 rayDir, FrameData frameData, CascadeData cascadeData) {
     return result;
 }
 
-float3 reconstructWorldPositionFromLinearDepth(float2 ndc, float linearDepth, FrameData frameData) {
+float3 reconstructWorldPositionFromLinearDepth(float2 ndc, float linearDepth, float4x4 projection_inverse, float4x4 view_inverse) {
     float4 clipPos = float4(ndc.x, ndc.y, -1.0, 1.0);
-    float4 viewPos = frameData.projection_matrix_inverse * clipPos;
+    float4 viewPos = projection_inverse * clipPos;
     viewPos /= viewPos.w;
     
     float scale = linearDepth / fabs(viewPos.z);
@@ -77,7 +77,7 @@ float3 reconstructWorldPositionFromLinearDepth(float2 ndc, float linearDepth, Fr
 
     float3 viewPosAtDepth = viewPos.xyz * (scale * depthBias);
     
-    float4 worldPos = frameData.view_matrix_inverse * float4(viewPosAtDepth, 1.0);
+    float4 worldPos = view_inverse * float4(viewPosAtDepth, 1.0);
     return worldPos.xyz;
 }
 
@@ -160,7 +160,7 @@ float4 mergeUpperCascade(texture2d<float, access::sample> upperRadianceTexture,
         
         float2 probeNDC = probeUVCenter[i] * 2.0f - 1.0f;
         probeNDC.y = -probeNDC.y;
-        probeWorldPos[i] = reconstructWorldPositionFromLinearDepth(probeNDC, upperProbeDepths[i], frameData);
+        probeWorldPos[i] = reconstructWorldPositionFromLinearDepth(probeNDC, upperProbeDepths[i], frameData.projection_matrix_inverse, frameData.view_matrix_inverse);
     }
     
     float2 ratio3d = getBilinear3dRatioIter(probeWorldPos, currentWorldPos, upperFrac, 2);
@@ -244,32 +244,84 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
     float2 probeNDC = probeUV * 2.0f - 1.0f;
     probeNDC.y = -probeNDC.y; // Flip Y axis for Metal API
     float probeDepth = depthTexture.sample(depthSampler, probeUV).x;
+    
     if (probeDepth >= frameData.far_plane - 0.1) {
         return;
     }
     
-    float3 worldPos = reconstructWorldPositionFromLinearDepth(probeNDC, probeDepth, frameData);
+    float3 worldPos = reconstructWorldPositionFromLinearDepth(probeNDC, probeDepth,
+                                                              frameData.projection_matrix_inverse,
+                                                              frameData.view_matrix_inverse);
+    
+    // Handle temporal reprojection and accumulation update for first ray of each probe
+    if (rayIndex == 0 && cascadeData.enableTA) {
+        float prevProbeDepth = historyDepthTexture.sample(depthSampler, probeUV).x;
+        bool isHistoryValid = false;
+        
+        if (prevProbeDepth < frameData.far_plane - 0.1) {
+            float3 prevWorldPos = reconstructWorldPositionFromLinearDepth(probeNDC, prevProbeDepth,
+                                                                          frameData.prev_projection_matrix_inverse,
+                                                                          frameData.prev_view_matrix_inverse);
+            
+            // Project previous world position to current frame's clip space
+            float4 prevWorldInCurrentClip = frameData.projection_matrix * frameData.view_matrix * float4(prevWorldPos, 1.0);
+            float2 prevWorldNDC = prevWorldInCurrentClip.xy / prevWorldInCurrentClip.w;
+            
+            float2 ndcDelta = prevWorldNDC - probeNDC;
+            
+            float2 pixelDelta = ndcDelta * float2(frameData.framebuffer_width, frameData.framebuffer_height) * 0.5f;
+            float pixelDistance = length(pixelDelta);
+            
+            float depthDelta = abs(probeDepth - prevProbeDepth);
+            
+            float pixelThreshold = float(tileSize) * 0.8f; // If it has moved between the cascade's probe spacing
 
-    // Update per-probe accumulation count (only for rayIndex == 0 to avoid race conditions)
-    if (rayIndex == 0) {
-        probeAccum[probeIndex].temporalAccumulationCount = min(probeAccum[probeIndex].temporalAccumulationCount + 1.0f, frameData.maxTemporalAccumulationFrames); // Increment count
+            float depthRange = frameData.far_plane - frameData.near_plane;
+            float targetPercentage = 0.1f;
+            float baseDepthThreshold = depthRange * targetPercentage;
+            float depthThreshold = baseDepthThreshold * (1 << cascadeLevel);
+            
+            isHistoryValid = (pixelDistance < pixelThreshold) && (depthDelta < depthThreshold);
+        }
+        
+        probeAccum[probeIndex].isHistoryValid = isHistoryValid;
+        
+        if (isHistoryValid) {
+            probeAccum[probeIndex].temporalAccumulationCount = min(probeAccum[probeIndex].temporalAccumulationCount + 1.0f, frameData.maxTemporalAccumulationFrames);
+        } else {
+            // Invalid history - reset counter
+            probeAccum[probeIndex].temporalAccumulationCount = 1.0f;
+        }
+        
         probeData[probeIndex].position = float4(worldPos, 0.0f);
     }
 
     // Ray index in a 2D grid inside the octahedron
     int rayX = rayIndex % raysPerDim;
     int rayY = rayIndex / raysPerDim;
-
-    float3 frame_hash = hash33(float3(frameData.frameNumber));
-    float2 jitter = (frame_hash.xy - 0.5) / float(raysPerDim);
-    float2 rayUV = (float2(rayX + 0.5f, rayY + 0.5f) + jitter) / float(raysPerDim);
-    float3 rayDir = octDecode(rayUV);
     
+    float2 rayUV;
+    float3 rayDir;
+    
+    if (cascadeData.enableTA) {
+        // Apply temporal jitter to ray directions for better sampling over time
+        float3 frame_hash = hash33(float3(frameData.frameNumber));
+        float2 jitter = (frame_hash.xy - 0.5) / float(raysPerDim);
+        rayUV = (float2(rayX + 0.5f, rayY + 0.5f) + jitter) / float(raysPerDim);
+        rayDir = octDecode(rayUV);
+    } else {
+        rayUV = float2((rayX+0.5f) / float(raysPerDim), (rayY+0.5f) / float(raysPerDim));
+        rayDir = octDecode(rayUV);
+    }
+
+    
+    // Calculate tile UV for this ray
     float2 tileUV = float2(
         probeUV.x + (rayUV.x - 0.5f) * (float(tileSize) / float(frameData.framebuffer_width)),
         probeUV.y + (rayUV.y - 0.5f) * (float(tileSize) / float(frameData.framebuffer_height))
     );
 
+    // Calculate cascade interval range
     const float baseCascadeRange = 0.016f;
     const float cascadeRangeMultiplier = 4.0f;
     float cascadeStartRange = (cascadeLevel == 0) ? 0.0f : (baseCascadeRange * pow(cascadeRangeMultiplier, float(cascadeLevel - 1)));
@@ -277,6 +329,7 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
     float intervalStart = cascadeStartRange * intervalLength;
     float intervalEnd = cascadeEndRange * intervalLength;
     
+    // Set up and trace ray
     ray ray;
     ray.origin = worldPos;
     ray.direction = rayDir;
@@ -295,22 +348,26 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
     rayData[rayDataIndex].intervalStart = float4(startPoint, 1.0);
     rayData[rayDataIndex].intervalEnd = float4(endPoint, 1.0);
 
-    // Direct radiance from current cascade
     bool sampleSunOrSky = cascadeData.enableSky || cascadeData.enableSun;
     float4 radiance = float4(0.0);
     float occlusion;
+    
     if (result.type != intersection_type::none) {
+        // Hit an object
         unsigned int primitiveIndex = result.primitive_id;
         const device TriangleResources::TriangleData& triangle = resources[primitiveIndex];
+        
         radiance = (triangle.colors[0].a == -1.0f) ? float4(triangle.colors[0].rgb, 1.0) : float4(0.0, 0.0, 0.0, 1.0);
         occlusion = 0.0;
         
         if (triangle.colors[0].a == -1.0f)
-            rayData[rayDataIndex].color = float4(1.0, 0.0, 0.0, 1.0);
+            rayData[rayDataIndex].color = float4(1.0, 0.0, 0.0, 1.0); // Red for emissive
         else
-            rayData[rayDataIndex].color = float4(0.0, 0.0, 1.0, 1.0);
+            rayData[rayDataIndex].color = float4(0.0, 0.0, 1.0, 1.0); // Blue for non-emissive
     } else {
         occlusion = 1.0f;
+        
+        // For highest cascade, sample sky if enabled
         if ((cascadeLevel == cascadeData.maxCascade) && sampleSunOrSky) {
             radiance = skyAndSun(rayDir, frameData, cascadeData);
         } else {
@@ -318,7 +375,6 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
         }
     }
 
-    // Merge with upper cascade
     float4 upperRadiance = float4(0.0);
     if (cascadeLevel < cascadeData.maxCascade) {
         upperRadiance = mergeUpperCascade(upperRadianceTexture,
@@ -331,9 +387,11 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
                                           frameData);
 
         if (result.type == intersection_type::none) {
+            // No hit in current cascade, use upper cascade
             rayData[rayDataIndex].color = float4(0.4, 0.4, 0.4, 1.0);
             radiance = upperRadiance;
         } else {
+            // Hit in current cascade, blend with upper cascade based on occlusion
             radiance.rgb += upperRadiance.rgb * occlusion;
             radiance.a *= upperRadiance.a;
         }
@@ -342,20 +400,32 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
     uint texX = uint(tileUV.x * frameData.framebuffer_width);
     uint texY = uint(tileUV.y * frameData.framebuffer_height);
     
-    if (cascadeLevel != 0) {
+    if (cascadeLevel != 0 || !cascadeData.enableTA) {
+        // Higher cascades - just write directly
         radianceTexture.write(radiance, uint2(texX, texY));
     } else {
         float4 historyColor = historyTexture.read(uint2(texX, texY));
     
-        // Use per-probe accumulation count for blending
+        bool isHistoryValid = probeAccum[probeIndex].isHistoryValid;
         float frameCount = probeAccum[probeIndex].temporalAccumulationCount;
-        float modulationFactor = frameCount / (frameCount + 1.0); // Approaches 1.0 as frames accumulate
         
-        if (frameCount >= frameData.maxTemporalAccumulationFrames) {
-            modulationFactor = frameData.maxTemporalAccumulationFrames / (frameData.maxTemporalAccumulationFrames + 1.0);
+        float4 accumulatedColor;
+        
+        if (isHistoryValid) {
+            // Calculate blend factor (closer to 1.0 as more frames accumulate)
+            float modulationFactor = frameCount / (frameCount + 1.0);
+            
+            // Cap at max frames
+            if (frameCount >= frameData.maxTemporalAccumulationFrames) {
+                modulationFactor = frameData.maxTemporalAccumulationFrames /
+                                 (frameData.maxTemporalAccumulationFrames + 1.0);
+            }
+            
+            accumulatedColor = mix(radiance, historyColor, modulationFactor);
+        } else {
+            accumulatedColor = radiance;
         }
         
-        float4 accumulatedColor = mix(radiance, historyColor, modulationFactor);
         radianceTexture.write(accumulatedColor, uint2(texX, texY));
     }
 }

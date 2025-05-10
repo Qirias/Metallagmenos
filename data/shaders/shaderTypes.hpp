@@ -6,6 +6,7 @@ struct FrameData {
 	simd::float4x4 projection_matrix;
 	simd::float4x4 projection_matrix_inverse;
 	simd::float4x4 view_matrix;
+    simd::float4x4 view_matrix_inverse;
     
     // Camera properties
     simd::float4 cameraUp;
@@ -29,7 +30,8 @@ struct FrameData {
 	// Matrix group
 	simd::float4x4 prev_projection_matrix;
     simd::float4x4 prev_view_matrix;
-    simd::float4x4 view_matrix_inverse;
+    simd::float4x4 prev_projection_matrix_inverse;
+    simd::float4x4 prev_view_matrix_inverse;
 	simd::float4x4 scene_model_matrix;
 	simd::float4x4 scene_modelview_matrix;
 	
@@ -44,7 +46,8 @@ struct CascadeData {
     float intervalLength;
     float enableSky;
     float enableSun;
-    uint _pad[2];
+    float enableTA;
+    uint _pad;
 };
 
 struct Probe {
@@ -59,6 +62,8 @@ struct ProbeRay {
 
 struct ProbeAccum {
     float temporalAccumulationCount;
+    bool isHistoryValid;
+    char _pad[3];
 };
 
 typedef enum RenderTargetIndex {

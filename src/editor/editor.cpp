@@ -64,6 +64,7 @@ void Editor::debugWindow() {
     ImGui::Checkbox("Debug", &debug.enableDebugFeature);
     ImGui::Checkbox("Sun", &debug.sun);
     ImGui::Checkbox("Sky", &debug.sky);
+    ImGui::Checkbox("TA", &debug.TA);
     
     ImGui::InputFloat("Interval Length", &debug.intervalLength, 0.1f, 1.0f, "%.2f");
     ImGui::SliderInt("Cascade Level", &debug.debugCascadeLevel, -1, 5);

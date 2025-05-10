@@ -374,43 +374,46 @@ void Engine::updateWorldState(bool isPaused) {
 
     frameData->maxTemporalAccumulationFrames = 16.0f;
 
-    // Reset probeAccum buffers for all cascades on significant camera movement
-    if (!isPaused) {
-        float3 currentCameraPosition = float3{frameData->cameraPosition.x,
-                                              frameData->cameraPosition.y,
-                                              frameData->cameraPosition.z};
-        float3 currentCameraForward = float3{frameData->cameraForward.x,
-                                             frameData->cameraForward.y,
-                                             frameData->cameraForward.z};
-
-        bool significantChange = false;
-        
-        if (simd::dot(lastFrameCameraForward, currentCameraForward) < 0.9998f ||
-            simd::distance(lastFrameCameraPosition, currentCameraPosition) > 0.001f) {
-            significantChange = true;
-        }
-        
-        if (significantChange) {
-            for (int cascade = 0; cascade < MAX_CASCADE_LEVEL; cascade++) {
-                if (CREATE_DEBUG_DATA) {
-                    int probeCount = floor(metalLayer.drawableSize.width / (PROBE_SPACING * (1 << cascade))) *
-                                     floor(metalLayer.drawableSize.height / (PROBE_SPACING * (1 << cascade)));
-                    
-                    ProbeAccum* probeAccumData = (ProbeAccum*)probeAccumBuffer[currentFrameIndex][cascade]->contents();
-                    for (int i = 0; i < probeCount; ++i) {
-                        probeAccumData[i].temporalAccumulationCount = 1.0f;
-                    }
-                }
-            }
-        }
-        
-        lastFrameCameraPosition = currentCameraPosition;
-        lastFrameCameraForward = currentCameraForward;
-    }
+//    // Reset probeAccum buffers for all cascades on significant camera movement
+//    if (!isPaused && editor->debug.TA) {
+//        float3 currentCameraPosition = float3{frameData->cameraPosition.x,
+//                                              frameData->cameraPosition.y,
+//                                              frameData->cameraPosition.z};
+//        float3 currentCameraForward = float3{frameData->cameraForward.x,
+//                                             frameData->cameraForward.y,
+//                                             frameData->cameraForward.z};
+//
+//        bool significantChange = false;
+//        
+//        if (simd::dot(lastFrameCameraForward, currentCameraForward) < 0.9998f ||
+//            simd::distance(lastFrameCameraPosition, currentCameraPosition) > 0.001f) {
+//            significantChange = true;
+//        }
+//        
+//        if (significantChange) {
+//            for (int cascade = 0; cascade < MAX_CASCADE_LEVEL; cascade++) {
+//                if (CREATE_DEBUG_DATA) {
+//                    int probeCount = floor(metalLayer.drawableSize.width / (PROBE_SPACING * (1 << cascade))) *
+//                                     floor(metalLayer.drawableSize.height / (PROBE_SPACING * (1 << cascade)));
+//                    
+//                    ProbeAccum* probeAccumData = (ProbeAccum*)probeAccumBuffer[currentFrameIndex][cascade]->contents();
+//                    for (int i = 0; i < probeCount; ++i) {
+//                        probeAccumData[i].temporalAccumulationCount = 1.0f;
+//                    }
+//                }
+//            }
+//        }
+//        
+//        lastFrameCameraPosition = currentCameraPosition;
+//        lastFrameCameraForward = currentCameraForward;
+//    }
     
 	camera.setProjectionMatrix(45, aspectRatio, NEAR_PLANE, FAR_PLANE);
     frameData->prev_projection_matrix = frameData->projection_matrix;
+    frameData->prev_projection_matrix_inverse = frameData->projection_matrix_inverse;
     frameData->prev_view_matrix = frameData->view_matrix;
+    frameData->prev_view_matrix_inverse = frameData->view_matrix_inverse;
+    // Get current frame matrices
 	frameData->projection_matrix = camera.getProjectionMatrix();
 	frameData->projection_matrix_inverse = matrix_invert(frameData->projection_matrix);
 	frameData->view_matrix = camera.getViewMatrix();

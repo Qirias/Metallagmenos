@@ -14,6 +14,7 @@ public:
         bool enableDebugFeature = false;
         bool sky = true;
         bool sun = false;
+        bool TA = true;
         int debugCascadeLevel = -1;
         float intervalLength = 1.0f;
         simd::float3 cameraPosition = simd::float3{7.0f, 5.0f, 0.0f};

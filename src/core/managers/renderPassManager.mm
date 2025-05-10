@@ -215,6 +215,7 @@ void RenderPassManager::dispatchRaytracing(MTL::CommandBuffer* commandBuffer, MT
         cascadeData->maxCascade = MAX_CASCADE_LEVEL - 1;
         cascadeData->enableSky = editor->debug.sky ? 1.0 : 0.0;
         cascadeData->enableSun = editor->debug.sun ? 1.0 : 0.0;
+        cascadeData->enableTA  = editor->debug.TA ? 1.0 : 0.0;
         
         MTL::Texture* currentRenderTarget = nil;
         

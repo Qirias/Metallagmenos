@@ -79,7 +79,7 @@ half3 renderSky(float3 rayDir, FrameData frameData) {
     return half3(finalSkyColor);
 }
 
-fragment half4 final_gather_fragment(VertexOut           in              [[stage_in]],
+fragment half4 final_gather_fragment(VertexOut in [[stage_in]],
                          constant    FrameData&          frameData       [[buffer(BufferIndexFrameData)]],
                                      texture2d<float>    radianceTexture [[texture(TextureIndexRadiance)]],
                                      texture2d<half>     albedoTexture   [[texture(TextureIndexBaseColor)]],
@@ -146,18 +146,16 @@ fragment half4 final_gather_fragment(VertexOut           in              [[stage
     
     for (int i = 0; i < 4; i++) {
         probeCoords[i] = clamp(int2(probeBase) + probeOffsets[i], int2(0.0), int2(probeGridSize-1));
-        probeCoords[i] = clamp(probeCoords[i], int2(0), int2(probeGridSize) - 1);
         probeUVs[i] = (float2(probeCoords[i]) + 0.5f) / probeGridSize;
         probeDepths[i] = depthTexture.sample(samplerLinear, probeUVs[i]).x;
     }
 
-    // Perform bilateral filtering instead of bilinear 3D, as it is good enough for depth awareness on cascade 0
-    // https://gist.github.com/pixelmager/a4364ea18305ed5ca707d89ddc5f8743
+    // Perform bilateral filtering for depth awareness
     float mind = min(min(probeDepths.x, probeDepths.y), min(probeDepths.z, probeDepths.w));
     float maxd = max(max(probeDepths.x, probeDepths.y), max(probeDepths.z, probeDepths.w));
     float diffd = maxd - mind;
     float avg = dot(probeDepths, float4(0.25f));
-    bool d_edge = (diffd / avg) > 0.05; // Pretty sharp for cascade 0
+    bool d_edge = (diffd / avg) > 0.05; // Depth discontinuity threshold
 
     float4 w = bilinearWeights;
     if (d_edge) {
@@ -168,14 +166,15 @@ fragment half4 final_gather_fragment(VertexOut           in              [[stage
     float wsum = w.x + w.y + w.z + w.w;
     w /= wsum;
 
-    const uint probeTileSize = 4; // Cascade 0 octahedrons are always 4 on both dimensions
-    const float probeTexelSizeX = 1.0f / (probeGridSize.x * probeTileSize);
-    const float probeTexelSizeY = 1.0f / (probeGridSize.y * probeTileSize);
+    // Calculate parameters for direction sampling
+    const uint probeTileSize = 4; // Cascade 0 octahedrons are always 4x4
+    uint raysPerDim = probeTileSize;
+    uint probeGridSizeX = probeGridSize.x;
+    uint probeGridSizeY = probeGridSize.y;
 
     float4 probeRadiance[4];
     
     for (int probeIdx = 0; probeIdx < 4; probeIdx++) {
-        float2 probeBaseUV = float2(probeCoords[probeIdx]) * probeTileSize * float2(probeTexelSizeX, probeTexelSizeY);
         float4 radianceSum = float4(0.0);
         float totalWeight = 0.0;
         
@@ -185,7 +184,17 @@ fragment half4 final_gather_fragment(VertexOut           in              [[stage
                 float2 dirUV = float2((x + 0.5f) / probeTileSize, (y + 0.5f) / probeTileSize);
                 float3 direction = octDecode(dirUV);
                 float cosTheta = max(0.0, dot(float3(normal), direction));
-                float2 sampleUV = probeBaseUV + dirUV * (probeTileSize * float2(probeTexelSizeX, probeTexelSizeY));
+                
+                // UV in direction-first layout
+                // For each direction (x,y), we have a complete probe grid
+                // We need to find the correct probe in that direction's grid
+                uint2 texCoord = uint2(
+                    x * probeGridSizeX + probeCoords[probeIdx].x,
+                    y * probeGridSizeY + probeCoords[probeIdx].y
+                );
+                
+                float2 sampleUV = float2(texCoord) / float2(raysPerDim * probeGridSizeX,
+                                                           raysPerDim * probeGridSizeY);
                 
                 if (isEmissive) {
                     float3 emissiveContribution = float3(albedo) * cosTheta;

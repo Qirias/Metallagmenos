@@ -24,6 +24,10 @@
             {
                 "name": "cascades",
                 "filename": "@MODELS_PATH@/Cascades.obj"
+            },
+            {
+                "name": "sphere",
+                "filename": "@MODELS_PATH@/sphere.obj"
             }
         ],
         "objects": [
@@ -36,25 +40,15 @@
                 "isEmissive": false
             },
             {
-                "mesh": "radiance",
-                "pos": [-2.0, 2.0, 1.8],
-                "scale": [1.0, 1.0, 1.0],
+                "mesh": "sphere",
+                "pos": [-2.0, 1.0, 0.0],
+                "scale": [0.5, 0.5, 0.5],
                 "color": [1.0, 1.0, 1.0],
                 "rot": [0.0, 90.0, 0.0],
                 "hasTextures": false,
                 "isEmissive": true,
                 "emissiveColor": [0.0, 0.75, 1.5]
 
-            },
-            {
-                "mesh": "cascades",
-                "pos": [-2.0, 1.0, 1.7],
-                "scale": [0.9, 0.9, 0.9],
-                "color": [1.0, 1.0, 1.0],
-                "rot": [0.0, 90.0, 0.0],
-                "hasTextures": false,
-                "isEmissive": true,
-                "emissiveColor": [1.5, 0.75, 0.0]
             }
         ]
     }

@@ -153,7 +153,7 @@ void Engine::resizeFrameBuffer(int width, int height) {
 void Engine::initWindow() {
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindow = glfwCreateWindow(1280, 768, "RC-SPWI", NULL, NULL);
+    glfwWindow = glfwCreateWindow(1280, 1280, "RC-SPWI", NULL, NULL);
     if (!glfwWindow) {
         glfwTerminate();
         exit(EXIT_FAILURE);
@@ -227,7 +227,7 @@ void Engine::loadSceneFromJSON(const std::string& jsonFilePath) {
 }
 
 void Engine::loadScene() {
-    loadSceneFromJSON(std::string(SCENES_PATH) + "/cubesScene.json");
+    loadSceneFromJSON(std::string(SCENES_PATH) + "/cubeScene.json");
 }
 
 MTL::VertexDescriptor* Engine::createDefaultVertexDescriptor() {
@@ -342,7 +342,7 @@ void Engine::createBuffers() {
                     probeBufferSize, 
                     nullptr, 
                     MTL::ResourceStorageModeShared, 
-                    "probePosBuffer"
+                   labelStr.c_str()
                 );
                 
                 labelStr = "Frame: " + std::to_string(frame) + "|CascadeRays: " + std::to_string(cascade);
@@ -350,7 +350,7 @@ void Engine::createBuffers() {
                     rayBufferSize, 
                     nullptr, 
                     MTL::ResourceStorageModeShared, 
-                    "rayBuffer"
+                  labelStr.c_str()
                 );
             }
         }
@@ -753,7 +753,9 @@ void Engine::draw() {
     
     renderPassManager->dispatchRaytracing(commandBuffer, 
                                          frameDataBuffers[currentFrameIndex], 
-                                         cascadeDataBuffer[currentFrameIndex]);
+                                         cascadeDataBuffer[currentFrameIndex],
+                                          probePosBuffer[currentFrameIndex][debugCascadeLevel],
+                                          rayBuffer[currentFrameIndex][debugCascadeLevel]);
 
     // Final gathering pass
     MTL::RenderCommandEncoder* finalGatherEncoder = commandBuffer->renderCommandEncoder(finalGatherDescriptor);
@@ -767,7 +769,7 @@ void Engine::draw() {
     // Debug visualization pass
     MTL::RenderCommandEncoder* debugEncoder = commandBuffer->renderCommandEncoder(forwardDescriptor);
     debugEncoder->setLabel(NS::String::string("Debug and ImGui", NS::ASCIIStringEncoding));
-    renderPassManager->drawDebug(debugEncoder, commandBuffer);
+    renderPassManager->drawDebug(debugEncoder, commandBuffer, frameDataBuffers[currentFrameIndex]);
     debugEncoder->endEncoding();
 
     endFrame(commandBuffer);

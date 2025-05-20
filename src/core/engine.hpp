@@ -148,7 +148,7 @@ private:
     std::vector<std::vector<MTL::Buffer*>>  rayBuffer;
     int                                     debugProbeCount = 0; // Don't adjust this value, it is set in the engine.mm
     int                                     rayCount = 0; // Same here
-    int                                     debugCascadeLevel = 0; // This is the level of cascade that you will be debugging
+    int                                     debugCascadeLevel = true; // This is the level of cascade that you will be debugging
     // Debug probes and rays require a lot of memory. In high resolution use MaxFramesInFlight = 1 or lower the resolution
     // If you don't need debug probes and rays, set this to false
     bool                                    createDebugData = false; 

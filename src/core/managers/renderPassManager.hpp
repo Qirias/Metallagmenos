@@ -31,10 +31,10 @@ public:
     void drawGBuffer(MTL::RenderCommandEncoder* renderCommandEncoder, const std::vector<Mesh*>& meshes, MTL::Buffer* frameDataBuffer);
     void drawFinalGathering(MTL::RenderCommandEncoder* renderCommandEncoder, MTL::Buffer* frameDataBuffer);
     void drawDepthPrepass(MTL::CommandBuffer* commandBuffer, const std::vector<Mesh*>& meshes, MTL::Buffer* frameDataBuffer);
-    void drawDebug(MTL::RenderCommandEncoder* commandEncoder, MTL::CommandBuffer* commandBuffer);
+    void drawDebug(MTL::RenderCommandEncoder* commandEncoder, MTL::CommandBuffer* commandBuffer, MTL::Buffer* frameDataBuffer);
                   
     // Compute pipeline passes
-    void dispatchRaytracing(MTL::CommandBuffer* commandBuffer, MTL::Buffer* frameDataBuffer, const std::vector<MTL::Buffer*>& cascadeBuffers);
+    void dispatchRaytracing(MTL::CommandBuffer* commandBuffer, MTL::Buffer* frameDataBuffer, const std::vector<MTL::Buffer*>& cascadeBuffers, MTL::Buffer* probeData, MTL::Buffer* rayData);
     void dispatchTwoPassBlur(MTL::CommandBuffer* commandBuffer, MTL::Buffer* frameDataBuffer);
     void dispatchMinMaxDepthMipmaps(MTL::CommandBuffer* commandBuffer);
 

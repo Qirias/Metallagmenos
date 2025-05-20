@@ -37,7 +37,7 @@ float4 sky(float3 rayDir, FrameData frameData) {
     float upDot = max(0.0f, rayDir.y);
     float3 skyGradient = mix(skyHorizonColor, skyZenithColor, pow(upDot, 0.5f));
     
-    float skyIntensity = frameData.sun_specular_intensity * 0.5f;
+    float skyIntensity = frameData.sun_specular_intensity * 1.0f;
     float skyMask = (rayDir.y > 0.0f) ? 1.0f : 0.0f;
 
     float3 finalSkyColor = skyGradient * skyIntensity;
@@ -65,7 +65,7 @@ float3 reconstructWorldPositionFromLinearDepth(float2 ndc, float linearDepth, Fr
     viewPos /= viewPos.w;
     
     float scale = linearDepth / fabs(viewPos.z);
-    float depthBias = 0.98; // depth bias to avoid acne
+    float depthBias = 0.999; // depth bias to avoid acne
 
     float3 viewPosAtDepth = viewPos.xyz * (scale * depthBias);
     
@@ -109,87 +109,99 @@ float4 mergeUpperCascade(texture2d<float, access::sample> upperRadianceTexture,
                          float3 currentWorldPos,
                          CascadeData cascadeData,
                          FrameData frameData) {
-    uint currentCascadeLevel = cascadeData.cascadeLevel;
+    // Get texture dimensions
+    uint upperTexWidth = upperRadianceTexture.get_width();
+    uint upperTexHeight = upperRadianceTexture.get_height();
     
-    // Calculate upper cascade parameters
-    uint upperCascadeLevel  = currentCascadeLevel + 1;
-    uint upperTileSize      = 4 * (1 << upperCascadeLevel);
-    uint upperGridSizeX     = (frameData.framebuffer_width + upperTileSize - 1) / upperTileSize;
-    uint upperGridSizeY     = (frameData.framebuffer_height + upperTileSize - 1) / upperTileSize;
-    uint upperRaysPerDim    = 1 << (upperCascadeLevel + 2);
-
-    // Bilinear probe interpolation setup
-    float2 upperGridCoord   = probeUV * float2(upperGridSizeX, upperGridSizeY) - 0.5f;
-    int2 upperProbeBase     = int2(floor(upperGridCoord));
-    float2 upperFrac        = fract(upperGridCoord);
-
-    int2 probeOffsets[4] = {int2(0, 0), int2(1, 0), int2(0, 1), int2(1, 1)};
-
-    // Direction from current cascade
+    // Get cascade parameters
+    uint currentCascadeLevel = cascadeData.cascadeLevel;
+    uint upperCascadeLevel = currentCascadeLevel + 1;
+    
+    // Calculate parameters for current cascade
+    uint probeSpacing = cascadeData.probeSpacing;
+    uint tileSize = probeSpacing * (1 << currentCascadeLevel);
+    uint probeGridSizeX = (frameData.framebuffer_width + tileSize - 1) / tileSize;
+    uint probeGridSizeY = (frameData.framebuffer_height + tileSize - 1) / tileSize;
+    uint raysPerDim = (1 << (currentCascadeLevel + 2));
+    
+    // Calculate parameters for upper cascade
+    uint upperTileSize = probeSpacing * (1 << upperCascadeLevel);
+    uint upperProbeGridSizeX = (frameData.framebuffer_width + upperTileSize - 1) / upperTileSize;
+    uint upperProbeGridSizeY = (frameData.framebuffer_height + upperTileSize - 1) / upperTileSize;
+    uint upperRaysPerDim = (1 << (upperCascadeLevel + 2));
+    
+    // Convert direction to octahedral coordinates
     float2 octDir = octEncode(rayDir);
     
-    // Convert to upper cascade direction grid coordinates
-    float2 dirGridCoord = float2(octDir.x * upperRaysPerDim, octDir.y * upperRaysPerDim);
-    int2 dirBase = int2(floor(dirGridCoord));
-    float2 dirFrac = fract(dirGridCoord);
+    // Calculate ray indices and fractions for interpolation
+    float2 dirCoord = octDir * float(raysPerDim);
+    int2 dirBase = int2(floor(dirCoord));
+    float2 dirFrac = fract(dirCoord);
     
     float4 dirBilinearWeights = float4((1.0f - dirFrac.x)   * (1.0f - dirFrac.y),
-                                       dirFrac.x            * (1.0f - dirFrac.y),
-                                       (1.0f - dirFrac.x)   * dirFrac.y,
-                                       dirFrac.x            * dirFrac.y);
+                                        dirFrac.x           * (1.0f - dirFrac.y),
+                                        (1.0f - dirFrac.x)  * dirFrac.y,
+                                        dirFrac.x           * dirFrac.y);
     
+    // For 3D-aware interpolation, we need probe positions in upper cascade
+    float2 upperProbeCoord = probeUV * float2(upperProbeGridSizeX, upperProbeGridSizeY) - 0.5f;
+    int2 upperProbeBase = int2(floor(upperProbeCoord));
+    float2 upperProbeFrac = fract(upperProbeCoord);
+    
+    // Get probe offsets for bilinear interpolation
+    int2 probeOffsets[4] = {int2(0, 0), int2(1, 0), int2(0, 1), int2(1, 1)};
+    
+    // Gather probe data for 3D-aware interpolation
     float4 upperProbeDepths;
-    int2 probeCoord[4];
-    float2 probeUVCenter[4];
+    int2 probeCoords[4];
+    float2 probeUVs[4];
     float3 probeWorldPos[4];
     
-    // Gather probe data
     for (int i = 0; i < 4; i++) {
-        // Clamp to handle edge cases
-        probeCoord[i] = clamp(upperProbeBase + probeOffsets[i], int2(0), int2(upperGridSizeX - 1, upperGridSizeY - 1));
-        probeUVCenter[i] = (float2(probeCoord[i]) + 0.5f) / float2(upperGridSizeX, upperGridSizeY);
-        upperProbeDepths[i] = depthTexture.sample(depthSampler, probeUVCenter[i]).x;
+        probeCoords[i] = clamp(upperProbeBase + probeOffsets[i], int2(0), int2(upperProbeGridSizeX - 1, upperProbeGridSizeY - 1));
+                              
+        probeUVs[i] = (float2(probeCoords[i]) + 0.5f) / float2(upperProbeGridSizeX, upperProbeGridSizeY);
+        upperProbeDepths[i] = depthTexture.sample(depthSampler, probeUVs[i]).x;
         
-        float2 probeNDC = probeUVCenter[i] * 2.0f - 1.0f;
+        float2 probeNDC = probeUVs[i] * 2.0f - 1.0f;
         probeNDC.y = -probeNDC.y;
         probeWorldPos[i] = reconstructWorldPositionFromLinearDepth(probeNDC, upperProbeDepths[i], frameData);
     }
     
-    float2 ratio3d = getBilinear3dRatioIter(probeWorldPos, currentWorldPos, upperFrac, 2);
-    float4 bilinearWeights = float4((1.0f - ratio3d.x)   * (1.0f - ratio3d.y),
-                                     ratio3d.x           * (1.0f - ratio3d.y),
-                                    (1.0f - ratio3d.x)   * ratio3d.y,
-                                     ratio3d.x           * ratio3d.y);
-  
-    // Bilinear interpolation offsets for direction sampling
+    // Calculate 3D-aware interpolation weights
+    float2 ratio3d = getBilinear3dRatioIter(probeWorldPos, currentWorldPos, upperProbeFrac, 4);
+    float4 bilinearWeights = float4((1.0f - ratio3d.x)  * (1.0f - ratio3d.y),
+                                    ratio3d.x           * (1.0f - ratio3d.y),
+                                    (1.0f - ratio3d.x)  * ratio3d.y,
+                                    ratio3d.x           * ratio3d.y);
+    
     int2 dirOffsets[4] = {int2(0, 0), int2(1, 0), int2(0, 1), int2(1, 1)};
     
     float4 accumulatedRadiance = float4(0.0f);
+    
     for (int probeIdx = 0; probeIdx < 4; probeIdx++) {
         float probeWeight = bilinearWeights[probeIdx];
-        if (probeWeight <= 0.0f) continue;
+        if (probeWeight <= 0.0001f) continue;
         
         float4 probeRadiance = float4(0.0f);
-        float2 probeUVCenterLocal = probeUVCenter[probeIdx];
         
         for (int dirIdx = 0; dirIdx < 4; dirIdx++) {
-            int dirX = dirBase.x + dirOffsets[dirIdx].x;
-            int dirY = dirBase.y + dirOffsets[dirIdx].y;
-
-            // rayDir already had the offset so it's not needed here
-            float2 dirUV = float2(float(dirX) / float(upperRaysPerDim),
-                                  float(dirY) / float(upperRaysPerDim));
+            int2 upperRayIndex = clamp(dirBase * 2 + dirOffsets[dirIdx], int2(0), int2(upperRaysPerDim - 1));
             
-            float2 dirOffset = (dirUV - 0.5f) / float2(upperGridSizeX, upperGridSizeY);
-            float2 sampleUV = probeUVCenterLocal + dirOffset;
+            // For direction-first layout, the texture coordinates are:
+            // (rayIndex * probeGridSize + probeIndex)
+            // This puts the probe grid for each direction adjacent to each other
+            float2 texelPos = float2(upperRayIndex) * float2(upperProbeGridSizeX, upperProbeGridSizeY) + float2(probeCoords[probeIdx]);
             
+            float2 sampleUV = (texelPos + 0.5f) / float2(upperTexWidth, upperTexHeight);
             float4 sample = upperRadianceTexture.sample(samplerLinear, sampleUV);
+            
             probeRadiance += sample * dirBilinearWeights[dirIdx];
         }
         
         accumulatedRadiance += probeRadiance * probeWeight;
     }
-    
+
     return accumulatedRadiance;
 }
 
@@ -200,8 +212,8 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
                     constant CascadeData&                       cascadeData             [[buffer(BufferIndexCascadeData)]],
                              primitive_acceleration_structure   accelerationStructure   [[buffer(BufferIndexAccelerationStructure)]],
                 const device TriangleResources::TriangleData*   resources               [[buffer(BufferIndexResources)]],
-                    //  device Probe*                             probeData               [[buffer(BufferIndexProbeData)]],
-                    //  device ProbeRay*                          rayData                 [[buffer(BufferIndexProbeRayData)]],
+//                      device Probe*                             probeData               [[buffer(BufferIndexProbeData)]],
+//                      device ProbeRay*                          rayData                 [[buffer(BufferIndexProbeRayData)]],
                              texture2d<float, access::sample>   depthTexture            [[texture(TextureIndexDepthTexture)]],
                              uint                               tid                     [[thread_position_in_grid]]) {
     const uint probeSpacing = cascadeData.probeSpacing;
@@ -210,104 +222,106 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
 
     // Compute probe grid
     uint tileSize = probeSpacing * (1 << cascadeLevel);
-    uint probeGridSizeX = (frameData.framebuffer_width + tileSize - 1) / tileSize;
-    uint probeGridSizeY = (frameData.framebuffer_height + tileSize - 1) / tileSize;
+    uint width = frameData.framebuffer_width;
+    uint height = frameData.framebuffer_height;
+    uint probeGridSizeX = (width + tileSize - 1) / tileSize;
+    uint probeGridSizeY = (height + tileSize - 1) / tileSize;
 
-    uint raysPerDim =  (1 << (cascadeLevel + 2)); // 4, 8, 16, ...
-    uint numRays = (raysPerDim * raysPerDim); // 16, 64, 256, ...
+    uint raysPerDim = (1 << (cascadeLevel + 2)); // 4, 8, 16, ...
     uint totalProbes = probeGridSizeX * probeGridSizeY;
-    uint totalThreads = totalProbes * numRays;
+    uint totalDirections = raysPerDim * raysPerDim; // 16, 64, 256
+    uint totalThreads = totalProbes * totalDirections;
 
     if (tid >= totalThreads) {
         return;
     }
 
-    // Ray index in a 1D array inside the octahedron
-    uint rayIndex = tid % numRays;
-    // Probe index in a 1D array
-    uint probeIndex = tid / numRays;
-    // Probe indeces in a 2D grid
-    uint probeIndexX = probeIndex % probeGridSizeX;
-    uint probeIndexY = probeIndex / probeGridSizeX;
+    // DIRECTION-FIRST
+    uint directionIndex = tid / totalProbes;  // Which direction is this thread processing
+    uint probeIndex = tid % totalProbes;      // Which probe within that direction
+
+    // Convert direction index to 2D coordinates in the octahedron map
+    uint dirX = directionIndex % raysPerDim;
+    uint dirY = directionIndex / raysPerDim;
+    
+    // Center of pixel
+    float2 dirUV = float2(
+        (dirX + 0.5f) / float(raysPerDim),
+        (dirY + 0.5f) / float(raysPerDim)
+    );
+
+    float3 rayDir = octDecode(dirUV);
+    
+    // Calculate probe position in the 2D grid
+    uint probeX = probeIndex % probeGridSizeX;
+    uint probeY = probeIndex / probeGridSizeX;
     
     // Map probe to screen UV center
-    float2 probeUV = (float2(probeIndexX, probeIndexY) + 0.5f) / float2(probeGridSizeX, probeGridSizeY);
+    float2 probeUV = (float2(probeX, probeY) + 0.5f) / float2(probeGridSizeX, probeGridSizeY);
     float2 probeNDC = probeUV * 2.0f - 1.0f;
     probeNDC.y = -probeNDC.y; // Flip Y axis for Metal API
     float probeDepth = depthTexture.sample(depthSampler, probeUV).x;
     float3 worldPos = reconstructWorldPositionFromLinearDepth(probeNDC, probeDepth, frameData);
-
-    // In debug, write the probe position only once
-    // if (rayIndex == 0) {
-    //     probeData[probeIndex].position = float4(worldPos, 0.0f);
-    // }
-
-    // Ray index in a 2D grid inside the octahedron
-    int rayX = rayIndex % raysPerDim;
-    int rayY = rayIndex / raysPerDim;
-
-    // Map ray to screen UV center
-    float2 rayUV = float2(
-        (rayX+0.5f) / float(raysPerDim),
-        (rayY+0.5f) / float(raysPerDim)
-    );
     
-    float3 rayDir = octDecode(rayUV);
+    // Store probe position for debugging
+//    if (rayDir.x == 0 && rayDir.y == 0 && rayDir.z == 1.0) {
+//        // Only store once per probe (for the ray pointing straight ahead)
+//        probeData[probeIndex].position = float4(worldPos, 0.0f);
+//    }
     
-    // Minus -0.5 to give an offset relative to the probe center
-    float2 tileUV = float2(
-        probeUV.x + (rayUV.x - 0.5f) * (float(tileSize) / float(frameData.framebuffer_width)),
-        probeUV.y + (rayUV.y - 0.5f) * (float(tileSize) / float(frameData.framebuffer_height))
-    );
-
-    const float baseCascadeRange = 0.016f; // Magic number with try and error
+    // Calculate cascade ranges
+    const float baseCascadeRange = 0.016f; // Magic number determined by trial and error
     const float cascadeRangeMultiplier = 4.0f; // The branching factor
     float cascadeStartRange = (cascadeLevel == 0) ? 0.0f : (baseCascadeRange * pow(cascadeRangeMultiplier, float(cascadeLevel - 1)));
     float cascadeEndRange = baseCascadeRange * pow(cascadeRangeMultiplier, float(cascadeLevel));
     float intervalStart = cascadeStartRange * intervalLength;
     float intervalEnd = cascadeEndRange * intervalLength;
     
+    // Setup ray for tracing
     ray ray;
     ray.origin = worldPos;
     ray.direction = rayDir;
     ray.min_distance = intervalStart;
     ray.max_distance = intervalEnd;
 
+    // Store ray interval for debugging
+//    uint rayDataIndex = probeIndex * totalDirections + directionIndex;
+//    float3 startPoint = worldPos + rayDir * intervalStart;
+//    float3 endPoint = worldPos + rayDir * intervalEnd;
+//    rayData[rayDataIndex].intervalStart = float4(startPoint, 1.0);
+//    rayData[rayDataIndex].intervalEnd = float4(endPoint, 1.0);
+    
+    // Perform ray-intersection test
     intersector<triangle_data> intersector;
     intersection_result<triangle_data> result = intersector.intersect(ray, accelerationStructure);
     
-    // intervalStart *= intervalLength;
-    // intervalEnd *= intervalLength;
-    // float3 startPoint = worldPos + rayDir * intervalStart;
-    // float3 endPoint = worldPos + rayDir * intervalEnd;
-
-    // uint rayDataIndex = probeIndex * numRays + rayIndex;
-    // rayData[rayDataIndex].intervalStart = float4(startPoint, 1.0);
-    // rayData[rayDataIndex].intervalEnd = float4(endPoint, 1.0);
-
     // Direct radiance from current cascade
     bool sampleSunOrSky = cascadeData.enableSky || cascadeData.enableSun;
     float4 radiance = float4(0.0);
     float occlusion;
-    // rayData[rayDataIndex].color = float4(1.0, 0.0, 0.0, 1.0);
+    
     if (result.type != intersection_type::none) {
+        // Hit something - check if emissive
         unsigned int primitiveIndex = result.primitive_id;
         const device TriangleResources::TriangleData& triangle = resources[primitiveIndex];
-        // If -1.0 it is emissive
+        // If -1.0, it is emissive
         radiance = (triangle.colors[0].a == -1.0f) ? float4(triangle.colors[0].rgb, 1.0) : float4(0.0, 0.0, 0.0, 1.0);
         occlusion = 0.0;
         
-        // if (triangle.colors[0].a == -1.0f)
-        //     rayData[rayDataIndex].color = float4(1.0, 0.0, 0.0, 1.0);
-        // else
-        //     rayData[rayDataIndex].color = float4(0.0, 0.0, 1.0, 1.0);
+        // Set ray color for debugging
+//        if (triangle.colors[0].a == -1.0f)
+//            rayData[rayDataIndex].color = float4(1.0, 0.0, 0.0, 1.0); // Red for emissive
+//        else
+//            rayData[rayDataIndex].color = float4(0.0, 0.0, 1.0, 1.0); // Blue for non-emissive
     } else {
         occlusion = 1.0f;
         // No intersection - Apply sky for higher cascades
         if ((cascadeLevel == cascadeData.maxCascade) && sampleSunOrSky) {
             radiance = skyAndSun(rayDir, frameData, cascadeData);
+//            rayData[rayDataIndex].color = float4(0.0, 1.0, 1.0, 1.0); // Cyan for sky
         } else {
             radiance = float4(0.0, 0.0, 0.0, 1.0);
+//            rayData[rayDataIndex].color = float4(0.4, 0.4, 0.4, 1.0); // Gray for misses
         }
     }
 
@@ -324,7 +338,6 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
                                           frameData);
 
         if (result.type == intersection_type::none) {
-            // rayData[rayDataIndex].color = float4(0.4, 0.4, 0.4, 1.0);
             // If no hit in current cascade, use upper cascade
             radiance = upperRadiance;
         } else {
@@ -334,8 +347,13 @@ kernel void raytracingKernel(texture2d<float, access::write>    radianceTexture 
         }
     }
     
-    uint texX = uint(tileUV.x * frameData.framebuffer_width);
-    uint texY = uint(tileUV.y * frameData.framebuffer_height);
+    // Calculate output texture coordinates using direction-first layout
+    // For each direction (dirX, dirY), we allocate a complete grid of probes
+    // Each direction's grid starts at (dirX * probeGridSizeX, dirY * probeGridSizeY)
+    // And within that grid, we place the probe at (probeX, probeY)
+    uint texX = dirX * probeGridSizeX + probeX;
+    uint texY = dirY * probeGridSizeY + probeY;
     
+    // Write to the texture
     radianceTexture.write(radiance, uint2(texX, texY));
 }
